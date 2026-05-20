@@ -20,8 +20,20 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
 
 
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+
+
 class UserResponse(UserBase):
     id: Optional[str] = Field(None, alias="_id")
 
     class Config:
         populate_by_name = True
+
+
+class LoginResponse(BaseModel):
+    message: str
+    accessToken: str
+    tokenType: str = "bearer"
+    user: UserResponse

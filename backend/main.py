@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.database.mongo import connectDatabase, closeConnection
-# from app.routes import auth, inventory, forecast
+from app.routes import auth
 
 # Load environment variables
 load_dotenv()
@@ -44,9 +44,7 @@ app.add_middleware(
 )
 
 # Include sub-routers under api v1 namespace
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-# app.include_router(inventory.router, prefix="/api/v1/inventory", tags=["Inventory & Billing"])
-# app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["AI Forecasting"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 
 @app.get("/")
 async def root():

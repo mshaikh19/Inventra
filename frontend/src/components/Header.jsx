@@ -1,11 +1,17 @@
-import React from 'react';
+import React from "react";
 
-export default function Header({ activeTab, setActiveTab, backendStatus, setBackendStatus, setBackendData }) {
+export default function Header({
+  activeTab,
+  setActiveTab,
+  backendStatus,
+  setBackendStatus,
+  setBackendData,
+}) {
   const [activeSection, setActiveSection] = React.useState(null);
 
   // Auto-highlight nav link based on which section is scrolled into view
   React.useEffect(() => {
-    const sectionIds = ['features', 'partners', 'metrics', 'cta'];
+    const sectionIds = ["features", "partners", "metrics", "cta"];
     const observers = [];
 
     sectionIds.forEach((id) => {
@@ -17,7 +23,7 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
             setActiveSection(id);
           }
         },
-        { rootMargin: '-10% 0px -60% 0px', threshold: 0 }
+        { rootMargin: "-10% 0px -60% 0px", threshold: 0 },
       );
       observer.observe(el);
       observers.push(observer);
@@ -27,19 +33,19 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
     const handleScroll = () => {
       if (window.scrollY < 100) setActiveSection(null);
     };
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
 
     return () => {
       observers.forEach((o) => o.disconnect());
-      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
   const triggerReconnect = () => {
     setBackendStatus("checking");
     fetch("http://127.0.0.1:8000/")
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setBackendStatus("connected");
         setBackendData(data);
       })
@@ -58,7 +64,7 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
 
         window.scrollTo({
           top: offsetPosition,
-          behavior: "smooth"
+          behavior: "smooth",
         });
       }
     }, 80);
@@ -69,7 +75,7 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
     setActiveSection("features");
     window.scrollTo({
       top: 0,
-      behavior: "smooth"
+      behavior: "smooth",
     });
   };
 
@@ -90,38 +96,41 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
           onClick={triggerReconnect}
           title={`Server connection status: ${backendStatus}. Click to reconnect.`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full transition-all ${backendStatus === "connected"
-            ? "bg-emerald-500 shadow-[0_0_8px_#10b981]"
-            : backendStatus === "failed"
-              ? "bg-rose-500 shadow-[0_0_8px_#ef4444]"
-              : "bg-amber-500 shadow-[0_0_8px_#f59e0b]"
-            }`}></span>
+          <span
+            className={`w-1.5 h-1.5 rounded-full transition-all ${
+              backendStatus === "connected"
+                ? "bg-emerald-500 shadow-[0_0_8px_#10b981]"
+                : backendStatus === "failed"
+                  ? "bg-rose-500 shadow-[0_0_8px_#ef4444]"
+                  : "bg-amber-500 shadow-[0_0_8px_#f59e0b]"
+            }`}
+          ></span>
         </div>
       </div>
 
       {/* Centered Navigation Links scrolling smoothly to elements on the Home page */}
       <nav className="hidden md:flex items-center gap-8 text-[12.5px] font-semibold text-slate-500">
         <button
-          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === 'partners' && activeTab === 'home' ? 'text-slate-950 border-b-2 border-slate-950 font-bold' : ''}`}
-          onClick={() => handleNavClick('partners')}
+          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === "partners" && activeTab === "home" ? "text-slate-950 border-b-2 border-slate-950 font-bold" : ""}`}
+          onClick={() => handleNavClick("partners")}
         >
           Partners
         </button>
         <button
-          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === 'features' && activeTab === 'home' ? 'text-slate-950 border-b-2 border-slate-950 font-bold' : ''}`}
-          onClick={() => handleNavClick('features')}
+          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === "features" && activeTab === "home" ? "text-slate-950 border-b-2 border-slate-950 font-bold" : ""}`}
+          onClick={() => handleNavClick("features")}
         >
           Features
         </button>
         <button
-          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === 'metrics' && activeTab === 'home' ? 'text-slate-950 border-b-2 border-slate-950 font-bold' : ''}`}
-          onClick={() => handleNavClick('metrics')}
+          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === "metrics" && activeTab === "home" ? "text-slate-950 border-b-2 border-slate-950 font-bold" : ""}`}
+          onClick={() => handleNavClick("metrics")}
         >
           Performance
         </button>
         <button
-          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === 'cta' && activeTab === 'home' ? 'text-slate-950 border-b-2 border-slate-950 font-bold' : ''}`}
-          onClick={() => handleNavClick('cta')}
+          className={`cursor-pointer transition-all hover:text-slate-950 pb-1 ${activeSection === "cta" && activeTab === "home" ? "text-slate-950 border-b-2 border-slate-950 font-bold" : ""}`}
+          onClick={() => handleNavClick("cta")}
         >
           Get Started
         </button>
@@ -130,10 +139,16 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
       {/* Right controls: A beautiful, clean high-contrast CTA button instead of application links */}
       <div className="flex items-center gap-4">
         <button
-          className="py-2.5 px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] flex items-center justify-center gap-1.5 font-sans"
-          onClick={() => handleNavClick("cta")}
+          className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
+          onClick={() => setActiveTab("login")}
         >
-          <span>Start for Free</span>
+          <span>Login</span>
+        </button>
+        <button
+          className="py-2.5 px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] flex items-center justify-center gap-1.5 font-sans"
+          onClick={() => setActiveTab("login")}
+        >
+          <span>Start Session</span>
           <span className="text-[13px]">→</span>
         </button>
       </div>
