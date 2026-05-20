@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+motor
+pymongo
+dnspython
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+pandas
+scikit-learn
+numpy

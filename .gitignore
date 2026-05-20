@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.build/
+dist/
+site/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.*
+*.env
+!.env.example
+
+# Backend / tooling
+*.log
+pip-wheel-metadata/
+Pipfile.lock
+poetry.lock
+
+# React / Vite / Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/.cache/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.yarn/install-state.gz
+.yarn/build-state.yml
+coverage/
+
+# Editors / OS
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
