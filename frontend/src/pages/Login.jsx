@@ -77,14 +77,13 @@ export default function Login({ setActiveTab, backendStatus }) {
 
             <div className="space-y-4">
               <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.05]">
-                Welcome back.
+                Welcome to Inventra
                 <span className="block text-sky-300">
-                  Pick up right where you left off.
+                  Please sign in to continue to the Retail Intelligence Dashboard.
                 </span>
               </h1>
               <p className="text-slate-300 text-[15.5px] md:text-[16px] leading-relaxed max-w-xl font-medium">
-                Login connects your team to the retail intelligence dashboard.
-                Registration is handled separately by Maryam.
+                {/* Intentionally left neutral until account registration is available. */}
               </p>
             </div>
 
@@ -114,10 +113,10 @@ export default function Login({ setActiveTab, backendStatus }) {
             onSubmit={handleSubmit}
             className="rounded-[32px] border border-slate-100 bg-white/90 backdrop-blur-xl shadow-[0_30px_70px_rgba(15,23,42,0.08)] p-7 md:p-10 space-y-6"
           >
-            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">
-                  User Login
+                  Sign In
                 </p>
                 <h2 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-slate-900">
                   Sign in to Inventra
@@ -183,7 +182,7 @@ export default function Login({ setActiveTab, backendStatus }) {
                     onChange={handleChange}
                     className="h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-200"
                   />
-                  Keep me signed in
+                  Remember me
                 </label>
                 <button
                   type="button"
@@ -211,13 +210,8 @@ export default function Login({ setActiveTab, backendStatus }) {
               disabled={loading}
               className="w-full rounded-2xl bg-[#0F172A] px-5 py-4 text-base font-black text-white transition-all duration-200 hover:bg-slate-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "Signing in..." : "Sign In"}
             </button>
-
-            <p className="text-center text-sm text-slate-500">
-              Registration is handled by Maryam. If your account is missing, ask
-              her to create it first.
-            </p>
           </form>
         </div>
       </div>
