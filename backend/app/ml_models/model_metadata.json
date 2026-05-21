@@ -1,0 +1,13 @@
+{
+  "trained_at": "2026-05-21T15:16:14.768448",
+  "n_samples": 500,
+  "n_synthetic": 500,
+  "n_real": 0,
+  "cv_accuracy": 0.908,
+  "cv_std": 0.0264,
+  "classes": [
+    "small",
+    "medium",
+    "large"
+  ]
+}

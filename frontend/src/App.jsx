@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
-import Header from "./components/Header";
-import BottomNav from "./components/BottomNav";
-import Home from "./pages/Home";
-import Login from "./pages/Login";
+import React, { useState, useEffect } from 'react';
+import Header from './components/Header';
+import BottomNav from './components/BottomNav';
+import Home from './pages/Home';
+import Signup from './pages/Signup';
 
 function App() {
   const [activeTab, setActiveTab] = useState("home");
@@ -26,6 +26,22 @@ function App() {
       });
   }, []);
 
+  // Sync activeTab with URL so signup shows as /signup
+  useEffect(() => {
+    // On mount, set activeTab from pathname
+    const path = window.location.pathname;
+    if (path === '/signup') setActiveTab('signup');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'signup') {
+      window.history.replaceState({}, '', '/signup');
+    } else {
+      window.history.replaceState({}, '', '/');
+    }
+  }, [activeTab]);
+
   // Monitor scroll for Back to Top visibility
   useEffect(() => {
     const handleScroll = () => {
@@ -47,9 +63,10 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-sans pb-24 relative transition-all">
-      {/* Top Header Navigation */}
-      {activeTab !== "login" && (
+    <div className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === 'signup' ? '' : 'pb-24'} relative transition-all`}>
+
+      {/* Top Header Navigation (hidden on signup) */}
+      {activeTab !== 'signup' && (
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -62,18 +79,14 @@ function App() {
       {/* Dynamic Content Switching */}
       <main className="relative z-10 w-full">
         {activeTab === "home" && <Home setActiveTab={setActiveTab} />}
-        {activeTab === "login" && (
-          <Login setActiveTab={setActiveTab} backendStatus={backendStatus} />
-        )}
+        {activeTab === "signup" && <Signup setActiveTab={setActiveTab} />}
         {activeTab === "analytics" && <Analytics />}
         {activeTab === "inventory" && <Inventory />}
         {activeTab === "settings" && <Settings />}
       </main>
 
-      {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop) */}
-      {activeTab !== "login" && (
-        <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-      )}
+      {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop & Signup) */}
+      {activeTab !== 'signup' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
 
       {/* Go Back to Top Button */}
       {activeTab !== "login" && (

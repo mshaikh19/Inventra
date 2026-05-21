@@ -13,13 +13,13 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --heading: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --sans: 'Inter', system-ui, -apple-system, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --heading: 'Sora', 'Inter', system-ui, -apple-system, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
+  color-scheme: light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -56,6 +56,27 @@ body {
   margin: 0;
 }
 
+@keyframes partners-marquee-right {
+  0% {
+    transform: translateX(-50%);
+  }
+
+  100% {
+    transform: translateX(0%);
+  }
+}
+
+.partners-marquee-track {
+  animation: partners-marquee-right 24s linear infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .partners-marquee-track {
+    animation: none;
+  }
+}
+
 #root {
   width: 100%;
   min-height: 100vh;
@@ -67,26 +88,33 @@ body {
 h1,
 h2 {
   font-family: var(--heading);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 h1 {
   font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
+  letter-spacing: -0.8px;
+  margin: 24px 0;
+  font-weight: 700;
   @media (max-width: 1024px) {
     font-size: 36px;
     margin: 20px 0;
   }
 }
 h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
+  font-size: 22px;
+  line-height: 120%;
+  letter-spacing: -0.2px;
   margin: 0 0 8px;
+  font-weight: 600;
   @media (max-width: 1024px) {
-    font-size: 20px;
+    font-size: 18px;
   }
+}
+
+/* utility class for components that should use the heading font */
+.font-heading {
+  font-family: var(--heading) !important;
 }
 p {
   margin: 0;
@@ -105,4 +133,16 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+/* Custom premium autofill overrides */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0px 1000px #f8fafc inset !important;
+  box-shadow: 0 0 0px 1000px #f8fafc inset !important;
+  border-color: #cbd5e1 !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
