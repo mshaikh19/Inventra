@@ -131,7 +131,7 @@ export default function Header({ activeTab, setActiveTab, backendStatus, setBack
       <div className="flex items-center gap-4">
         <button
           className="py-2.5 px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] flex items-center justify-center gap-1.5 font-sans"
-          onClick={() => handleNavClick("cta")}
+          onClick={() => setActiveTab("signup")}
         >
           <span>Start for Free</span>
           <span className="text-[13px]">→</span>

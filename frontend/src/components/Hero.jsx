@@ -4,39 +4,39 @@ export default function Hero({ setActiveTab }) {
   const [hoveredNode, setHoveredNode] = useState(null);
 
   return (
-    <section className="px-6 md:px-16 lg:px-24 xl:px-32 py-16 md:py-28 w-full max-w-none relative overflow-hidden bg-white">
+    <section className="px-4 sm:px-6 md:px-16 lg:px-24 xl:px-32 py-12 sm:py-16 md:py-28 w-full max-w-none relative overflow-hidden bg-white">
 
       {/* Dynamic blurred radial backdrop nodes */}
-      <div className="absolute w-[500px] h-[500px] top-[-50px] right-[5%] bg-sky-100/10 blur-[100px] rounded-full pointer-events-none z-0"></div>
-      <div className="absolute w-[400px] h-[400px] bottom-[-50px] left-[5%] bg-slate-50/50 blur-[90px] rounded-full pointer-events-none z-0"></div>
+      <div className="absolute w-[300px] sm:w-[400px] md:w-[500px] h-[300px] sm:h-[400px] md:h-[500px] top-[-50px] right-[5%] bg-sky-100/10 blur-[80px] md:blur-[100px] rounded-full pointer-events-none z-0"></div>
+      <div className="absolute w-[300px] sm:w-[350px] md:w-[400px] h-[300px] sm:h-[350px] md:h-[400px] bottom-[-50px] left-[5%] bg-slate-50/50 blur-[80px] md:blur-[90px] rounded-full pointer-events-none z-0"></div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center relative z-10 w-full max-w-none">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 sm:gap-12 md:gap-16 items-center relative z-10 w-full max-w-none">
 
         <div className="lg:col-span-6 flex flex-col items-center lg:items-start text-center lg:text-left">
 
           {/* Title */}
-          <h1 className="text-5xl md:text-[62px] font-black text-slate-900 leading-[1.08] mb-8 tracking-tight max-w-xl font-sans">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-[62px] font-black text-slate-900 leading-[1.1] sm:leading-[1.08] mb-6 sm:mb-8 tracking-tight max-w-xl font-sans">
             Inventra. <br />
             <span className="text-[#0EA5E9]">Master Your Market</span>
             <br />
             <span className="text-[#0EA5E9]">Through Intelligence.</span>
           </h1>
 
-          <p className="text-[17px] md:text-[18px] text-slate-600 leading-relaxed max-w-xl mb-12 font-semibold font-sans">
+          <p className="text-[14px] sm:text-[15px] md:text-[17px] lg:text-[18px] text-slate-600 leading-relaxed max-w-xl mb-8 sm:mb-10 md:mb-12 font-semibold font-sans">
             Transform complex retail metrics into actionable growth. Inventra delivers a sophisticated, AI-driven interface for high-stakes retail decision making.
           </p>
 
           {/* Action buttons matching screenshot */}
-          <div className="flex flex-col sm:flex-row gap-3.5 w-full max-w-[420px] lg:max-w-none mt-10">
+          <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3.5 w-full max-w-[420px] lg:max-w-none mt-6 sm:mt-8 md:mt-10">
             <button
-              className="py-3.5 px-7 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[14px] flex items-center justify-center gap-1.5 font-sans"
+              className="py-3 sm:py-3.5 px-5 sm:px-7 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] sm:text-[13px] md:text-[14px] flex items-center justify-center gap-1.5 font-sans"
               onClick={() => setActiveTab("inventory")}
             >
               <span>Start for Free</span>
-              <span className="text-[15px]">→</span>
+              <span className="text-[13px] sm:text-[14px] md:text-[15px]">→</span>
             </button>
             <button
-              className="py-3.5 px-7 rounded-lg font-bold bg-white text-slate-700 hover:bg-slate-50 border border-slate-205 flex items-center justify-center transition-all duration-200 active:scale-98 cursor-pointer text-[14px] font-sans"
+              className="py-3 sm:py-3.5 px-5 sm:px-7 rounded-lg font-bold bg-white text-slate-700 hover:bg-slate-50 border border-slate-205 flex items-center justify-center transition-all duration-200 active:scale-98 cursor-pointer text-[12px] sm:text-[13px] md:text-[14px] font-sans"
               onClick={() => setActiveTab("analytics")}
             >
               See How It Works
@@ -44,31 +44,31 @@ export default function Hero({ setActiveTab }) {
           </div>
 
           {/* Stacked circle gray badges */}
-          <div className="flex items-center gap-3 mt-14">
+          <div className="flex items-center gap-2 sm:gap-3 mt-8 sm:mt-10 md:mt-14">
             <div className="flex -space-x-1.5">
-              <div className="w-5 h-5 rounded-full border border-white bg-slate-200"></div>
-              <div className="w-5 h-5 rounded-full border border-white bg-slate-300"></div>
-              <div className="w-5 h-5 rounded-full border border-white bg-slate-400"></div>
+              <div className="w-4 sm:w-5 h-4 sm:h-5 rounded-full border border-white bg-slate-200"></div>
+              <div className="w-4 sm:w-5 h-4 sm:h-5 rounded-full border border-white bg-slate-300"></div>
+              <div className="w-4 sm:w-5 h-4 sm:h-5 rounded-full border border-white bg-slate-400"></div>
             </div>
-            <span className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-wider font-sans">
+            <span className="text-[8px] sm:text-[9px] md:text-[9.5px] text-slate-400 font-extrabold uppercase tracking-wider font-sans">
               Trusted by retail leaders worldwide
             </span>
           </div>
         </div>
 
         {/* Right Column: Comparative SVG line/bar chart forecasting card */}
-        <div className="lg:col-span-6 flex justify-center w-full relative">
+        <div className="lg:col-span-6 flex justify-center w-full relative mt-8 md:mt-0">
 
           {/* Backdrop ambient soft glow */}
-          <div className="absolute w-[420px] h-[420px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-sky-200/10 blur-[90px] rounded-full pointer-events-none z-0"></div>
+          <div className="absolute w-[280px] sm:w-[350px] md:w-[420px] h-[280px] sm:h-[350px] md:h-[420px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-sky-200/10 blur-[80px] md:blur-[90px] rounded-full pointer-events-none z-0"></div>
 
           {/* White Mockup Chassis */}
-          <div className="w-full max-w-[480px] bg-white border border-slate-100 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.04)] relative p-6.5 flex flex-col justify-between gap-5 text-left transition-all duration-300 hover:shadow-[0_35px_80px_rgba(0,0,0,0.06)] z-10">
+          <div className="w-full max-w-[480px] bg-white border border-slate-100 rounded-[16px] md:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.04)] md:shadow-[0_30px_70px_rgba(0,0,0,0.04)] relative p-4 sm:p-5 md:p-6.5 flex flex-col justify-between gap-3 sm:gap-4 md:gap-5 text-left transition-all duration-300 hover:shadow-[0_25px_60px_rgba(0,0,0,0.06)] md:hover:shadow-[0_35px_80px_rgba(0,0,0,0.06)] z-10">
 
             {/* Top link navigation */}
             <div className="flex flex-col gap-1 border-b border-slate-50 pb-3">
               <div className="text-[7.5px] font-extrabold text-slate-400 font-mono tracking-wider uppercase">
-                Inventra Insights / Retail / Demand-Forecasting
+                Inventra / Dashboard
               </div>
 
               <div className="flex justify-between items-center mt-1">
@@ -78,12 +78,12 @@ export default function Hero({ setActiveTab }) {
                 </div>
 
                 {/* Visual indicator lines legend */}
-                <div className="flex items-center gap-3 text-[7.5px] font-bold text-slate-400 font-sans">
-                  <div className="flex items-center gap-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[7.5px] font-bold text-slate-400 font-sans">
+                  <div className="flex items-center gap-1 whitespace-nowrap">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#cbd5e1]"></span>
                     <span>Actual Sales</span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 whitespace-nowrap">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9]"></span>
                     <span>AI-Predicted Demand</span>
                   </div>
@@ -165,16 +165,16 @@ export default function Hero({ setActiveTab }) {
 
             {/* Floating Glassmorphic AI PREDICTION card at bottom-left matching screenshot */}
             <div
-              className="absolute bottom-[-24px] left-[-35px] bg-white border border-slate-100 rounded-xl p-3.5 max-w-[210px] shadow-[0_20px_45px_rgba(0,0,0,0.06)] flex flex-col gap-1.5 cursor-pointer z-20 text-left"
+              className="absolute bottom-[-16px] left-1 sm:bottom-[-22px] sm:left-[-28px] md:bottom-[-28px] md:left-[-38px] bg-white border border-slate-100 rounded-lg sm:rounded-xl p-2 sm:p-3.5 w-[calc(100%-1.5rem)] sm:w-auto max-w-[180px] sm:max-w-[210px] shadow-[0_15px_35px_rgba(0,0,0,0.06)] flex flex-col gap-1 cursor-pointer z-20 text-left"
             >
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1 sm:gap-1.5">
                 {/* Teal Sparkles Icon */}
-                <svg className="w-3.5 h-3.5 text-[#0EA5E9]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0EA5E9]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 21l-.813-5.096L3.096 15 8 14.187 8.813 9l.813 5.187L15 15l-5.187.904ZM18.063 5.485 17.5 9l-.563-3.515L13.42 5l3.518-.485L17.5 1.5l.563 3.515L21.5 5l-3.438.485Z" />
                 </svg>
-                <span className="text-[8.5px] font-black text-slate-900 uppercase tracking-widest font-sans">AI Prediction</span>
+                <span className="text-[7px] sm:text-[8.5px] font-black text-slate-900 uppercase tracking-widest font-sans">AI Prediction</span>
               </div>
-              <p className="text-[9.5px] font-semibold text-slate-400 leading-normal font-sans">
+              <p className="text-[8px] sm:text-[9.5px] font-semibold text-slate-400 leading-snug sm:leading-normal font-sans">
                 Demand for <strong className="text-slate-800 font-extrabold">Category A</strong> is projected to spike by <strong className="text-[#0EA5E9] font-black">45%</strong> this week. Recommended restock: <strong className="text-slate-800 font-extrabold">Friday morning</strong>.
               </p>
             </div>

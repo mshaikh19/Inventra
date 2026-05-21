@@ -4,28 +4,45 @@ import Features from '../components/Features';
 import Footer from '../components/Footer';
 
 export default function Home({ setActiveTab }) {
+  const partners = [
+    'VALO STUDIO',
+    'AETHER COLLECTIVE',
+    'KAIZEN GOODS',
+    'NEXUS WEAR',
+    'VERTICE LABEL',
+  ];
+
+  const renderPartners = () =>
+    partners.map((partner, index) => (
+      <React.Fragment key={partner}>
+        <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5 whitespace-nowrap">
+          {partner}
+        </span>
+        {index < partners.length - 1 && (
+          <span
+            aria-hidden="true"
+            className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400/80"
+          />
+        )}
+      </React.Fragment>
+    ));
+
   return (
     <>
       <Hero setActiveTab={setActiveTab} />
 
       {/* Partner Brand Logos Bar widely spaced - matching screenshot */}
-      <section id="partners" className="py-8 px-6 md:px-16 lg:px-24 xl:px-32 bg-[#F8FAFC] border-y border-slate-100 w-full">
-        <div className="flex flex-wrap justify-between items-center w-full max-w-7xl mx-auto text-[12.5px] tracking-[0.22em] font-black text-slate-800 uppercase font-sans gap-y-4">
-          <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5">
-            VALO STUDIO
-          </span>
-          <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5">
-            AETHER COLLECTIVE
-          </span>
-          <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5">
-            KAIZEN GOODS
-          </span>
-          <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5">
-            NEXUS WEAR
-          </span>
-          <span className="hover:text-[#0EA5E9] transition-all duration-300 cursor-pointer transform hover:-translate-y-0.5">
-            VERTICE LABEL
-          </span>
+      <section id="partners" className="relative py-6 sm:py-7 md:py-8 px-4 sm:px-6 md:px-16 lg:px-24 xl:px-32 bg-[#F8FAFC] border-y border-slate-100 w-full overflow-hidden">
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-12 sm:w-16 md:w-24 bg-gradient-to-r from-[#F8FAFC] via-[#F8FAFC]/90 to-transparent z-10"></div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-12 sm:w-16 md:w-24 bg-gradient-to-l from-[#F8FAFC] via-[#F8FAFC]/90 to-transparent z-10"></div>
+        <div className="partners-marquee-track flex w-max items-center gap-8 sm:gap-10 md:gap-16 text-[9px] sm:text-[10px] md:text-[12px] lg:text-[12.5px] tracking-[0.12em] sm:tracking-[0.15em] md:tracking-[0.22em] font-black text-slate-800 uppercase font-sans relative z-0">
+          <div className="flex items-center gap-4 sm:gap-5 md:gap-6 shrink-0 pr-8 sm:pr-10 md:pr-16">
+            {renderPartners()}
+          </div>
+          <span aria-hidden="true" className="inline-flex h-2.5 w-2.5 sm:h-3 sm:w-3 md:h-3.5 md:w-3.5 shrink-0 rounded-full bg-slate-400/80 shadow-[0_0_0_4px_rgba(248,250,252,0.85)] mx-3 sm:mx-5 md:mx-7" />
+          <div className="flex items-center gap-4 sm:gap-5 md:gap-6 shrink-0 pr-8 sm:pr-10 md:pr-16" aria-hidden="true">
+            {renderPartners()}
+          </div>
         </div>
       </section>
 
