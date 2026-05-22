@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from app.database.mongo import connectDatabase, closeConnection
 from app.routes import auth
 from app.routes import classify
+from app.routes import dashboard
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -56,6 +57,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 # classifier endpoints (schema, classify, status, retrain)
 # the router already defines /classify and /schema, so mount it at /api/v1
 app.include_router(classify.router, prefix="/api/v1", tags=["Classifier"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboards"])
 # app.include_router(inventory.router, prefix="/api/v1/inventory", tags=["Inventory & Billing"])
 # app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["AI Forecasting"])
 

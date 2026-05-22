@@ -53,6 +53,7 @@ class UserLogin(BaseModel):
 class UserResponse(UserBase):
     id: Optional[str] = Field(None, alias="_id")
     businessTier:    Optional[str] = None    # ML-classified tier returned on signup
+    dashboardPath:   Optional[str] = None
     mlConfidence:    Optional[float] = None
     signalQuality:   Optional[float] = None
 

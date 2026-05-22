@@ -62,7 +62,7 @@ export default function BusinessTypeSelect({ value, onChange, options = DEFAULT_
           });
         }}
         onKeyDown={(e) => { if (e.key === 'ArrowDown') { setOpen(true); e.preventDefault(); } }}
-        className="w-full text-left border border-slate-200 bg-slate-50/50 px-4 py-3 rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-[#0EA5E9]/10 focus:border-[#0EA5E9] focus:bg-white transition-all duration-200 font-sans text-[13.5px] font-semibold flex items-center justify-between"
+        className="w-full text-left border border-slate-200 bg-slate-50 px-4 py-2.5 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-200 focus:border-slate-400 focus:bg-white transition-all duration-200 font-sans text-sm font-semibold flex items-center justify-between"
       >
         <span className={`${current.value ? 'text-slate-900' : 'text-slate-500'}`}>{current.label}</span>
         <svg className="w-4 h-4 text-slate-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
