@@ -230,7 +230,7 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
         </div>
 
         {/* PO Reordering System */}
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col h-[348px] overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col">
           <div className="mb-4 flex justify-between items-center">
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Procurement desk</span>
@@ -247,7 +247,7 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
           </div>
 
           {/* List of recommendations */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 mb-4">
+          <div className="space-y-2 mb-4">
             {poRecommendations.length === 0 ? (
               <div className="h-full flex flex-col justify-center items-center text-slate-400 text-xs font-semibold text-center">
                 <svg className="h-8 w-8 text-slate-300 mb-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -319,7 +319,7 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
             <h3 className="text-lg font-black text-slate-900 mt-1">Supplier Performance Analytics</h3>
           </div>
 
-          <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+          <div className="space-y-3">
             {suppliers.map((s, idx) => (
               <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
                 <div>
@@ -347,7 +347,7 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
             <h3 className="text-lg font-black text-slate-900 mt-1">Employee Activity Logs</h3>
           </div>
 
-          <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto pr-1">
+          <div className="divide-y divide-slate-100">
             {logs.map((l, idx) => (
               <div key={idx} className="py-2.5 flex justify-between items-center first:pt-0 last:pb-0 text-xs font-semibold">
                 <div>

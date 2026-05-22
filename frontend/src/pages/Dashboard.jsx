@@ -135,6 +135,21 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertMenu, setShowAlertMenu] = useState(false);
 
+  // States for Medium and Large Analytics Page redone visually
+  const [mediumRange, setMediumRange] = useState("30d");
+  const [hoveredCategory, setHoveredCategory] = useState(null);
+  
+  // Large tier NLP Chat console simulation states
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState([
+    { role: "user", text: "Explain our current seasonal category demand spike." },
+    { role: "assistant", text: "Our ML engine detected a 1.8x multiplier in Beverages and Snacks due to seasonal holiday behavior. Recommend increasing reorder buffers for Apex and Metro distributors by 15%." }
+  ]);
+  const [isTyping, setIsTyping] = useState(false);
+
+  // Large tier heatmap active branch state
+  const [activeBranch, setActiveBranch] = useState("Mumbai");
+
   // Global Products State seeded with high-fidelity items
   const [products, setProducts] = useState([
     { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 8, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15 },
@@ -262,6 +277,459 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
   const handleClearAlert = (id) => {
     setNotifications(prev => prev.filter(x => x.id !== id));
+  };
+
+  // ==========================================
+  // HIGH-FIDELITY CUSTOM VISUALIZATIONS
+  // ==========================================
+
+  const renderInteractiveSeasonalChart = () => {
+    const width = 500;
+    const height = 180;
+    const padding = 20;
+
+    // Support two ranges: "7d" and "30d"
+    const dates = mediumRange === "7d" 
+      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      : ["Wk 1", "Wk 2", "Wk 3", "Wk 4", "Wk 5", "Wk 6", "Wk 7", "Wk 8"];
+      
+    const baseLine = mediumRange === "7d"
+      ? [120, 145, 130, 205, 230, 310, 290]
+      : [110, 135, 120, 175, 190, 260, 280, 340];
+      
+    const upperLine = baseLine.map(v => v + 30);
+    const lowerLine = baseLine.map(v => v - 25);
+
+    const maxVal = Math.max(...upperLine);
+    const minVal = Math.min(...lowerLine);
+    const range = maxVal - minVal || 1;
+
+    const getX = (index) => padding + (index / (dates.length - 1)) * (width - padding * 2);
+    const getY = (val) => height - padding - 15 - ((val - minVal) / range) * (height - padding - 35);
+
+    const baseCoords = baseLine.map((val, idx) => `${getX(idx)},${getY(val)}`);
+    const upperCoords = upperLine.map((val, idx) => `${getX(idx)},${getY(val)}`);
+    const lowerCoords = lowerLine.map((val, idx) => `${getX(idx)},${getY(val)}`);
+
+    const shadePath = [
+      `M ${upperCoords[0]}`,
+      ...upperCoords.slice(1).map(c => `L ${c}`),
+      ...lowerCoords.reverse().map(c => `L ${c}`),
+      "Z"
+    ].join(" ");
+
+    const baseD = `M ${baseCoords.join(" L ")}`;
+
+    return (
+      <div className="space-y-4">
+        {/* Metric Cards Row */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Model Confidence</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-base font-black text-amber-600">98.4%</span>
+              <span className="text-[9px] font-bold text-emerald-600">Optimal</span>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Weekly Revenue</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-base font-black text-slate-800">₹1,42,800</span>
+              <span className="text-[9px] font-bold text-emerald-600">+18.4%</span>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Weekend Peak</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-base font-black text-rose-605">1.8x</span>
+              <span className="text-[9px] font-bold text-rose-500">Holiday Surge</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Interactive SVG */}
+        <div className="relative border border-slate-200/60 bg-gradient-to-b from-slate-50 to-white rounded-2xl p-4 shadow-inner">
+          <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible select-none">
+            <defs>
+              <linearGradient id="forecast-glow" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#D97706" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#D97706" stopOpacity="0.01" />
+              </linearGradient>
+            </defs>
+
+            {/* Horizontal Grid lines */}
+            {Array.from({ length: 4 }).map((_, i) => {
+              const y = padding + (i / 3) * (height - padding * 2 - 15);
+              return <line key={i} x1={padding} y1={y} x2={width - padding} y2={y} stroke="#F1F5F9" strokeWidth="1.5" strokeDasharray="4 4" />;
+            })}
+
+            {/* Shaded Corridor */}
+            <path d={shadePath} fill="url(#forecast-glow)" />
+
+            {/* Dash Boundary Lines */}
+            <path d={`M ${upperCoords.join(" L ")}`} fill="none" stroke="#D97706" strokeWidth="1" strokeDasharray="3 3" opacity="0.3" />
+            <path d={`M ${lowerCoords.join(" L ")}`} fill="none" stroke="#D97706" strokeWidth="1" strokeDasharray="3 3" opacity="0.3" />
+
+            {/* Main actual curve */}
+            <path d={baseD} fill="none" stroke="#D97706" strokeWidth="3.5" strokeLinecap="round" />
+
+            {/* Active Highlight Points */}
+            {baseLine.map((val, idx) => {
+              const cx = getX(idx);
+              const cy = getY(val);
+              const isPeak = idx === (mediumRange === "7d" ? 5 : 7);
+              return (
+                <g key={idx} className="cursor-pointer group">
+                  <circle cx={cx} cy={cy} r="6" fill="#D97706" opacity="0" className="hover:opacity-20 transition-all duration-205" />
+                  <circle cx={cx} cy={cy} r="3.5" fill="#FFFFFF" stroke="#D97706" strokeWidth="2.5" />
+                  {isPeak && (
+                    <g>
+                      <path d={`M ${cx} ${cy - 8} L ${cx} ${cy - 20}`} stroke="#EF4444" strokeWidth="1.5" strokeDasharray="2 2" />
+                      <rect x={cx - 30} y={cy - 34} width="60" height="13" rx="4" fill="#EF4444" />
+                      <text x={cx} y={cy - 25} fill="#FFFFFF" fontSize="7" fontWeight="bold" textAnchor="middle">
+                        WEEKEND PEAK
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Axis Date Labels */}
+            {dates.map((date, idx) => (
+              <text key={idx} x={getX(idx)} y={height - 2} fill="#94A3B8" fontSize="9" fontWeight="black" className="uppercase tracking-wider" textAnchor="middle">
+                {date}
+              </text>
+            ))}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  const renderInteractiveDonutChart = () => {
+    const size = 160;
+    const center = size / 2;
+    const radius = 55;
+    const strokeWidth = 16;
+    const circumference = 2 * Math.PI * radius;
+
+    const categories = [
+      { label: "Dairy", val: 40, color: "#10B981", money: "₹57,120", status: "Fast Moving", fill: "98% Fill" },
+      { label: "Beverages", val: 30, color: "#0EA5E9", money: "₹42,840", status: "Seasonal Spike", fill: "97% Fill" },
+      { label: "Snacks", val: 20, color: "#D97706", money: "₹28,560", status: "High Margin", fill: "89% Fill" },
+      { label: "Bakery", val: 10, color: "#EC4899", money: "₹14,280", status: "Critical Expiry", fill: "91% Fill" },
+    ];
+
+    let currentOffset = 0;
+
+    return (
+      <div className="flex flex-col sm:flex-row items-center gap-6 justify-between text-left">
+        {/* Interactive SVG Ring */}
+        <div className="relative select-none shrink-0 mx-auto">
+          <svg width={size} height={size} className="overflow-visible">
+            {/* Background base circle */}
+            <circle cx={center} cy={center} r={radius} fill="none" stroke="#F1F5F9" strokeWidth={strokeWidth} />
+            
+            {categories.map((c, i) => {
+              const dashArray = `${(c.val / 100) * circumference} ${circumference}`;
+              const dashOffset = currentOffset;
+              currentOffset -= (c.val / 100) * circumference;
+              
+              const isHovered = hoveredCategory === i;
+              const isAnyHovered = hoveredCategory !== null;
+
+              return (
+                <circle
+                  key={i}
+                  cx={center}
+                  cy={center}
+                  r={radius}
+                  fill="none"
+                  stroke={c.color}
+                  strokeWidth={isHovered ? strokeWidth + 3 : strokeWidth}
+                  strokeDasharray={dashArray}
+                  strokeDashoffset={dashOffset}
+                  transform={`rotate(-90 ${center} ${center})`}
+                  strokeLinecap="round"
+                  className="transition-all duration-300 cursor-pointer"
+                  opacity={isAnyHovered && !isHovered ? "0.35" : "1"}
+                  onMouseEnter={() => setHoveredCategory(i)}
+                  onMouseLeave={() => setHoveredCategory(null)}
+                />
+              );
+            })}
+
+            {/* Centered label */}
+            <g className="pointer-events-none">
+              <text x={center} y={center - 6} textAnchor="middle" fill="#94A3B8" fontSize="8" fontWeight="black" className="uppercase tracking-widest">
+                TOTAL SALES
+              </text>
+              <text x={center} y={center + 10} textAnchor="middle" fill="#0F172A" fontSize="13" fontWeight="900">
+                ₹1.42L
+              </text>
+            </g>
+          </svg>
+        </div>
+
+        {/* Legend Panel */}
+        <div className="flex-1 space-y-2 w-full">
+          {categories.map((c, i) => {
+            const isHovered = hoveredCategory === i;
+            const isAnyHovered = hoveredCategory !== null;
+            return (
+              <div
+                key={i}
+                onMouseEnter={() => setHoveredCategory(i)}
+                onMouseLeave={() => setHoveredCategory(null)}
+                className={`p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer flex justify-between items-center ${
+                  isHovered 
+                    ? "bg-slate-50 border-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.03)] scale-[1.02]" 
+                    : isAnyHovered 
+                      ? "opacity-40 border-transparent bg-transparent" 
+                      : "bg-slate-50/60 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 leading-none">
+                      <span>{c.label}</span>
+                      <span className="text-[9px] font-black text-slate-400">{c.val}%</span>
+                    </div>
+                    <span className="text-[9px] font-semibold text-slate-455 block mt-1 leading-none">{c.status} • {c.fill}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-black text-slate-850 block">{c.money}</span>
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wide">Allocated</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const simulateChatCommand = (promptText) => {
+    if (isTyping) return;
+    
+    // Add user message
+    const userMsg = { role: "user", text: promptText };
+    setChatHistory(prev => [...prev, userMsg]);
+    setIsTyping(true);
+
+    // Dynamic co-pilot replies
+    let replyText = "";
+    if (promptText.includes("Diwali")) {
+      replyText = "Diwali Surge Simulation initialized. Expected multi-location demand multiplier is calibrated to 1.84x. Recommended triggers: increase Coke 500ml and Potato Chips stock reserves by 75 units at Mumbai and Delhi hubs. Safety stock parameters updated.";
+    } else if (promptText.includes("Chennai")) {
+      replyText = "Chennai Hub Expiries evaluated. 14 units of Organic Milk 1L are approaching expiration boundaries (expires in 48h). Auto-allocation rules triggered standard price markdown of 25% to maximize salvage rates prior to expiration.";
+    } else if (promptText.includes("Delhi")) {
+      replyText = "Delhi command network balanced. Identified supply surplus (Beverages: +120 units) in Delhi Store 2. Initiated logistics recommendation: transfer 45 units to Gurgaon Hub to resolve local stockouts. Fuel route optimization: optimal. Click Approve to authorize transfer.";
+    } else {
+      replyText = "ML classification command verified. Analyzing historical supply line signals. All regional indicators operate within normal standard error margins (efficiency: 96.8%).";
+    }
+
+    setTimeout(() => {
+      setIsTyping(false);
+      setChatHistory(prev => [...prev, { role: "assistant", text: replyText }]);
+    }, 1200);
+  };
+
+  const handleSendChat = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const txt = chatInput;
+    setChatInput("");
+    simulateChatCommand(txt);
+  };
+
+  const renderNLPCommandConsole = () => {
+    const promptPills = [
+      "Simulate Diwali Surge ⚡",
+      "Check Chennai Hub Expiries 📦",
+      "Optimize Delhi Allocations 📍"
+    ];
+
+    return (
+      <div className="flex flex-col h-[320px] bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden font-mono text-xs text-left">
+        {/* Terminal Header */}
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            </div>
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">INVENTRA CO-PILOT COMMAND</span>
+          </div>
+          <span className="text-[9px] text-emerald-500 font-bold tracking-wider animate-pulse flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+            LIVE LINK ACTIVE
+          </span>
+        </div>
+
+        {/* Scrollable messages area */}
+        <div className="flex-1 p-4 overflow-y-auto space-y-3.5 flex flex-col justify-end text-left scrollbar-thin scrollbar-thumb-slate-805 scrollbar-track-slate-950">
+          {chatHistory.map((msg, idx) => (
+            <div key={idx} className={`flex flex-col max-w-[85%] ${msg.role === "user" ? "self-end items-end" : "self-start items-start"}`}>
+              <span className="text-[9px] font-black text-slate-550 uppercase tracking-widest mb-1">
+                {msg.role === "user" ? "VP Executive Console" : "Inventra ML Engine"}
+              </span>
+              <div className={`p-3 rounded-2xl leading-relaxed font-sans font-semibold text-xs border ${
+                msg.role === "user"
+                  ? "bg-slate-900 border-slate-800 text-slate-200"
+                  : "bg-emerald-950/20 border-emerald-900/60 text-emerald-400 shadow-[0_2px_12px_rgba(5,150,105,0.04)]"
+              }`}>
+                {msg.text}
+              </div>
+            </div>
+          ))}
+
+          {isTyping && (
+            <div className="self-start flex flex-col items-start max-w-[85%]">
+              <span className="text-[9px] font-black text-slate-550 uppercase tracking-widest mb-1">Inventra ML Engine</span>
+              <div className="bg-slate-900/60 border border-slate-800 p-2.5 rounded-2xl flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Interactive Pills */}
+        <div className="bg-slate-950 px-3.5 py-2 border-t border-slate-900 flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-none items-center">
+          {promptPills.map((pill, idx) => (
+            <button
+              key={idx}
+              disabled={isTyping}
+              onClick={() => simulateChatCommand(pill)}
+              className="px-2.5 py-1 text-[10px] bg-slate-900 text-slate-400 border border-slate-800 rounded-xl hover:text-emerald-400 hover:border-emerald-700/60 transition-all font-sans font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {pill}
+            </button>
+          ))}
+        </div>
+
+        {/* Input box */}
+        <form onSubmit={handleSendChat} className="bg-slate-900 border-t border-slate-800 p-2.5 flex items-center gap-2">
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            disabled={isTyping}
+            placeholder="Type a regional command (e.g. Optimize Chennai hubs)..."
+            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-600/80 font-sans text-xs disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={isTyping || !chatInput.trim()}
+            className="h-8 w-8 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center transition-colors shrink-0 shadow-[0_4px_12px_rgba(5,150,105,0.18)] cursor-pointer disabled:opacity-40"
+          >
+            ➔
+          </button>
+        </form>
+      </div>
+    );
+  };
+
+  const renderGeographicalCommandMap = () => {
+    const branches = {
+      Mumbai: { name: "Mumbai Regional HQ", efficiency: "98.2%", fleet: "12 Fleet Vehicles", stocks: "1,240 units", coord: [100, 160] },
+      Delhi: { name: "Delhi Command Center", efficiency: "94.6%", fleet: "8 Fleet Vehicles", stocks: "850 units", coord: [120, 50] },
+      Chennai: { name: "Chennai Logistics Hub", efficiency: "96.4%", fleet: "15 Fleet Vehicles", stocks: "1,480 units", coord: [170, 230] },
+      Bangalore: { name: "Bangalore Store 1", efficiency: "92.1%", fleet: "6 Fleet Vehicles", stocks: "680 units", coord: [130, 210] },
+    };
+
+    const activeInfo = branches[activeBranch] || branches.Mumbai;
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-[1.1fr_0.9fr] gap-4 bg-slate-950 border border-slate-800 p-4 rounded-3xl select-none min-h-[320px] text-left">
+        {/* Interactive SVG Geo Map Representation */}
+        <div className="relative border border-slate-800 bg-slate-950 rounded-2xl overflow-hidden p-2 flex items-center justify-center min-h-[220px]">
+          <svg className="w-full h-full max-h-[240px]" viewBox="0 0 300 300">
+            {/* Grid gridlines */}
+            {Array.from({ length: 7 }).map((_, i) => {
+              const pos = 40 + i * 36;
+              return (
+                <g key={i}>
+                  <line x1={pos} y1="0" x2={pos} y2="300" stroke="#1E293B" strokeWidth="0.5" strokeDasharray="2 2" />
+                  <line x1="0" y1={pos} x2="300" y2={pos} stroke="#1E293B" strokeWidth="0.5" strokeDasharray="2 2" />
+                </g>
+              );
+            })}
+
+            {/* Bezier flow lines representing transfer arrows */}
+            <g>
+              {/* Flow line 1: Mumbai to Bangalore */}
+              <path d="M 100 160 Q 115 185 130 210" fill="none" stroke="#059669" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
+              {/* Flow line 2: Delhi to Chennai */}
+              <path d="M 120 50 Q 165 140 170 230" fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.4" />
+              {/* Flow line 3: Bangalore to Chennai */}
+              <path d="M 130 210 Q 150 220 170 230" fill="none" stroke="#E11D48" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.5" />
+            </g>
+
+            {/* Custom stylized outlines - simple polygon map hints */}
+            <polygon points="120,30 180,40 210,120 180,180 170,250 140,290 120,240 80,180 60,150 90,100" fill="none" stroke="#1E293B" strokeWidth="1.5" />
+
+            {/* Glowing Branch Pins */}
+            {Object.entries(branches).map(([key, data]) => {
+              const [cx, cy] = data.coord;
+              const isSelected = activeBranch === key;
+              return (
+                <g key={key} onClick={() => setActiveBranch(key)} className="cursor-pointer">
+                  {isSelected && (
+                    <circle cx={cx} cy={cy} r="12" fill="#059669" opacity="0.25" className="animate-ping" />
+                  )}
+                  <circle cx={cx} cy={cy} r="6" fill={isSelected ? "#10B981" : "#1E293B"} stroke="#059669" strokeWidth="2.5" />
+                  <circle cx={cx} cy={cy} r="2" fill="#FFFFFF" />
+                  <text x={cx} y={cy - 10} fill="#94A3B8" fontSize="8" fontWeight="black" textAnchor="middle" className="uppercase tracking-wider">
+                    {key}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+          <div className="absolute top-2.5 left-2.5 text-[8px] font-black text-slate-500 uppercase tracking-widest">
+            LOGISTICS ARC ROUTING
+          </div>
+        </div>
+
+        {/* Selected Hub Details Panel */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col justify-between text-left font-sans">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Selected Command Node</span>
+            </div>
+            <h4 className="text-base font-black text-slate-200 mt-1">{activeInfo.name}</h4>
+            <p className="text-[11px] text-slate-400 font-semibold mt-1">Multi-branch node evaluating transfer vectors and transport lines.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Operational Yield</span>
+              <span className="text-sm font-black text-emerald-400 block mt-0.5">{activeInfo.efficiency}</span>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Assigned Fleet</span>
+              <span className="text-sm font-black text-slate-200 block mt-0.5">{activeInfo.fleet}</span>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5 col-span-2">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Monitored Safety Stock Buffer</span>
+              <span className="text-sm font-black text-slate-200 block mt-0.5">{activeInfo.stocks}</span>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3.5 border-t border-slate-800 text-center">
+            <span className="text-[9px] font-black text-slate-550 uppercase tracking-widest block">TAP PINS ON MAP TO ROUTE</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -526,9 +994,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               <p className="text-xs text-slate-500 font-semibold mt-1 max-w-xl leading-relaxed">{config.blurb}</p>
             </div>
             
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full" style={{ background: config.accent }} />
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 font-mono">
+            <div className="flex items-center gap-2 shrink-0 border border-slate-100 rounded-full px-3 py-1.5 bg-slate-50/50">
+              <span className="h-2 w-2 rounded-full shrink-0" style={{ background: config.accent }} />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 font-mono whitespace-nowrap">
                 TIER: {tierDisplayName}
               </span>
             </div>
@@ -748,36 +1216,51 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               {normalizedTier === "medium" && (
                 <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6 text-left">
                   <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-                    <h3 className="text-lg font-black text-slate-900 mb-1">Seasonal & Profit Analytics</h3>
-                    <p className="text-xs text-slate-500 font-semibold mb-6">Dual path Area forecasts with seasonal peaks.</p>
-                    <div className="h-56 flex items-center justify-center border border-slate-250 rounded-2xl bg-slate-50 text-slate-400 text-xs font-semibold">
-                      Navigate to the Overview Hub to see the active Holiday-Aware Dual-Path forecast.
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900 mb-1">Seasonal & Profit Analytics</h3>
+                        <p className="text-xs text-slate-500 font-semibold">Dual path Area forecasts with seasonal peaks.</p>
+                      </div>
+                      <div className="flex gap-1 bg-slate-100 p-1 border border-slate-200 rounded-xl">
+                        {["7d", "30d"].map(r => (
+                          <button
+                            key={r}
+                            onClick={() => setMediumRange(r)}
+                            className={`px-2.5 py-1 text-[10px] uppercase font-black tracking-wider rounded-lg transition-all cursor-pointer ${mediumRange === r ? 'bg-white text-slate-900 border border-slate-205 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800 font-bold'}`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                    {renderInteractiveSeasonalChart()}
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-                    <h3 className="text-lg font-black text-slate-900 mb-1">Segment Sales Share</h3>
-                    <p className="text-xs text-slate-500 font-semibold mb-6">Category Sales donut segments indicators.</p>
-                    <div className="h-56 flex items-center justify-center border border-slate-250 rounded-2xl bg-slate-50 text-slate-400 text-xs font-semibold">
-                      Category Ring charts are displayed on the active Overview panel.
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
+                    <div>
+                      <h3 className="text-lg font-black text-slate-900 mb-1">Segment Sales Share</h3>
+                      <p className="text-xs text-slate-500 font-semibold">Category Sales donut segments indicators.</p>
+                    </div>
+                    <div className="py-2">
+                      {renderInteractiveDonutChart()}
                     </div>
                   </div>
                 </div>
               )}
               {normalizedTier === "large" && (
                 <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6 text-left">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-                    <h3 className="text-lg font-black text-slate-900 mb-1">NLP AI Chat Insights</h3>
-                    <p className="text-xs text-slate-500 font-semibold mb-6">Ask AI co-pilot about allocations.</p>
-                    <div className="h-56 flex items-center justify-center border border-slate-250 rounded-2xl bg-slate-50 text-slate-400 text-xs font-semibold">
-                      Chat terminal with interactive suggested prompts is active on the Overview Hub.
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-black text-slate-900 mb-1">NLP AI Chat Insights</h3>
+                      <p className="text-xs text-slate-500 font-semibold">Ask AI co-pilot about allocations.</p>
                     </div>
+                    {renderNLPCommandConsole()}
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-                    <h3 className="text-lg font-black text-slate-900 mb-1">Regional Heatmap</h3>
-                    <p className="text-xs text-slate-500 font-semibold mb-6">Geographical branch maps.</p>
-                    <div className="h-56 flex items-center justify-center border border-slate-250 rounded-2xl bg-slate-50 text-slate-400 text-xs font-semibold">
-                      India branch regional heatmaps are active on the Overview command desk.
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-black text-slate-900 mb-1">Regional Heatmap</h3>
+                      <p className="text-xs text-slate-500 font-semibold">Geographical branch maps.</p>
                     </div>
+                    {renderGeographicalCommandMap()}
                   </div>
                 </div>
               )}

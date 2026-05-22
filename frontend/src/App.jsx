@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Header from "./components/Header";
 import BottomNav from "./components/BottomNav";
+import FloatingChatbot from "./components/FloatingChatbot";
 import Home from "./pages/Home";
 import Signup from "./pages/Signup";
 import Login from "./pages/Login";
@@ -188,11 +189,11 @@ function App() {
           <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         )}
 
-      {/* Go Back to Top Button */}
+      {/* Go Back to Top Button (Stacked above Floating Chatbot FAB) */}
       {activeTab !== "login" && (
         <button
           onClick={scrollToTop}
-          className={`fixed bottom-6 right-6 md:bottom-8 md:right-8 z-40 p-3.5 rounded-full bg-[#0F172A] hover:bg-slate-800 text-white shadow-xl hover:shadow-[#0EA5E9]/15 transition-all duration-500 hover:-translate-y-1 active:translate-y-0 cursor-pointer border border-slate-800/40 group flex items-center justify-center ${
+          className={`fixed bottom-24 right-6 md:bottom-26 md:right-8 z-40 p-3.5 rounded-full bg-[#0F172A] hover:bg-slate-800 text-white shadow-xl hover:shadow-[#0EA5E9]/15 transition-all duration-500 hover:-translate-y-1 active:translate-y-0 cursor-pointer border border-slate-800/40 group flex items-center justify-center ${
             showScrollTop
               ? "opacity-100 translate-y-0 pointer-events-auto"
               : "opacity-0 translate-y-10 pointer-events-none"
@@ -213,6 +214,11 @@ function App() {
             />
           </svg>
         </button>
+      )}
+
+      {/* Global Floating AI Co-Pilot Chatbot */}
+      {(isDashboardTab || isBillingPosTab) && (
+        <FloatingChatbot activeTier={activeDashboardTier || activeBillingTier} />
       )}
     </div>
   );
