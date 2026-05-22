@@ -126,7 +126,7 @@ export default function Home({ setActiveTab }) {
           <div className="flex flex-col sm:flex-row gap-3.5 w-full max-w-[420px] justify-center relative z-10 mt-8">
             <button
               className="flex-1 bg-white hover:bg-slate-50 text-[#0F172A] text-[15px] font-bold py-4 px-7 rounded-lg transition-all duration-200 active:scale-98 cursor-pointer font-sans"
-              onClick={() => setActiveTab("inventory")}
+              onClick={() => setActiveTab("signup")}
             >
               Start for Free
             </button>
