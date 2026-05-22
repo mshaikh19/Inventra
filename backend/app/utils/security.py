@@ -45,3 +45,22 @@ def createRefreshToken(subject: str, expires_delta: Optional[timedelta] = None) 
 
 def decodeToken(token: str) -> dict:
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+
+def createPurposeToken(subject: str, purpose: str, expires_minutes: int = 60) -> str:
+    now = datetime.utcnow()
+    expire = now + timedelta(minutes=expires_minutes)
+    to_encode = {
+        "sub": str(subject),
+        "purpose": purpose,
+        "exp": int(expire.timestamp()),
+        "iat": int(now.timestamp()),
+    }
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decodeTokenWithPurpose(token: str, expected_purpose: Optional[str] = None) -> dict:
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    if expected_purpose and payload.get("purpose") != expected_purpose:
+        raise Exception("Invalid token purpose")
+    return payload

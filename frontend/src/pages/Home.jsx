@@ -66,9 +66,9 @@ export default function Home({ setActiveTab }) {
             Measurable outcomes that directly impact your store's bottom line — from day one.
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-7xl mx-auto">
           {/* Stat Card 1 */}
-          <div className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
+          <div onClick={() => setActiveTab('signup')} className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
             <div className="text-[40px] font-black text-[#0EA5E9] tracking-tight">
               24/7
             </div>
@@ -81,7 +81,7 @@ export default function Home({ setActiveTab }) {
           </div>
 
           {/* Stat Card 2 */}
-          <div className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
+          <div onClick={() => setActiveTab('signup')} className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
             <div className="text-[40px] font-black text-[#0EA5E9] tracking-tight">
               94%
             </div>
@@ -94,7 +94,7 @@ export default function Home({ setActiveTab }) {
           </div>
 
           {/* Stat Card 3 */}
-          <div className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
+          <div onClick={() => setActiveTab('signup')} className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
             <div className="text-[40px] font-black text-[#0EA5E9] tracking-tight">
               3.5x
             </div>

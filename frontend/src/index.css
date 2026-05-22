@@ -54,6 +54,7 @@
 
 body {
   margin: 0;
+  font-family: var(--sans);
 }
 
 @keyframes partners-marquee-right {
