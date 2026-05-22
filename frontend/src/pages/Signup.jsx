@@ -1,7 +1,7 @@
 import React from "react";
 import BusinessTypeSelect from "../components/BusinessTypeSelect";
 import ConfirmRegistration from "../components/ConfirmRegistration";
-import { getDashboardTabFromUser } from "../utils/dashboard";
+import { getDashboardTabFromUser, getTierDisplayName } from "../utils/dashboard";
 
 const SIGNUP_DRAFT_KEY = "inventra-signup-draft";
 const EMPTY_FORM = {
@@ -554,7 +554,7 @@ export default function Signup({ setActiveTab }) {
                 </div>
                 <div>
                   <span className="font-bold text-slate-900">Tier:</span>{" "}
-                  {classification || "small"}
+                  {getTierDisplayName(classification || "small")}
                 </div>
               </div>
               <button
@@ -584,7 +584,7 @@ export default function Signup({ setActiveTab }) {
                       <span className="font-bold text-slate-900">
                         Saved tier:
                       </span>{" "}
-                      {dbCheck.classification}
+                      {getTierDisplayName(dbCheck.classification)}
                     </div>
                   )}
                 </div>

@@ -1,7 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { getDashboardTab, normalizeBusinessTier } from "../utils/dashboard";
+import {
+  getBillingPosTab,
+  getDashboardTab,
+  getTierBadgeLabel,
+  getTierDisplayName,
+  getUserDisplayName,
+  normalizeBusinessTier,
+} from "../utils/dashboard";
 import InventoryTable from "../components/InventoryTable";
-import BillingSystem from "../components/BillingSystem";
 import CSVUpload from "../components/CSVUpload";
 import SmallDashboard from "../components/SmallDashboard";
 import MediumDashboard from "../components/MediumDashboard";
@@ -9,7 +15,7 @@ import LargeDashboard from "../components/LargeDashboard";
 
 const DASHBOARD_CONFIG = {
   small: {
-    label: "Small Business Dashboard",
+    label: "Starter Workspace Dashboard",
     strap: "Starter Intelligence Workspace",
     blurb: "A beginner-friendly workspace for single-location operators who need clarity, speed, and simple controls.",
     accent: "#0284C7",
@@ -23,7 +29,7 @@ const DASHBOARD_CONFIG = {
     },
   },
   medium: {
-    label: "Medium Business Dashboard",
+    label: "Growth Workspace Dashboard",
     strap: "Smart Operations Workspace",
     blurb: "Operational control for growing businesses that need forecasting, procurement discipline, and performance visibility.",
     accent: "#D97706",
@@ -37,7 +43,7 @@ const DASHBOARD_CONFIG = {
     },
   },
   large: {
-    label: "Large Business Dashboard",
+    label: "Enterprise Command Dashboard",
     strap: "Enterprise Intelligence Command",
     blurb: "Enterprise command center for branch networks, warehouse distribution hubs, and NLP-powered AI insights.",
     accent: "#059669",
@@ -101,11 +107,31 @@ const WORKSPACE_TABS = [
   { key: "profile", label: "Executive Profile", icon: "👤" },
 ];
 
+const QUICK_LINKS = [
+  { label: "AI Insights", icon: "✨" },
+  { label: "Support", icon: "❔" },
+  { label: "Documentation", icon: "📘" },
+];
+
 export default function Dashboard({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
   const config = DASHBOARD_CONFIG[normalizedTier];
+  const tierDisplayName = getTierDisplayName(normalizedTier);
+  const tierBadgeLabel = getTierBadgeLabel(normalizedTier);
 
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem("inventra_dashboard_section");
+      if (saved) return saved;
+    }
+    return "overview";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("inventra_dashboard_section", activeSection);
+    }
+  }, [activeSection]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertMenu, setShowAlertMenu] = useState(false);
 
@@ -146,6 +172,8 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     return null;
   }, []);
 
+  const userDisplayName = getUserDisplayName(userSession?.user, "Manager");
+
   const tierFeatures = TIER_FEATURES[normalizedTier];
 
   const handleLogout = () => {
@@ -155,6 +183,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     }
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", "/");
+      sessionStorage.removeItem("inventra_dashboard_section");
     }
     setActiveTab("home");
   };
@@ -237,13 +266,13 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#F8FAFC] text-slate-900 flex flex-col font-sans relative"
+      className="min-h-screen w-full bg-[#F8FAFC] text-slate-900 flex flex-col font-sans relative overflow-x-hidden"
       style={{
         backgroundImage: `radial-gradient(circle at 80% 20%, ${config.accentSoft}, transparent 45%), radial-gradient(circle at 10% 80%, rgba(241, 245, 249, 0.6), transparent 50%)`,
       }}
     >
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/90 backdrop-blur-xl px-4 sm:px-6 lg:px-10 py-3.5 flex justify-between items-center shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+      <header className="fixed top-0 left-0 right-0 z-40 w-full border-b border-slate-200 bg-white/90 backdrop-blur-xl px-4 sm:px-6 lg:px-10 py-3.5 flex justify-between items-center shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setActiveTab("home")}
@@ -303,80 +332,131 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
           {/* Profile Quick Pill */}
           <button
             onClick={() => setActiveSection("profile")}
-            className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:border-slate-350 transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+            className="flex items-center gap-2.5 rounded-full bg-white border border-slate-200 pl-2 pr-3.5 py-1.5 hover:border-slate-350 hover:bg-slate-50 transition-all cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.03)] group"
           >
-            <span
-              className="h-6 w-6 rounded-lg text-[10px] font-black flex items-center justify-center bg-slate-100"
-              style={{ color: config.accent }}
+            <div
+              className="h-7 w-7 rounded-full text-[11px] font-black flex items-center justify-center text-white shadow-sm transition-transform group-hover:scale-105"
+              style={{ backgroundColor: config.accent }}
             >
-              {config.profile.role[0]}
-            </span>
-            <span className="hidden sm:inline">{userSession?.user?.email || "Manager"}</span>
+              {String(userDisplayName || "M").trim().charAt(0).toUpperCase()}
+            </div>
+            <div className="hidden sm:flex flex-col text-left leading-[1.1]">
+              <span className="text-[11px] font-black text-slate-800 tracking-tight">{userDisplayName}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{config.profile.role}</span>
+            </div>
           </button>
         </div>
       </header>
 
       {/* Main Grid Workspace Layout */}
-      <div className="flex-1 max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-10 py-6 grid lg:grid-cols-[280px_1fr] gap-6 items-start">
+      <div className="flex-1 w-full px-0 py-0 pt-[72px] lg:pl-[340px] xl:pl-[372px]">
         {/* Left Control Panel / Sidebar */}
-        <aside className="hidden lg:flex sticky top-24 flex-col bg-white border border-slate-200 rounded-3xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] h-[80vh] overflow-y-auto justify-between select-none">
-          <div className="space-y-6">
-            <div>
-              <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">Business Control</span>
-              <h2 className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{config.label}</h2>
-              <span className="inline-block mt-2 rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white" style={{ background: config.shell }}>
-                {normalizedTier.toUpperCase()}
+        <aside className="hidden lg:flex fixed left-0 top-[72px] h-[calc(100vh-72px)] z-30 w-[340px] xl:w-[372px] flex flex-col overflow-y-auto sidebar-scrollbar select-none border-r border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_48%,#f8fafc_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.05)] px-4 py-4 xl:px-5 xl:py-5">
+          <div className="rounded-[28px] border border-slate-100 bg-white px-5 py-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">Business Control</span>
+                <h2 className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{config.label}</h2>
+              </div>
+              <span className="inline-flex items-center rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-wider text-white shadow-sm" style={{ background: config.shell }}>
+                {tierBadgeLabel}
               </span>
             </div>
+            <p className="mt-3 text-[11px] font-medium leading-relaxed text-slate-500">{config.summary}</p>
 
-            {/* Sidebar Navigation */}
-            <nav className="space-y-1.5">
-              {WORKSPACE_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveSection(tab.key)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left text-xs font-bold transition-all cursor-pointer ${
-                    activeSection === tab.key
-                      ? "bg-slate-900 text-white font-black shadow-sm"
-                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span>{tab.icon}</span>
-                    <span>{tab.label}</span>
-                  </div>
-                </button>
-              ))}
-            </nav>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Role</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">{config.profile.role}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Access</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">{config.profile.access}</div>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-4 pt-4 border-t border-slate-100">
-            {/* Displaying features list representing the tier limits */}
+          <nav className="mt-4 space-y-2.5">
+            {WORKSPACE_TABS.map((tab) => {
+              const isActive = activeSection === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    if (tab.key === "billing") {
+                      setActiveTab(getBillingPosTab(normalizedTier));
+                      return;
+                    }
+                    setActiveSection(tab.key);
+                  }}
+                  className={`group w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-xs font-bold transition-all duration-200 active:scale-[0.98] cursor-pointer hover:scale-[1.005] ${
+                    isActive
+                      ? "text-white shadow-[0_10px_20px_rgba(15,23,42,0.12)]"
+                      : "border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                  style={isActive ? { backgroundColor: config.accent, borderColor: config.accent } : undefined}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`grid h-8 w-8 place-items-center rounded-xl text-sm transition-colors ${isActive ? "bg-white/20" : "bg-slate-50 group-hover:bg-slate-100"}`}>
+                      {tab.icon}
+                    </span>
+                    <span className="truncate">{tab.label}</span>
+                  </div>
+                  <span className={`text-[10px] transition-transform ${isActive ? "translate-x-0 opacity-100" : "translate-x-1 opacity-0 group-hover:translate-x-0 group-hover:opacity-100"}`}>
+                    →
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="mt-4 rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
             <details className="group" open>
-              <summary className="text-[9px] font-black uppercase tracking-widest text-slate-450 cursor-pointer list-none flex justify-between items-center hover:text-slate-950 transition-colors">
-                <span>TIER SPECIFIC PLUGINS</span>
+              <summary className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-500 cursor-pointer list-none flex justify-between items-center hover:text-slate-900 transition-colors">
+                <span>Tier Specific Plugins</span>
                 <span className="text-[8px] transition-transform duration-300 group-open:rotate-180">▼</span>
               </summary>
-              <div className="mt-3.5 space-y-1.5 max-h-36 overflow-y-auto pr-1">
+              <div className="mt-3.5 flex flex-wrap gap-2">
                 {tierFeatures.map((f, i) => (
-                  <div key={i} className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-150 text-[10.5px] font-semibold text-slate-600">
+                  <div key={i} className="min-w-0 flex-1 basis-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold text-slate-600 leading-snug">
                     {f}
                   </div>
                 ))}
               </div>
             </details>
+          </div>
+
+          <div className="mt-4 space-y-3.5">
+            <div className="rounded-[24px] border border-slate-100 bg-slate-950 p-4 text-white shadow-[0_12px_25px_rgba(15,23,42,0.12)]">
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-sky-200/90">
+                <span>✨</span>
+                AI Insights
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-300">
+                Low stock and expiry signals are tracked in real time for the smallest workflow noise possible.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {QUICK_LINKS.map((link) => (
+                <button key={link.label} className="rounded-2xl border border-slate-200 bg-white px-2.5 py-3 text-[10px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                  <span className="block text-base leading-none">{link.icon}</span>
+                  <span className="mt-2 block leading-tight">{link.label}</span>
+                </button>
+              ))}
+            </div>
 
             <button
               onClick={handleLogout}
-              className="w-full py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors font-bold text-xs uppercase tracking-wider cursor-pointer"
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3.5 text-xs font-black uppercase tracking-[0.22em] text-slate-500 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50 transition-all cursor-pointer"
             >
-              Sign out
+              Sign Out
             </button>
           </div>
         </aside>
 
         {/* Mobile menu navigation buttons (Hidden on Desktop) */}
-        <div className="lg:hidden w-full flex justify-between items-center gap-3">
+        <div className="lg:hidden w-full flex justify-between items-center gap-3 px-4 sm:px-6 pt-4">
           <button
             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
             className="flex-1 py-3 px-4 rounded-xl bg-white border border-slate-200 hover:border-slate-350 text-slate-700 hover:text-slate-950 font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-2 cursor-pointer shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
@@ -406,11 +486,12 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     setActiveSection(tab.key);
                     setMobileSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-left text-sm font-bold border ${
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-left text-sm font-bold border transition-all duration-200 active:scale-[0.98] ${
                     activeSection === tab.key
-                      ? "bg-slate-900 text-white border-slate-900 font-black"
-                      : "text-slate-600 border-slate-200 bg-slate-50"
+                      ? "text-white font-black"
+                      : "text-slate-600 border-slate-200 bg-slate-50 hover:bg-slate-100"
                   }`}
+                  style={activeSection === tab.key ? { backgroundColor: config.accent, borderColor: config.accent } : undefined}
                 >
                   <div className="flex items-center gap-3">
                     <span>{tab.icon}</span>
@@ -433,7 +514,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         )}
 
         {/* Dynamic Area Panels */}
-        <main className="min-w-0 space-y-6">
+        <main className="min-w-0 space-y-6 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 lg:py-8">
           {/* Header Strap */}
           <section className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-left relative overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
             {/* Glowing spot */}
@@ -448,7 +529,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full" style={{ background: config.accent }} />
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 font-mono">
-                TIER: {normalizedTier.toUpperCase()}
+                TIER: {tierDisplayName}
               </span>
             </div>
           </section>
@@ -494,24 +575,172 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             />
           )}
 
-          {activeSection === "billing" && (
-            <BillingSystem 
-              products={products} 
-              onRecordSale={handleRecordSale}
-              tierAccent={config.accent}
-              tierAccentSoft={config.accentSoft}
-            />
-          )}
-
           {activeSection === "analytics" && (
             <>
               {normalizedTier === "small" && (
-                <div className="grid grid-cols-1 gap-6">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] text-left">
-                    <h3 className="text-lg font-black text-slate-900 mb-2">Basic Demand Forecasting</h3>
-                    <p className="text-xs text-slate-500 font-semibold mb-6">Simple line graphs simulating upcoming weekly demands for basic bakery and dairy stocks.</p>
-                    <div className="h-48 flex items-center justify-center border border-slate-250 rounded-2xl bg-slate-50 text-slate-400 text-xs font-semibold">
-                      Select Bakery or Dairy in the Overview Hub to view sparkline trends.
+                <div className="space-y-6">
+                  {/* Top Intro Section */}
+                  <div className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl text-left shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Demand Simulation</span>
+                    <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">Basic Demand Forecasting</h3>
+                    <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">
+                      High-fidelity intelligence forecast vectors for primary bakery and dairy SKUs, calculated dynamically using local sales frequency parameters.
+                    </p>
+                  </div>
+
+                  {/* Dual Card Showcase */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Card 1: Fresh Bread */}
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-left flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start gap-4 mb-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Bakery Segment</span>
+                            <h4 className="text-base font-black text-slate-800 leading-tight">Fresh Bread 400g</h4>
+                          </div>
+                          <span
+                            className="rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider"
+                            style={{ backgroundColor: `${config.accent}15`, color: config.accent }}
+                          >
+                            Peak Demand
+                          </span>
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div className="grid grid-cols-3 gap-2.5 mb-6">
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">Stock Level</span>
+                            <span className="text-sm font-black text-rose-600 block mt-0.5">8 Units</span>
+                            <span className="text-[8px] font-semibold text-rose-500 block">Below Reorder (15)</span>
+                          </div>
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">7D Forecast</span>
+                            <span className="text-sm font-black text-slate-800 block mt-0.5">145 Units</span>
+                            <span className="text-[8px] font-semibold text-emerald-600 block">+18% Surge Peak</span>
+                          </div>
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">ML Confidence</span>
+                            <span className="text-sm font-black block mt-0.5" style={{ color: config.accent }}>94.2%</span>
+                            <span className="text-[8px] font-semibold text-slate-500 block">High Certainty</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SVG Sparkline */}
+                      <div className="relative pt-4 pb-2 border-t border-slate-100">
+                        <svg className="w-full h-28 overflow-visible" viewBox="0 0 500 100" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="bread-grad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={config.accent} stopOpacity="0.25" />
+                              <stop offset="100%" stopColor={config.accent} stopOpacity="0.00" />
+                            </linearGradient>
+                          </defs>
+                          {/* Grid Lines */}
+                          <line x1="0" y1="15" x2="500" y2="15" stroke="#F1F5F9" strokeWidth="1" />
+                          <line x1="0" y1="50" x2="500" y2="50" stroke="#F1F5F9" strokeWidth="1" />
+                          <line x1="0" y1="85" x2="500" y2="85" stroke="#F1F5F9" strokeWidth="1" />
+                          
+                          {/* Gradient Fill under the curve */}
+                          <path
+                            d="M 0 70 C 80 40, 120 85, 200 35 C 280 -5, 380 95, 450 15 L 500 12 L 500 100 L 0 100 Z"
+                            fill="url(#bread-grad)"
+                          />
+                          {/* Sparkline Stroke */}
+                          <path
+                            d="M 0 70 C 80 40, 120 85, 200 35 C 280 -5, 380 95, 450 15 L 500 12"
+                            fill="none"
+                            stroke={config.accent}
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2.5 px-0.5">
+                          <span>Mon</span>
+                          <span>Tue</span>
+                          <span>Wed</span>
+                          <span>Thu</span>
+                          <span>Fri</span>
+                          <span>Sat (Peak)</span>
+                          <span>Sun</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Organic Milk */}
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-left flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start gap-4 mb-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Dairy Segment</span>
+                            <h4 className="text-base font-black text-slate-800 leading-tight">Organic Milk 1L</h4>
+                          </div>
+                          <span
+                            className="rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600"
+                          >
+                            Stable Supply
+                          </span>
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div className="grid grid-cols-3 gap-2.5 mb-6">
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">Stock Level</span>
+                            <span className="text-sm font-black text-amber-600 block mt-0.5">12 Units</span>
+                            <span className="text-[8px] font-semibold text-amber-500 block">Near Reorder (20)</span>
+                          </div>
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">7D Forecast</span>
+                            <span className="text-sm font-black text-slate-800 block mt-0.5">280 Units</span>
+                            <span className="text-[8px] font-semibold text-emerald-600 block">+8% Steady Growth</span>
+                          </div>
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">ML Confidence</span>
+                            <span className="text-sm font-black text-emerald-600 block mt-0.5">96.8%</span>
+                            <span className="text-[8px] font-semibold text-slate-500 block">Optimal Signals</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SVG Sparkline */}
+                      <div className="relative pt-4 pb-2 border-t border-slate-100">
+                        <svg className="w-full h-28 overflow-visible" viewBox="0 0 500 100" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="milk-grad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10B981" stopOpacity="0.2" />
+                              <stop offset="100%" stopColor="#10B981" stopOpacity="0.00" />
+                            </linearGradient>
+                          </defs>
+                          {/* Grid Lines */}
+                          <line x1="0" y1="15" x2="500" y2="15" stroke="#F1F5F9" strokeWidth="1" />
+                          <line x1="0" y1="50" x2="500" y2="50" stroke="#F1F5F9" strokeWidth="1" />
+                          <line x1="0" y1="85" x2="500" y2="85" stroke="#F1F5F9" strokeWidth="1" />
+                          
+                          {/* Gradient Fill under the curve */}
+                          <path
+                            d="M 0 35 C 100 50, 180 15, 250 55 C 320 95, 400 30, 500 40 L 500 100 L 0 100 Z"
+                            fill="url(#milk-grad)"
+                          />
+                          {/* Sparkline Stroke */}
+                          <path
+                            d="M 0 35 C 100 50, 180 15, 250 55 C 320 95, 400 30, 500 40"
+                            fill="none"
+                            stroke="#10B981"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2.5 px-0.5">
+                          <span>Mon</span>
+                          <span>Tue (Stable)</span>
+                          <span>Wed</span>
+                          <span>Thu</span>
+                          <span>Fri</span>
+                          <span>Sat</span>
+                          <span>Sun</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -566,40 +795,83 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
           {activeSection === "profile" && (
             <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-6 text-left">
               <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Account Credentials</span>
-                  <h3 className="text-xl md:text-2xl font-black text-slate-900 mt-1">Executive Profile Area</h3>
+                <div className="rounded-3xl border border-slate-200/70 bg-[linear-gradient(120deg,#f8fafc_0%,#f1f5f9_100%)] p-4 md:p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-11 w-11 rounded-2xl text-white text-sm font-black grid place-items-center shadow-[0_8px_20px_rgba(15,23,42,0.18)]" style={{ background: config.accent }}>
+                        {String(userDisplayName || "M").trim().charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Executive Identity</span>
+                        <h3 className="text-xl md:text-2xl font-black text-slate-900 mt-1 leading-tight">{userDisplayName}</h3>
+                      </div>
+                    </div>
+                    <span className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ borderColor: `${config.accent}66`, color: config.accent, background: `${config.accent}14` }}>
+                      {tierDisplayName}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500 font-semibold leading-relaxed">{config.profile.role}</p>
                 </div>
 
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 font-semibold text-xs text-slate-650">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span>Logged In As</span>
-                    <span className="text-slate-900 font-black">{userSession?.user?.email || "Executive Manager"}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Access Tier</div>
+                    <div className="mt-1 text-sm font-black" style={{ color: config.accent }}>{tierDisplayName}</div>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span>Assigned Business Role</span>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Session</div>
+                    <div className="mt-1 text-sm font-black text-emerald-600">Active</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Security</div>
+                    <div className="mt-1 text-sm font-black text-slate-900">JWT Secured</div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-3 text-xs">
+                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                    <span className="font-semibold text-slate-500">Logged In As</span>
+                    <span className="text-slate-900 font-black">{userDisplayName}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                    <span className="font-semibold text-slate-500">Assigned Role</span>
                     <span className="text-slate-900 font-black">{config.profile.role}</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span>Platform Access Tier</span>
-                    <span className="text-slate-900 font-black uppercase" style={{ color: config.accent }}>{normalizedTier}</span>
+                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                    <span className="font-semibold text-slate-500">Platform Tier</span>
+                    <span className="font-black" style={{ color: config.accent }}>{tierDisplayName}</span>
                   </div>
-                  <div className="flex justify-between py-1">
-                    <span>Authentication Status</span>
-                    <span className="text-slate-900 font-black uppercase" style={{ color: config.accent }}>ACTIVE SESSION (JWT SECURE)</span>
+                  <div className="flex justify-between py-1.5">
+                    <span className="font-semibold text-slate-500">Authentication</span>
+                    <span className="font-black" style={{ color: config.accent }}>ACTIVE SESSION (JWT SECURE)</span>
                   </div>
                 </div>
               </section>
 
               <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
                 <div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Setup Guidelines</span>
-                  <h3 className="text-lg font-black text-slate-900 mt-1">Next Actions</h3>
+                  <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action Console</span>
+                  <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">Operational Next Actions</h3>
                 </div>
-                <p className="text-xs text-slate-500 font-semibold leading-relaxed">{config.profile.nextStep}</p>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                  <p className="text-xs text-slate-600 font-semibold leading-relaxed">{config.profile.nextStep}</p>
+                  <div className="space-y-2 text-[11px] font-bold text-slate-600">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 h-1.5 w-1.5 rounded-full" style={{ background: config.accent }} />
+                      <span>Review live alert stream before shift handover.</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 h-1.5 w-1.5 rounded-full" style={{ background: config.accent }} />
+                      <span>Approve pending inventory updates and billing queue.</span>
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   onClick={handleLogout}
-                  className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-md cursor-pointer"
+                  className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-[0.18em] text-white transition-all shadow-[0_10px_25px_rgba(15,23,42,0.16)] hover:opacity-95 cursor-pointer"
+                  style={{ background: "linear-gradient(90deg,#0f172a 0%,#1e293b 100%)" }}
                 >
                   End Active Session (Logout)
                 </button>

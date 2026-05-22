@@ -6,7 +6,11 @@ import Signup from "./pages/Signup";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import Dashboard from "./pages/Dashboard";
+import BillingPOS from "./pages/BillingPOS";
 import {
+  getBillingPosPath,
+  getBillingPosTab,
+  getBillingPosTierFromPath,
   getDashboardPath,
   getDashboardTab,
   getDashboardTabFromUser,
@@ -14,7 +18,20 @@ import {
 } from "./utils/dashboard";
 
 function App() {
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === "undefined") return "home";
+    const path = window.location.pathname;
+    const dashboardTier = getDashboardTierFromPath(path);
+    const billingTier = getBillingPosTierFromPath(path);
+
+    if (dashboardTier) return getDashboardTab(dashboardTier);
+    if (billingTier) return getBillingPosTab(billingTier);
+
+    if (path === "/signup") return "signup";
+    if (path === "/login") return "login";
+    if (path === "/forgot") return "forgot";
+    return "home";
+  });
   const [backendStatus, setBackendStatus] = useState("checking");
   const [backendData, setBackendData] = useState(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -22,6 +39,10 @@ function App() {
   const isDashboardTab = activeTab.startsWith("dashboard-");
   const activeDashboardTier = isDashboardTab
     ? activeTab.replace("dashboard-", "")
+    : null;
+  const isBillingPosTab = activeTab.startsWith("billing-pos-");
+  const activeBillingTier = isBillingPosTab
+    ? activeTab.replace("billing-pos-", "")
     : null;
 
   // Poll connection on mount
@@ -45,9 +66,15 @@ function App() {
     // On mount, set activeTab from pathname
     const path = window.location.pathname;
     const dashboardTier = getDashboardTierFromPath(path);
+    const billingTier = getBillingPosTierFromPath(path);
 
     if (dashboardTier) {
       setActiveTab(getDashboardTab(dashboardTier));
+      return;
+    }
+
+    if (billingTier) {
+      setActiveTab(getBillingPosTab(billingTier));
       return;
     }
 
@@ -80,6 +107,12 @@ function App() {
       window.history.replaceState({}, "", "/login");
     } else if (activeTab === "forgot") {
       window.history.replaceState({}, "", "/forgot");
+    } else if (isBillingPosTab) {
+      window.history.replaceState(
+        {},
+        "",
+        getBillingPosPath(activeBillingTier),
+      );
     } else if (isDashboardTab) {
       window.history.replaceState(
         {},
@@ -89,7 +122,7 @@ function App() {
     } else {
       window.history.replaceState({}, "", "/");
     }
-  }, [activeTab, activeDashboardTier, isDashboardTab]);
+  }, [activeTab, activeDashboardTier, activeBillingTier, isBillingPosTab, isDashboardTab]);
 
   // Monitor scroll for Back to Top visibility
   useEffect(() => {
@@ -113,13 +146,14 @@ function App() {
 
   return (
     <div
-      className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === "signup" || isDashboardTab ? "" : "pb-24"} relative transition-all`}
+      className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === "signup" || isDashboardTab || isBillingPosTab ? "" : "pb-24"} relative transition-all`}
     >
       {/* Top Header Navigation (hidden on signup/login) */}
       {activeTab !== "signup" &&
         activeTab !== "login" &&
         activeTab !== "forgot" &&
-        !isDashboardTab && (
+        !isDashboardTab &&
+        !isBillingPosTab && (
           <Header
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -140,13 +174,17 @@ function App() {
         {isDashboardTab && (
           <Dashboard tier={activeDashboardTier} setActiveTab={setActiveTab} />
         )}
+        {isBillingPosTab && (
+          <BillingPOS tier={activeBillingTier} setActiveTab={setActiveTab} />
+        )}
       </main>
 
       {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login) */}
       {activeTab !== "signup" &&
         activeTab !== "login" &&
         activeTab !== "forgot" &&
-        !isDashboardTab && (
+        !isDashboardTab &&
+        !isBillingPosTab && (
           <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         )}
 

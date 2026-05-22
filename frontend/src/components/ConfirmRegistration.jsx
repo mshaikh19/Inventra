@@ -1,4 +1,5 @@
 import React from "react";
+import { getTierDisplayName } from "../utils/dashboard";
 
 export default function ConfirmRegistration({ form, classification }) {
   return (
@@ -51,7 +52,7 @@ export default function ConfirmRegistration({ form, classification }) {
               </div>
               <div>
                 <span className="text-indigo-950 font-extrabold text-[13.5px] block leading-none mb-1">
-                  Enterprise Intelligence Tier
+                  {getTierDisplayName(classification)} Tier
                 </span>
                 <span className="text-[11.5px] text-indigo-600 block leading-normal font-medium">
                   Uncapped store locations, dedicated AI demand models, and
@@ -70,7 +71,7 @@ export default function ConfirmRegistration({ form, classification }) {
               </div>
               <div>
                 <span className="text-[#0ea5e9]-950 font-extrabold text-[13.5px] block leading-none mb-1 text-slate-900">
-                  Mid-Market Growth Tier
+                  {getTierDisplayName(classification)} Tier
                 </span>
                 <span className="text-[11.5px] text-[#0EA5E9] block leading-normal font-semibold">
                   Support for up to 10 branches, standard AI demand pipelines,
@@ -89,7 +90,7 @@ export default function ConfirmRegistration({ form, classification }) {
               </div>
               <div>
                 <span className="text-slate-950 font-extrabold text-[13.5px] block leading-none mb-1">
-                  Standard Pro Tier
+                  {getTierDisplayName(classification)} Tier
                 </span>
                 <span className="text-[11.5px] text-slate-500 block leading-normal font-medium">
                   Perfect for single-branch setups. Simple demand analytics and
