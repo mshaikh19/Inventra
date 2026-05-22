@@ -6,12 +6,13 @@ from datetime import timedelta
 from pydantic import EmailStr
 from datetime import datetime
 from app.services.ml_classifier import classifier
+from app.services.dashboard_profiles import normalize_business_tier
 from bson import ObjectId
 
 router = APIRouter()
 
 
-@router.post("/signup", response_model=schemas.UserResponse)
+@router.post("/signup", response_model=schemas.LoginResponse)
 async def signUp(user: schemas.UserCreate):
     db = getDatabase()
     # check existing
@@ -34,6 +35,7 @@ async def signUp(user: schemas.UserCreate):
         "isActive": True,
         "isVerified": False,
     }
+    resolved_tier = normalize_business_tier(user.classification)
 
     try:
         res = await db.users.insert_one(user_doc)
@@ -97,19 +99,41 @@ async def signUp(user: schemas.UserCreate):
                     else:
                         business_doc["classification"] = "small"
 
+            resolved_tier = normalize_business_tier(business_doc.get("classification") or resolved_tier)
+            business_doc["classification"] = resolved_tier
+            business_doc["dashboardPath"] = f"/dashboard/{resolved_tier}"
+            user_doc["businessTier"] = resolved_tier
+            user_doc["dashboardPath"] = business_doc["dashboardPath"]
+            await db.users.update_one(
+                {"_id": ObjectId(user_doc["_id"])},
+                {"$set": {"businessTier": resolved_tier, "dashboardPath": business_doc["dashboardPath"]}},
+            )
+
             bres = await db.businesses.insert_one(business_doc)
             business_doc["_id"] = str(bres.inserted_id)
         except Exception:
             # non-fatal: business persistence should not block user creation
             pass
 
+        if "business_doc" not in locals():
+            user_doc["businessTier"] = resolved_tier
+            user_doc["dashboardPath"] = f"/dashboard/{resolved_tier}"
+
         # Attach ML results to returned user object when available
         if 'business_doc' in locals():
             user_doc["businessTier"] = business_doc.get("classification")
+            user_doc["dashboardPath"] = business_doc.get("dashboardPath")
             user_doc["mlConfidence"] = business_doc.get("mlConfidence")
             user_doc["signalQuality"] = business_doc.get("signalQuality")
 
-        return user_doc
+        access_token = security.createAccessToken(str(user_doc["_id"]))
+
+        return {
+            "message": "Signup successful.",
+            "accessToken": access_token,
+            "tokenType": "bearer",
+            "user": user_doc,
+        }
     except Exception as exc:
         # return a clear error to client
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={
@@ -142,7 +166,8 @@ async def login(user: schemas.UserLogin):
         "firstName": existing.get("firstName"),
         "lastName": existing.get("lastName"),
         "businessName": existing.get("businessName"),
-        "businessTier": existing.get("businessTier"),
+        "businessTier": normalize_business_tier(existing.get("businessTier") or existing.get("classification")),
+        "dashboardPath": f"/dashboard/{normalize_business_tier(existing.get('businessTier') or existing.get('classification'))}",
         "mlConfidence": existing.get("mlConfidence"),
         "signalQuality": existing.get("signalQuality"),
     }

@@ -1,16 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
-import BottomNav from './components/BottomNav';
-import Home from './pages/Home';
-import Signup from './pages/Signup';
-import Login from './pages/Login';
-import ForgotPassword from './pages/ForgotPassword';
+import React, { useState, useEffect } from "react";
+import Header from "./components/Header";
+import BottomNav from "./components/BottomNav";
+import Home from "./pages/Home";
+import Signup from "./pages/Signup";
+import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import Dashboard from "./pages/Dashboard";
+import {
+  getDashboardPath,
+  getDashboardTab,
+  getDashboardTabFromUser,
+  getDashboardTierFromPath,
+} from "./utils/dashboard";
 
 function App() {
   const [activeTab, setActiveTab] = useState("home");
   const [backendStatus, setBackendStatus] = useState("checking");
   const [backendData, setBackendData] = useState(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const isDashboardTab = activeTab.startsWith("dashboard-");
+  const activeDashboardTier = isDashboardTab
+    ? activeTab.replace("dashboard-", "")
+    : null;
 
   // Poll connection on mount
   useEffect(() => {
@@ -32,23 +44,52 @@ function App() {
   useEffect(() => {
     // On mount, set activeTab from pathname
     const path = window.location.pathname;
-    if (path === '/signup') setActiveTab('signup');
-    if (path === '/login') setActiveTab('login');
-    if (path === '/forgot') setActiveTab('forgot');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const dashboardTier = getDashboardTierFromPath(path);
+
+    if (dashboardTier) {
+      setActiveTab(getDashboardTab(dashboardTier));
+      return;
+    }
+
+    if (path === "/signup") setActiveTab("signup");
+    if (path === "/login") setActiveTab("login");
+    if (path === "/forgot") setActiveTab("forgot");
+
+    if (path === "/") {
+      const storageSources = [localStorage, sessionStorage];
+      for (const storage of storageSources) {
+        const rawUser = storage.getItem("inventra_user");
+        if (!rawUser) continue;
+
+        try {
+          const storedUser = JSON.parse(rawUser);
+          setActiveTab(getDashboardTabFromUser(storedUser));
+          return;
+        } catch {
+          continue;
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'signup') {
-      window.history.replaceState({}, '', '/signup');
-    } else if (activeTab === 'login') {
-      window.history.replaceState({}, '', '/login');
-    } else if (activeTab === 'forgot') {
-      window.history.replaceState({}, '', '/forgot');
+    if (activeTab === "signup") {
+      window.history.replaceState({}, "", "/signup");
+    } else if (activeTab === "login") {
+      window.history.replaceState({}, "", "/login");
+    } else if (activeTab === "forgot") {
+      window.history.replaceState({}, "", "/forgot");
+    } else if (isDashboardTab) {
+      window.history.replaceState(
+        {},
+        "",
+        getDashboardPath(activeDashboardTier),
+      );
     } else {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, "", "/");
     }
-  }, [activeTab]);
+  }, [activeTab, activeDashboardTier, isDashboardTab]);
 
   // Monitor scroll for Back to Top visibility
   useEffect(() => {
@@ -71,32 +112,43 @@ function App() {
   };
 
   return (
-    <div className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === 'signup' ? '' : 'pb-24'} relative transition-all`}>
-
+    <div
+      className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === "signup" || isDashboardTab ? "" : "pb-24"} relative transition-all`}
+    >
       {/* Top Header Navigation (hidden on signup/login) */}
-      {activeTab !== 'signup' && activeTab !== 'login' && activeTab !== 'forgot' && (
-        <Header
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          backendStatus={backendStatus}
-          setBackendStatus={setBackendStatus}
-          setBackendData={setBackendData}
-        />
-      )}
+      {activeTab !== "signup" &&
+        activeTab !== "login" &&
+        activeTab !== "forgot" &&
+        !isDashboardTab && (
+          <Header
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            backendStatus={backendStatus}
+            setBackendStatus={setBackendStatus}
+            setBackendData={setBackendData}
+          />
+        )}
 
       {/* Dynamic Content Switching */}
       <main className="relative z-10 w-full">
         {activeTab === "home" && <Home setActiveTab={setActiveTab} />}
         {activeTab === "login" && <Login setActiveTab={setActiveTab} />}
         {activeTab === "signup" && <Signup setActiveTab={setActiveTab} />}
-        {activeTab === "forgot" && <ForgotPassword setActiveTab={setActiveTab} />}
-        {activeTab === "analytics" && <Analytics />}
-        {activeTab === "inventory" && <Inventory />}
-        {activeTab === "settings" && <Settings />}
+        {activeTab === "forgot" && (
+          <ForgotPassword setActiveTab={setActiveTab} />
+        )}
+        {isDashboardTab && (
+          <Dashboard tier={activeDashboardTier} setActiveTab={setActiveTab} />
+        )}
       </main>
 
       {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login) */}
-      {activeTab !== 'signup' && activeTab !== 'login' && activeTab !== 'forgot' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
+      {activeTab !== "signup" &&
+        activeTab !== "login" &&
+        activeTab !== "forgot" &&
+        !isDashboardTab && (
+          <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        )}
 
       {/* Go Back to Top Button */}
       {activeTab !== "login" && (
