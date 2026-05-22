@@ -7,6 +7,18 @@ export default function Header({
   setBackendStatus,
   setBackendData,
 }) {
+  const [isAuthed, setIsAuthed] = React.useState(false);
+
+  React.useEffect(() => {
+    const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+    setIsAuthed(Boolean(token));
+    const onStorage = () => {
+      const t = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+      setIsAuthed(Boolean(t));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
   const [activeSection, setActiveSection] = React.useState(null);
 
   // Auto-highlight nav link based on which section is scrolled into view
@@ -138,15 +150,24 @@ export default function Header({
 
       {/* Right controls: A beautiful, clean high-contrast CTA button instead of application links */}
       <div className="flex items-center gap-4">
-        <button
-          className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
-          onClick={() => setActiveTab("login")}
-        >
-          <span>Login</span>
-        </button>
+        {!isAuthed ? (
+          <button
+            className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
+            onClick={() => setActiveTab("login")}
+          >
+            <span>Login</span>
+          </button>
+        ) : (
+          <button
+            className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
+            onClick={() => { localStorage.removeItem('inventra_token'); localStorage.removeItem('inventra_user'); sessionStorage.removeItem('inventra_token'); sessionStorage.removeItem('inventra_user'); setActiveTab('home'); setIsAuthed(false); window.location.reload(); }}
+          >
+            <span>Logout</span>
+          </button>
+        )}
         <button
           className="py-2.5 px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] flex items-center justify-center gap-1.5 font-sans"
-          onClick={() => handleNavClick("cta")}
+          onClick={() => setActiveTab('signup')}
         >
           <span>Start Session</span>
           <span className="text-[13px]">→</span>

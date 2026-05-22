@@ -30,14 +30,14 @@ export default function Hero({ setActiveTab }) {
           <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3.5 w-full max-w-[420px] lg:max-w-none mt-6 sm:mt-8 md:mt-10">
             <button
               className="py-3 sm:py-3.5 px-5 sm:px-7 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] sm:text-[13px] md:text-[14px] flex items-center justify-center gap-1.5 font-sans"
-              onClick={() => setActiveTab("inventory")}
+              onClick={() => setActiveTab("signup")}
             >
               <span>Start for Free</span>
               <span className="text-[13px] sm:text-[14px] md:text-[15px]">→</span>
             </button>
             <button
               className="py-3 sm:py-3.5 px-5 sm:px-7 rounded-lg font-bold bg-white text-slate-700 hover:bg-slate-50 border border-slate-205 flex items-center justify-center transition-all duration-200 active:scale-98 cursor-pointer text-[12px] sm:text-[13px] md:text-[14px] font-sans"
-              onClick={() => setActiveTab("analytics")}
+              onClick={() => setActiveTab("signup")}
             >
               See How It Works
             </button>

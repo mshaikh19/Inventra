@@ -4,6 +4,7 @@ import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
 
 function App() {
   const [activeTab, setActiveTab] = useState("home");
@@ -33,6 +34,7 @@ function App() {
     const path = window.location.pathname;
     if (path === '/signup') setActiveTab('signup');
     if (path === '/login') setActiveTab('login');
+    if (path === '/forgot') setActiveTab('forgot');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -41,6 +43,8 @@ function App() {
       window.history.replaceState({}, '', '/signup');
     } else if (activeTab === 'login') {
       window.history.replaceState({}, '', '/login');
+    } else if (activeTab === 'forgot') {
+      window.history.replaceState({}, '', '/forgot');
     } else {
       window.history.replaceState({}, '', '/');
     }
@@ -70,7 +74,7 @@ function App() {
     <div className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === 'signup' ? '' : 'pb-24'} relative transition-all`}>
 
       {/* Top Header Navigation (hidden on signup/login) */}
-      {activeTab !== 'signup' && activeTab !== 'login' && (
+      {activeTab !== 'signup' && activeTab !== 'login' && activeTab !== 'forgot' && (
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -85,13 +89,14 @@ function App() {
         {activeTab === "home" && <Home setActiveTab={setActiveTab} />}
         {activeTab === "login" && <Login setActiveTab={setActiveTab} />}
         {activeTab === "signup" && <Signup setActiveTab={setActiveTab} />}
+        {activeTab === "forgot" && <ForgotPassword setActiveTab={setActiveTab} />}
         {activeTab === "analytics" && <Analytics />}
         {activeTab === "inventory" && <Inventory />}
         {activeTab === "settings" && <Settings />}
       </main>
 
       {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login) */}
-      {activeTab !== 'signup' && activeTab !== 'login' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
+      {activeTab !== 'signup' && activeTab !== 'login' && activeTab !== 'forgot' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
 
       {/* Go Back to Top Button */}
       {activeTab !== "login" && (

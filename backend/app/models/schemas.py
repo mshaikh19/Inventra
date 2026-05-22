@@ -84,3 +84,17 @@ class ClassifyResponse(BaseModel):
     signalQuality:  float
     probabilities:  Dict[str, float]
     message:        str
+
+
+# Password reset models
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    newPassword: str = Field(..., min_length=6)
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str

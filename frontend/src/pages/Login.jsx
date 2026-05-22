@@ -1,31 +1,52 @@
 import { useEffect, useState } from "react";
+import FormInput from "../components/FormInput";
+import FormError from "../components/FormError";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 export default function Login({ setActiveTab }) {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    rememberMe: true,
-  });
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [error, setError] = useState(null);
-  const [loginSuccess, setLoginSuccess] = useState(false);
+  const loadSavedAuth = () => {
+    const storageSources = [localStorage, sessionStorage];
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const isLargeScreen = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(min-width: 1025px)").matches;
+    for (const storage of storageSources) {
+      const token = storage.getItem("inventra_token");
+      const userRaw = storage.getItem("inventra_user");
 
-    if (isLargeScreen) {
-      document.body.style.overflow = "hidden";
+      if (token && userRaw) {
+        try {
+          return {
+            token,
+            user: JSON.parse(userRaw),
+            rememberMe: storage === localStorage,
+          };
+        } catch {
+          return {
+            token,
+            user: null,
+            rememberMe: storage === localStorage,
+          };
+        }
+      }
     }
 
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
+    return null;
+  };
+
+  const savedAuth = typeof window !== "undefined" ? loadSavedAuth() : null;
+
+  const [formData, setFormData] = useState({
+    email: savedAuth?.user?.email || "",
+    password: "",
+    rememberMe: savedAuth?.rememberMe ?? true,
+  });
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(savedAuth ? "Login successful." : null);
+  const [error, setError] = useState(null);
+  const [loginSuccess, setLoginSuccess] = useState(Boolean(savedAuth));
+  // Forgot/reset moved to a dedicated page
+
+
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -33,6 +54,23 @@ export default function Login({ setActiveTab }) {
       ...current,
       [name]: type === "checkbox" ? checked : value,
     }));
+  };
+
+  const saveAuthData = (token, user) => {
+    const storage = formData.rememberMe ? localStorage : sessionStorage;
+    storage.setItem("inventra_token", token);
+    storage.setItem("inventra_user", JSON.stringify(user));
+
+    const otherStorage = formData.rememberMe ? sessionStorage : localStorage;
+    otherStorage.removeItem("inventra_token");
+    otherStorage.removeItem("inventra_user");
+  };
+
+  const clearAuthData = () => {
+    localStorage.removeItem("inventra_token");
+    localStorage.removeItem("inventra_user");
+    sessionStorage.removeItem("inventra_token");
+    sessionStorage.removeItem("inventra_user");
   };
 
   const handleSubmit = async (event) => {
@@ -60,8 +98,7 @@ export default function Login({ setActiveTab }) {
         throw new Error(data?.detail || "Login failed.");
       }
 
-      localStorage.setItem("inventra_token", data.accessToken);
-      localStorage.setItem("inventra_user", JSON.stringify(data.user));
+      saveAuthData(data.accessToken, data.user);
 
       setLoginSuccess(true);
       setMessage(data.message || "Login successful.");
@@ -75,6 +112,91 @@ export default function Login({ setActiveTab }) {
       setLoading(false);
     }
   };
+
+  const RightCard = () => {
+    if (loginSuccess) {
+      return (
+        <div className="rounded-[32px] border border-emerald-100 bg-white/95 backdrop-blur-xl shadow-[0_30px_70px_rgba(15,23,42,0.08)] p-7 md:p-10 space-y-6">
+          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Login confirmed
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900">Welcome back.</h2>
+            <p className="text-sm md:text-[15px] leading-relaxed text-slate-600 font-medium">You are signed in as <span className="font-bold text-slate-900">{formData.email}</span>. Your session has been saved locally for this browser.</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-600 space-y-2">
+            <div className="flex items-center justify-between gap-4"><span className="font-semibold text-slate-700">Status</span><span className="font-black text-emerald-600">Success</span></div>
+            <div className="flex items-center justify-between gap-4"><span className="font-semibold text-slate-700">Remember me</span><span className="font-black text-slate-900">{formData.rememberMe ? "On" : "Off"}</span></div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button type="button" onClick={() => setActiveTab("home")} className="flex-1 rounded-2xl bg-[#0F172A] px-5 py-4 text-base font-black text-white transition-all duration-200 hover:bg-slate-800 active:scale-[0.99]">Continue to home</button>
+            <button type="button" onClick={() => { clearAuthData(); setLoginSuccess(false); setMessage(null); setActiveTab('home'); }} className="flex-1 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base font-black text-slate-700 transition-all duration-200 hover:bg-slate-50 active:scale-[0.99]">Logout</button>
+          </div>
+        </div>
+      );
+    }
+
+    // forgot/reset handled on separate page
+
+    // default: sign-in form
+    return (
+      <form onSubmit={handleSubmit} className="rounded-[32px] border border-slate-100 bg-white/90 backdrop-blur-xl shadow-[0_30px_70px_rgba(15,23,42,0.08)] p-7 md:p-10 space-y-6">
+        <div className="flex items-start justify-between gap-4"><div><p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">Sign In</p><h2 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-slate-900">Sign in to Inventra</h2></div></div>
+
+        <div className="space-y-4">
+          <FormInput
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="you@company.com"
+            autoComplete="email"
+            required
+          />
+
+          <FormInput
+            label="Password"
+            name="password"
+            type="password"
+            value={formData.password}
+            onChange={handleChange}
+            placeholder="Enter your password"
+            autoComplete="current-password"
+            required
+          />
+            <div className="flex items-center justify-between gap-4">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-600"><input name="rememberMe" type="checkbox" checked={formData.rememberMe} onChange={handleChange} className="h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-200" /> Remember me</label>
+            <button type="button" onClick={()=> setActiveTab('forgot')} className="text-sm font-bold text-sky-600 hover:text-sky-700 transition-colors">Forgot password?</button>
+          </div>
+
+        </div>
+
+        {error && <FormError type="error">{error}</FormError>}
+
+        {message && <FormError type="success">{message}</FormError>}
+
+        <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#0F172A] px-5 py-4 text-base font-black text-white transition-all duration-200 hover:bg-slate-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70">{loading ? "Signing in..." : "Sign In"}</button>
+      </form>
+    );
+  };
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const isLargeScreen = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(min-width: 1025px)").matches;
+
+    if (isLargeScreen) {
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   return (
     <section className="min-h-[calc(100vh-5rem)] px-6 md:px-16 lg:px-24 xl:px-32 py-10 md:py-14 bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(180deg,#f8fafc_0%,#ffffff_45%,#f8fafc_100%)] w-full flex items-center overflow-hidden">
@@ -129,141 +251,7 @@ export default function Login({ setActiveTab }) {
             <span aria-hidden="true">←</span>
             <span>Back to home</span>
           </button>
-          {loginSuccess ? (
-            <div className="rounded-[32px] border border-emerald-100 bg-white/95 backdrop-blur-xl shadow-[0_30px_70px_rgba(15,23,42,0.08)] p-7 md:p-10 space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Login confirmed
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900">
-                  Welcome back.
-                </h2>
-                <p className="text-sm md:text-[15px] leading-relaxed text-slate-600 font-medium">
-                  You are signed in as <span className="font-bold text-slate-900">{formData.email}</span>.
-                  Your session has been saved locally for this browser.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-600 space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-semibold text-slate-700">Status</span>
-                  <span className="font-black text-emerald-600">Success</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-semibold text-slate-700">Remember me</span>
-                  <span className="font-black text-slate-900">{formData.rememberMe ? "On" : "Off"}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("home")}
-                  className="flex-1 rounded-2xl bg-[#0F172A] px-5 py-4 text-base font-black text-white transition-all duration-200 hover:bg-slate-800 active:scale-[0.99]"
-                >
-                  Continue to home
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLoginSuccess(false)}
-                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base font-black text-slate-700 transition-all duration-200 hover:bg-slate-50 active:scale-[0.99]"
-                >
-                  Back to sign-in
-                </button>
-              </div>
-            </div>
-          ) : (
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-[32px] border border-slate-100 bg-white/90 backdrop-blur-xl shadow-[0_30px_70px_rgba(15,23,42,0.08)] p-7 md:p-10 space-y-6"
-          >
-              <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">
-                  Sign In
-                </p>
-                <h2 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-slate-900">
-                  Sign in to Inventra
-                </h2>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-sm font-bold text-slate-700">
-                  Email
-                </span>
-                <input
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="you@company.com"
-                  autoComplete="email"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-                  required
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-bold text-slate-700">
-                  Password
-                </span>
-                <input
-                  name="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-                  required
-                />
-              </label>
-
-              <div className="flex items-center justify-between gap-4">
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                  <input
-                    name="rememberMe"
-                    type="checkbox"
-                    checked={formData.rememberMe}
-                    onChange={handleChange}
-                    className="h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-200"
-                  />
-                  Remember me
-                </label>
-                <button
-                  type="button"
-                  className="text-sm font-bold text-sky-600 hover:text-sky-700 transition-colors"
-                >
-                  Forgot password?
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                {error}
-              </div>
-            )}
-
-            {message && (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-                {message}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-2xl bg-[#0F172A] px-5 py-4 text-base font-black text-white transition-all duration-200 hover:bg-slate-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {loading ? "Signing in..." : "Sign In"}
-            </button>
-          </form>
-          )}
+          {RightCard()}
         </div>
       </div>
     </section>
