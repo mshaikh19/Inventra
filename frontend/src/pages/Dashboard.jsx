@@ -139,6 +139,8 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   const [showAlertMenu, setShowAlertMenu] = useState(false);
   const [showAddBranchModal, setShowAddBranchModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchProperName, setNewBranchProperName] = useState("");
+  const [newBranchAddress, setNewBranchAddress] = useState("");
   const [branchNetwork, setBranchNetwork] = useState(() => getBranchNetwork(normalizedTier));
 
   // States for Medium and Large Analytics Page redone visually
@@ -193,7 +195,60 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     return null;
   }, []);
 
-  const userDisplayName = getUserDisplayName(userSession?.user, "Manager");
+  const [userProfile, setUserProfile] = useState(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("inventra_user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({ firstName: "", lastName: "", businessName: "", email: "" });
+
+  useEffect(() => {
+    if (userProfile) {
+      setProfileDraft({
+        firstName: userProfile.firstName || "",
+        lastName: userProfile.lastName || "",
+        businessName: userProfile.businessName || userProfile.company || "",
+        email: userProfile.email || "",
+      });
+    }
+  }, [userProfile]);
+
+  const userDisplayName = getUserDisplayName(userProfile || userSession?.user, "Manager");
+
+  const openEditProfile = () => {
+    setProfileDraft({
+      firstName: (userProfile?.firstName || userSession?.user?.firstName || ""),
+      lastName: (userProfile?.lastName || userSession?.user?.lastName || ""),
+      businessName: (userProfile?.businessName || userSession?.user?.businessName || userSession?.user?.company || ""),
+      email: (userProfile?.email || userSession?.user?.email || ""),
+    });
+    setEditingProfile(true);
+  };
+
+  const handleSaveProfile = (ev) => {
+    ev.preventDefault();
+    const updated = {
+      ...(userProfile || {}),
+      firstName: String(profileDraft.firstName || "").trim(),
+      lastName: String(profileDraft.lastName || "").trim(),
+      businessName: String(profileDraft.businessName || "").trim(),
+      email: String(profileDraft.email || "").trim(),
+      role: "OWNER",
+    };
+    try {
+      localStorage.setItem("inventra_user", JSON.stringify(updated));
+    } catch (e) {
+      // ignore storage errors
+    }
+    setUserProfile(updated);
+    setEditingProfile(false);
+  };
 
   const tierFeatures = TIER_FEATURES[normalizedTier];
 
@@ -287,11 +342,14 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
   const handleAddBranch = (event) => {
     event.preventDefault();
-    const trimmed = newBranchName.trim();
-    if (!trimmed) return;
-    addBranchToNetwork(trimmed);
+    const name = newBranchName.trim();
+    if (!name) return;
+    const payload = { name, properName: (newBranchProperName || "").trim(), address: (newBranchAddress || "").trim() };
+    addBranchToNetwork(payload);
     setBranchNetwork(getBranchNetwork(normalizedTier));
     setNewBranchName("");
+    setNewBranchProperName("");
+    setNewBranchAddress("");
     setShowAddBranchModal(false);
   };
 
@@ -1486,11 +1544,20 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                       <div>
                         <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Executive Identity</span>
                         <h3 className="text-xl md:text-2xl font-black text-slate-900 mt-1 leading-tight">{userDisplayName}</h3>
+                        <div className="text-xs text-slate-500 mt-1">
+                          {userProfile?.businessName || userSession?.user?.businessName || userSession?.user?.company || ""}
+                          {userProfile?.email || userSession?.user?.email ? (
+                            <div className="text-[11px] text-slate-400 mt-1">{userProfile?.email || userSession?.user?.email}</div>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                    <span className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ borderColor: `${config.accent}66`, color: config.accent, background: `${config.accent}14` }}>
-                      {tierDisplayName}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ borderColor: `${config.accent}66`, color: config.accent, background: `${config.accent}14` }}>
+                        {tierDisplayName}
+                      </span>
+                      <button onClick={openEditProfile} className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200">Edit</button>
+                    </div>
                   </div>
                   <p className="mt-3 text-xs text-slate-500 font-semibold leading-relaxed">{config.profile.role}</p>
                 </div>
@@ -1517,7 +1584,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-200/60">
                     <span className="font-semibold text-slate-500">Assigned Role</span>
-                    <span className="text-slate-900 font-black">{config.profile.role}</span>
+                    <span className="text-slate-900 font-black">{(userProfile && (userProfile.role || "OWNER")) || "OWNER"}</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-200/60">
                     <span className="font-semibold text-slate-500">Platform Tier</span>
@@ -1531,9 +1598,19 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               </section>
 
               <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action Console</span>
-                  <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">Operational Next Actions</h3>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action Console</span>
+                    <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">Operational Next Actions</h3>
+                  </div>
+                  <div>
+                    <button
+                      onClick={openEditProfile}
+                      className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                    >
+                      Edit Profile
+                    </button>
+                  </div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -1575,6 +1652,85 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             </div>
           )}
 
+          {editingProfile && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Edit Profile</span>
+                    <h3 className="text-xl font-black text-slate-950 mt-1">Update Executive Profile</h3>
+                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">Your role will remain <strong>OWNER</strong>.</p>
+                  </div>
+                  <button
+                    onClick={() => setEditingProfile(false)}
+                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveProfile} className="mt-5 space-y-4">
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">First Name</span>
+                    <input
+                      value={profileDraft.firstName}
+                      onChange={(e) => setProfileDraft((p) => ({ ...p, firstName: e.target.value }))}
+                      placeholder="First name"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                      autoFocus
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Last Name</span>
+                    <input
+                      value={profileDraft.lastName}
+                      onChange={(e) => setProfileDraft((p) => ({ ...p, lastName: e.target.value }))}
+                      placeholder="Last name"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business / Company</span>
+                    <input
+                      value={profileDraft.businessName}
+                      onChange={(e) => setProfileDraft((p) => ({ ...p, businessName: e.target.value }))}
+                      placeholder="Business name"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Email (login)</span>
+                    <input
+                      value={profileDraft.email}
+                      onChange={(e) => setProfileDraft((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="email@example.com"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                    />
+                  </label>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      className="flex-1 w-full rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                    >
+                      Save Profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingProfile(false)}
+                      className="rounded-xl bg-slate-100 px-5 py-3 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {showAddBranchModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
               <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
@@ -1603,6 +1759,26 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                       placeholder="e.g. Hyderabad Branch"
                       className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
                       autoFocus
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Proper Name (Official)</span>
+                    <input
+                      value={newBranchProperName}
+                      onChange={(e) => setNewBranchProperName(e.target.value)}
+                      placeholder="e.g. Inventra Hyderabad - Golconda Outlet"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Location / Address</span>
+                    <textarea
+                      value={newBranchAddress}
+                      onChange={(e) => setNewBranchAddress(e.target.value)}
+                      placeholder={"Street address, Area, City, State, PIN"}
+                      rows={3}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
                     />
                   </label>
                   <button

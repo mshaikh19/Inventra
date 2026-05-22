@@ -278,6 +278,7 @@ export default function Signup({ setActiveTab }) {
         employees: Number(form.employees || 0),
         businessType: form.businessType || null,
         classification: cls,
+        role: "OWNER",
       };
       const res = await fetch("http://127.0.0.1:8000/api/v1/auth/signup", {
         method: "POST",

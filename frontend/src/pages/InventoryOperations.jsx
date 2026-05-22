@@ -97,6 +97,42 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   });
   const scannerInputRef = React.useRef(null);
 
+  const playScanSound = (isSuccess) => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      if (isSuccess) {
+        // Success Beep: nice 1000Hz pure sine wave for 100ms
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1000, ctx.currentTime);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+      } else {
+        // Error Buzz: low-pitch dual-tone square wave at 120Hz for 250ms
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(120, ctx.currentTime);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      }
+    } catch (e) {
+      console.warn("Web Audio API not supported or blocked: ", e);
+    }
+  };
+
   const userDisplayName = getUserDisplayName(userSession?.user, "Manager");
 
   React.useEffect(() => {
@@ -217,8 +253,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     const product = products.find((item) => item.barcode === trimmed);
     if (product) {
       setSearchTerm(product.name);
+      playScanSound(true);
       setScannerFeedback({ status: "success", message: `Found ${product.name} in inventory.` });
     } else {
+      playScanSound(false);
       setScannerFeedback({ status: "error", message: `Barcode "${trimmed}" is not registered.` });
     }
     setScannerInput("");
@@ -485,45 +523,135 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       )}
 
       {showScannerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-3xl border border-slate-800 bg-slate-950 p-5 text-white shadow-[0_24px_80px_rgba(2,6,23,0.45)]">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-400">Barcode Scanner</span>
-                <h3 className="text-xl font-black mt-1">Inventory Scan Terminal</h3>
-                <p className="text-xs font-semibold text-slate-400 mt-1">Use a hardware scanner, type a code, or simulate a product scan.</p>
-              </div>
-              <button onClick={() => { setShowScannerModal(false); setScannerFeedback(null); }} className="rounded-xl bg-white/10 px-3 py-2 text-xs font-black text-slate-300 hover:text-white cursor-pointer">Close</button>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
-              <div className="relative min-h-52 rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden grid place-items-center">
-                <div className="absolute inset-x-8 top-1/2 h-0.5 bg-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.9)]" />
-                <div className="text-center">
-                  <div className="mx-auto h-16 w-16 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 grid place-items-center text-2xl font-black text-emerald-300">|||</div>
-                  <p className="mt-4 text-xs font-black uppercase tracking-[0.2em] text-slate-500">Scanner Ready</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-[0_25px_60px_rgba(0,0,0,0.45)] text-slate-200 flex flex-col gap-4">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                <div>
+                  <h3 className="text-[13px] font-black uppercase tracking-[0.2em] text-white">INVENTORY BARCODE SCANNER</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Simulate scans or use hardware wedge</p>
                 </div>
               </div>
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {products.slice(0, 8).map((product) => (
-                  <button key={product.id} onClick={() => handleScanBarcode(product.barcode)} className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-left hover:border-emerald-400/50 cursor-pointer">
-                    <span className="block text-xs font-black text-white">{product.name}</span>
-                    <span className="block text-[10px] font-mono font-bold text-slate-500 mt-0.5">{product.barcode}</span>
-                  </button>
-                ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowScannerModal(false);
+                  setScannerFeedback(null);
+                }}
+                className="rounded-lg bg-slate-800 hover:bg-slate-700 p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Scanning Viewport */}
+            <div className="relative aspect-video max-w-sm w-full mx-auto rounded-2xl bg-slate-955 border border-slate-800 overflow-hidden flex items-center justify-center scanner-grid-pattern">
+              {/* Sweeping Laser Line */}
+              <div className="scan-laser-line" />
+
+              {/* Corner Targets */}
+              <div className="absolute top-4 left-4 w-4 h-4 border-t-2 border-l-2 border-rose-500 rounded-tl" />
+              <div className="absolute top-4 right-4 w-4 h-4 border-t-2 border-r-2 border-rose-500 rounded-tr" />
+              <div className="absolute bottom-4 left-4 w-4 h-4 border-b-2 border-l-2 border-rose-500 rounded-bl" />
+              <div className="absolute bottom-4 right-4 w-4 h-4 border-b-2 border-r-2 border-rose-500 rounded-br" />
+
+              {/* Central text indicator */}
+              <div className="text-center z-20 pointer-events-none select-none">
+                <div className="text-[9px] font-black uppercase text-rose-500 tracking-[0.25em] animate-pulse-soft">
+                  CAMERA PREVIEW ACTIVE
+                </div>
+                <div className="text-[8px] font-bold text-slate-500 tracking-wider mt-1">
+                  READY FOR EAN-13 TRANSMISSION
+                </div>
               </div>
             </div>
 
-            <form onSubmit={(event) => { event.preventDefault(); handleScanBarcode(scannerInput); }} className="mt-4 flex gap-2">
-              <input ref={scannerInputRef} value={scannerInput} onChange={(event) => setScannerInput(event.target.value)} placeholder="Enter barcode or wedge scan here..." className="flex-1 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-mono font-bold text-white outline-none focus:border-emerald-400" />
-              <button type="submit" className="rounded-xl bg-emerald-500 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-950 cursor-pointer">Scan</button>
-            </form>
+            {/* Quick Simulation Options */}
+            <div>
+              <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400 mb-2 select-none">
+                Click to Simulate Product Scan
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {products.map((p) => {
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleScanBarcode(p.barcode)}
+                      className="flex items-center justify-between text-left p-2 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/85 hover:border-slate-700 transition-all text-xs font-semibold text-slate-300 cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-bold text-white text-[11px] truncate">{p.name}</div>
+                        <div className="text-[9px] text-slate-500 font-mono tracking-wider mt-0.5">{p.barcode}</div>
+                      </div>
+                      <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded shrink-0 uppercase tracking-widest ml-1 select-none">
+                        Scan
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
+            {/* Manual scan form */}
+            <div className="border-t border-slate-800 pt-3">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleScanBarcode(scannerInput);
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  ref={scannerInputRef}
+                  type="text"
+                  placeholder="Enter barcode or wedge scan here..."
+                  value={scannerInput}
+                  onChange={(e) => setScannerInput(e.target.value)}
+                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs font-bold text-white outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider text-white bg-rose-600 hover:bg-rose-500 transition-all cursor-pointer select-none"
+                >
+                  Scan Code
+                </button>
+              </form>
+            </div>
+
+            {/* Scan Feedback notification */}
             {scannerFeedback && (
-              <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-black ${scannerFeedback.status === "success" ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : "border-rose-400/40 bg-rose-400/10 text-rose-300"}`}>
-                {scannerFeedback.message}
+              <div
+                className={`rounded-xl border p-3 flex items-start gap-2.5 animate-fade-in ${
+                  scannerFeedback.status === "success"
+                    ? "border-emerald-500/20 bg-emerald-950/40 text-emerald-300"
+                    : "border-rose-500/20 bg-rose-950/40 text-rose-300"
+                }`}
+              >
+                <span className="text-sm shrink-0">
+                  {scannerFeedback.status === "success" ? "✓" : "⚠️"}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-widest leading-none">
+                    {scannerFeedback.status === "success" ? "Scan Success" : "Scan Error"}
+                  </div>
+                  <p className="text-[10.5px] font-bold mt-1 text-white truncate">
+                    {scannerFeedback.message}
+                  </p>
+                </div>
               </div>
             )}
+
+            {/* Close footer info */}
+            <div className="text-center text-[9px] font-bold text-slate-500 tracking-wider">
+              Press <span className="text-slate-400 font-black">F8</span> anytime to dismiss
+            </div>
+
           </div>
         </div>
       )}

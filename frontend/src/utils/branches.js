@@ -17,18 +17,37 @@ export function getBranchNetwork(tier = "small") {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
     const customBranches = Array.isArray(stored) ? stored.filter(Boolean) : [];
-    return [...new Set([...defaults, ...customBranches])];
+    // stored items may be strings (legacy) or objects { name, properName, address }
+    const customNames = customBranches.map((b) => (typeof b === "string" ? b : b.name)).filter(Boolean);
+    return [...new Set([...defaults, ...customNames])];
   } catch {
     return defaults;
   }
 }
 
-export function addBranchToNetwork(branchName) {
-  const normalizedName = String(branchName || "").trim();
-  if (!normalizedName || typeof window === "undefined") return getBranchNetwork("large");
+export function addBranchToNetwork(branch) {
+  if (typeof window === "undefined") return getBranchNetwork("large");
 
-  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  const next = [...new Set([...(Array.isArray(stored) ? stored : []), normalizedName])];
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  return next;
+  // Accept either a string name or an object with details
+  const branchObj = typeof branch === "string" ? { name: String(branch || "").trim() } : (branch || {});
+  const name = String(branchObj.name || "").trim();
+  if (!name) return getBranchNetwork("large");
+
+  const storedRaw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  const stored = Array.isArray(storedRaw) ? storedRaw : [];
+
+  // Prevent duplicates by name
+  const exists = stored.some((b) => {
+    if (typeof b === "string") return b === name;
+    return String(b.name || "").trim() === name;
+  });
+
+  if (!exists) {
+    // store as an object to preserve details
+    stored.push({ name, properName: branchObj.properName || "", address: branchObj.address || "" });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  }
+
+  // Return the updated network (as display names)
+  return getBranchNetwork("large");
 }
