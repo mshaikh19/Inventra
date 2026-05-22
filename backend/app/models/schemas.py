@@ -50,11 +50,6 @@ class UserLogin(BaseModel):
     password: str = Field(..., min_length=6)
 
 
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=6)
-
-
 class UserResponse(UserBase):
     id: Optional[str] = Field(None, alias="_id")
     businessTier:    Optional[str] = None    # ML-classified tier returned on signup
@@ -70,3 +65,22 @@ class LoginResponse(BaseModel):
     accessToken: str
     tokenType: str = "bearer"
     user: UserResponse
+
+
+# ── ML Classification models ─────────────────────────────────────────────────
+class ClassifyRequest(BaseModel):
+    """Ordinal feature vector sent to the ML classify endpoint."""
+    scale:      Optional[int] = None
+    volume:     Optional[int] = None
+    complexity: Optional[int] = None
+    locations:  int = 0
+    bizType:    str = "other"
+
+
+class ClassifyResponse(BaseModel):
+    """ML classification result returned to the frontend."""
+    classification: BusinessSize
+    confidence:     float
+    signalQuality:  float
+    probabilities:  Dict[str, float]
+    message:        str

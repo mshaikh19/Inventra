@@ -3,6 +3,7 @@ import Header from './components/Header';
 import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Signup from './pages/Signup';
+import Login from './pages/Login';
 
 function App() {
   const [activeTab, setActiveTab] = useState("home");
@@ -31,12 +32,15 @@ function App() {
     // On mount, set activeTab from pathname
     const path = window.location.pathname;
     if (path === '/signup') setActiveTab('signup');
+    if (path === '/login') setActiveTab('login');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (activeTab === 'signup') {
       window.history.replaceState({}, '', '/signup');
+    } else if (activeTab === 'login') {
+      window.history.replaceState({}, '', '/login');
     } else {
       window.history.replaceState({}, '', '/');
     }
@@ -65,8 +69,8 @@ function App() {
   return (
     <div className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === 'signup' ? '' : 'pb-24'} relative transition-all`}>
 
-      {/* Top Header Navigation (hidden on signup) */}
-      {activeTab !== 'signup' && (
+      {/* Top Header Navigation (hidden on signup/login) */}
+      {activeTab !== 'signup' && activeTab !== 'login' && (
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -79,14 +83,15 @@ function App() {
       {/* Dynamic Content Switching */}
       <main className="relative z-10 w-full">
         {activeTab === "home" && <Home setActiveTab={setActiveTab} />}
+        {activeTab === "login" && <Login setActiveTab={setActiveTab} />}
         {activeTab === "signup" && <Signup setActiveTab={setActiveTab} />}
         {activeTab === "analytics" && <Analytics />}
         {activeTab === "inventory" && <Inventory />}
         {activeTab === "settings" && <Settings />}
       </main>
 
-      {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop & Signup) */}
-      {activeTab !== 'signup' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
+      {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login) */}
+      {activeTab !== 'signup' && activeTab !== 'login' && <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />}
 
       {/* Go Back to Top Button */}
       {activeTab !== "login" && (
