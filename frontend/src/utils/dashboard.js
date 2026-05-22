@@ -40,6 +40,22 @@ export function getBillingPosPath(tier) {
   return `/billing-pos/${normalizeBusinessTier(tier)}`;
 }
 
+export function getBranchOpsTab(tier) {
+  return `branch-ops-${normalizeBusinessTier(tier)}`;
+}
+
+export function getBranchOpsPath(tier) {
+  return `/branch-ops/${normalizeBusinessTier(tier)}`;
+}
+
+export function getInventoryOpsTab(tier) {
+  return `inventory-ops-${normalizeBusinessTier(tier)}`;
+}
+
+export function getInventoryOpsPath(tier) {
+  return `/inventory-ops/${normalizeBusinessTier(tier)}`;
+}
+
 export function getDashboardTierFromPath(pathname) {
   const path = String(pathname || "").toLowerCase();
   if (path.startsWith("/dashboard/large")) return "large";
@@ -53,6 +69,22 @@ export function getBillingPosTierFromPath(pathname) {
   if (path.startsWith("/billing-pos/large")) return "large";
   if (path.startsWith("/billing-pos/medium")) return "medium";
   if (path.startsWith("/billing-pos/small")) return "small";
+  return null;
+}
+
+export function getBranchOpsTierFromPath(pathname) {
+  const path = String(pathname || "").toLowerCase();
+  if (path.startsWith("/branch-ops/large")) return "large";
+  if (path.startsWith("/branch-ops/medium")) return "medium";
+  if (path.startsWith("/branch-ops/small")) return "small";
+  return null;
+}
+
+export function getInventoryOpsTierFromPath(pathname) {
+  const path = String(pathname || "").toLowerCase();
+  if (path.startsWith("/inventory-ops/large")) return "large";
+  if (path.startsWith("/inventory-ops/medium")) return "medium";
+  if (path.startsWith("/inventory-ops/small")) return "small";
   return null;
 }
 

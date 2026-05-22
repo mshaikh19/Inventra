@@ -8,7 +8,15 @@ import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import Dashboard from "./pages/Dashboard";
 import BillingPOS from "./pages/BillingPOS";
+import BranchOperations from "./pages/BranchOperations";
+import InventoryOperations from "./pages/InventoryOperations";
 import {
+  getBranchOpsPath,
+  getBranchOpsTab,
+  getBranchOpsTierFromPath,
+  getInventoryOpsPath,
+  getInventoryOpsTab,
+  getInventoryOpsTierFromPath,
   getBillingPosPath,
   getBillingPosTab,
   getBillingPosTierFromPath,
@@ -24,9 +32,13 @@ function App() {
     const path = window.location.pathname;
     const dashboardTier = getDashboardTierFromPath(path);
     const billingTier = getBillingPosTierFromPath(path);
+    const branchOpsTier = getBranchOpsTierFromPath(path);
+    const inventoryOpsTier = getInventoryOpsTierFromPath(path);
 
     if (dashboardTier) return getDashboardTab(dashboardTier);
     if (billingTier) return getBillingPosTab(billingTier);
+    if (branchOpsTier) return getBranchOpsTab(branchOpsTier);
+    if (inventoryOpsTier) return getInventoryOpsTab(inventoryOpsTier);
 
     if (path === "/signup") return "signup";
     if (path === "/login") return "login";
@@ -44,6 +56,14 @@ function App() {
   const isBillingPosTab = activeTab.startsWith("billing-pos-");
   const activeBillingTier = isBillingPosTab
     ? activeTab.replace("billing-pos-", "")
+    : null;
+  const isBranchOpsTab = activeTab.startsWith("branch-ops-");
+  const activeBranchOpsTier = isBranchOpsTab
+    ? activeTab.replace("branch-ops-", "")
+    : null;
+  const isInventoryOpsTab = activeTab.startsWith("inventory-ops-");
+  const activeInventoryOpsTier = isInventoryOpsTab
+    ? activeTab.replace("inventory-ops-", "")
     : null;
 
   // Poll connection on mount
@@ -68,6 +88,8 @@ function App() {
     const path = window.location.pathname;
     const dashboardTier = getDashboardTierFromPath(path);
     const billingTier = getBillingPosTierFromPath(path);
+    const branchOpsTier = getBranchOpsTierFromPath(path);
+    const inventoryOpsTier = getInventoryOpsTierFromPath(path);
 
     if (dashboardTier) {
       setActiveTab(getDashboardTab(dashboardTier));
@@ -76,6 +98,16 @@ function App() {
 
     if (billingTier) {
       setActiveTab(getBillingPosTab(billingTier));
+      return;
+    }
+
+    if (branchOpsTier) {
+      setActiveTab(getBranchOpsTab(branchOpsTier));
+      return;
+    }
+
+    if (inventoryOpsTier) {
+      setActiveTab(getInventoryOpsTab(inventoryOpsTier));
       return;
     }
 
@@ -114,6 +146,18 @@ function App() {
         "",
         getBillingPosPath(activeBillingTier),
       );
+    } else if (isBranchOpsTab) {
+      window.history.replaceState(
+        {},
+        "",
+        getBranchOpsPath(activeBranchOpsTier),
+      );
+    } else if (isInventoryOpsTab) {
+      window.history.replaceState(
+        {},
+        "",
+        getInventoryOpsPath(activeInventoryOpsTier),
+      );
     } else if (isDashboardTab) {
       window.history.replaceState(
         {},
@@ -123,7 +167,7 @@ function App() {
     } else {
       window.history.replaceState({}, "", "/");
     }
-  }, [activeTab, activeDashboardTier, activeBillingTier, isBillingPosTab, isDashboardTab]);
+  }, [activeTab, activeDashboardTier, activeBillingTier, activeBranchOpsTier, activeInventoryOpsTier, isBillingPosTab, isBranchOpsTab, isInventoryOpsTab, isDashboardTab]);
 
   // Monitor scroll for Back to Top visibility
   useEffect(() => {
@@ -147,14 +191,16 @@ function App() {
 
   return (
     <div
-      className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === "signup" || isDashboardTab || isBillingPosTab ? "" : "pb-24"} relative transition-all`}
+      className={`min-h-screen bg-white text-slate-900 font-sans ${activeTab === "signup" || isDashboardTab || isBillingPosTab || isBranchOpsTab || isInventoryOpsTab ? "" : "pb-24"} relative transition-all`}
     >
       {/* Top Header Navigation (hidden on signup/login) */}
       {activeTab !== "signup" &&
         activeTab !== "login" &&
         activeTab !== "forgot" &&
         !isDashboardTab &&
-        !isBillingPosTab && (
+        !isBillingPosTab &&
+        !isBranchOpsTab &&
+        !isInventoryOpsTab && (
           <Header
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -178,6 +224,12 @@ function App() {
         {isBillingPosTab && (
           <BillingPOS tier={activeBillingTier} setActiveTab={setActiveTab} />
         )}
+        {isBranchOpsTab && (
+          <BranchOperations tier={activeBranchOpsTier} setActiveTab={setActiveTab} />
+        )}
+        {isInventoryOpsTab && (
+          <InventoryOperations tier={activeInventoryOpsTier} setActiveTab={setActiveTab} />
+        )}
       </main>
 
       {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login) */}
@@ -185,7 +237,9 @@ function App() {
         activeTab !== "login" &&
         activeTab !== "forgot" &&
         !isDashboardTab &&
-        !isBillingPosTab && (
+        !isBillingPosTab &&
+        !isBranchOpsTab &&
+        !isInventoryOpsTab && (
           <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         )}
 

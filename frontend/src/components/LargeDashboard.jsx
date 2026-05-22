@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 
 // Standard allocation ratios for branches
 const allocateStock = (productId, totalStock) => {
@@ -49,28 +52,34 @@ const allocateStock = (productId, totalStock) => {
   };
 };
 
-export default function LargeDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft }) {
+export default function LargeDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft, onOpenBranchPage, branchNetwork }) {
   // Navigation View State: null means Consolidated View, otherwise Branch Name
   const [selectedBranchPage, setSelectedBranchPage] = useState(null);
   const [activeBranch, setActiveBranch] = useState("Mumbai Hub");
   const [hoveredNode, setHoveredNode] = useState(null);
 
-  const branchesList = ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot"];
+  const branchesList = branchNetwork?.length
+    ? branchNetwork
+    : ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot", "New York Hub", "London Branch", "Tokyo Depot", "Singapore Hub"];
   const branchCapacityLimits = {
     "Mumbai Hub": 300,
     "Delhi Branch": 150,
     "Bangalore Branch": 250,
-    "Pune Depot": 600
+    "Pune Depot": 600,
+    "New York Hub": 450,
+    "London Branch": 280,
+    "Tokyo Depot": 520,
+    "Singapore Hub": 380
   };
 
   // Branch Shelf Coordinates Mapper for a realistic warehouse grid
   const shelfCoordinates = {
-    1: { "Mumbai Hub": "Aisle A-3", "Delhi Branch": "Aisle A-1", "Bangalore Branch": "Aisle A-2", "Pune Depot": "Aisle A-5" },
-    2: { "Mumbai Hub": "Cold Rack-1", "Delhi Branch": "Cold Rack-1", "Bangalore Branch": "Cold Rack-3", "Pune Depot": "Cold Room-1" },
-    3: { "Mumbai Hub": "Aisle C-2", "Delhi Branch": "Aisle C-1", "Bangalore Branch": "Aisle C-3", "Pune Depot": "Aisle C-5" },
-    4: { "Mumbai Hub": "Aisle D-1", "Delhi Branch": "Aisle D-1", "Bangalore Branch": "Aisle D-3", "Pune Depot": "Aisle D-5" },
-    5: { "Mumbai Hub": "Cold Rack-2", "Delhi Branch": "Cold Rack-2", "Bangalore Branch": "Cold Rack-4", "Pune Depot": "Cold Room-2" },
-    6: { "Mumbai Hub": "Aisle E-4", "Delhi Branch": "Aisle E-2", "Bangalore Branch": "Aisle E-1", "Pune Depot": "Aisle E-5" },
+    1: { "Mumbai Hub": "Aisle A-3", "Delhi Branch": "Aisle A-1", "Bangalore Branch": "Aisle A-2", "Pune Depot": "Aisle A-5", "New York Hub": "Zone B-2", "London Branch": "Section C-1", "Tokyo Depot": "Area D-3", "Singapore Hub": "Bay E-2" },
+    2: { "Mumbai Hub": "Cold Rack-1", "Delhi Branch": "Cold Rack-1", "Bangalore Branch": "Cold Rack-3", "Pune Depot": "Cold Room-1", "New York Hub": "Cool Zone A-1", "London Branch": "Fridge B-2", "Tokyo Depot": "Cold Storage C-1", "Singapore Hub": "Chiller D-2" },
+    3: { "Mumbai Hub": "Aisle C-2", "Delhi Branch": "Aisle C-1", "Bangalore Branch": "Aisle C-3", "Pune Depot": "Aisle C-5", "New York Hub": "Row E-3", "London Branch": "Lane F-1", "Tokyo Depot": "Path G-2", "Singapore Hub": "Way H-3" },
+    4: { "Mumbai Hub": "Aisle D-1", "Delhi Branch": "Aisle D-1", "Bangalore Branch": "Aisle D-3", "Pune Depot": "Aisle D-5", "New York Hub": "Shelf I-2", "London Branch": "Rack J-1", "Tokyo Depot": "Unit K-3", "Singapore Hub": "Spot L-2" },
+    5: { "Mumbai Hub": "Cold Rack-2", "Delhi Branch": "Cold Rack-2", "Bangalore Branch": "Cold Rack-4", "Pune Depot": "Cold Room-2", "New York Hub": "Freeze M-1", "London Branch": "Ice N-2", "Tokyo Depot": "Polar O-3", "Singapore Hub": "Frost P-1" },
+    6: { "Mumbai Hub": "Aisle E-4", "Delhi Branch": "Aisle E-2", "Bangalore Branch": "Aisle E-1", "Pune Depot": "Aisle E-5", "New York Hub": "Zone Q-2", "London Branch": "Area R-1", "Tokyo Depot": "Sector S-3", "Singapore Hub": "Region T-2" },
   };
 
   // Stateful Branch-Specific Inventory Allocations
@@ -151,6 +160,10 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
     "Delhi Branch": { sales: "₹3.6L", stockLevel: "68%", health: "Watchlist", alerts: 4 },
     "Bangalore Branch": { sales: "₹4.2L", stockLevel: "88%", health: "Optimal", alerts: 0 },
     "Pune Depot": { sales: "₹1.9L", stockLevel: "98%", health: "Overstocked", alerts: 1 },
+    "New York Hub": { sales: "$8.2M", stockLevel: "91%", health: "Optimal", alerts: 0 },
+    "London Branch": { sales: "£5.4M", stockLevel: "76%", health: "Watchlist", alerts: 2 },
+    "Tokyo Depot": { sales: "¥6.8M", stockLevel: "89%", health: "Optimal", alerts: 1 },
+    "Singapore Hub": { sales: "S$3.9M", stockLevel: "95%", health: "Optimal", alerts: 0 },
   };
 
   const handleStockTransfer = (e) => {
@@ -225,233 +238,116 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
     return { fill: "#10b981", isAlert: false };
   };
 
-  // India-centric SVG supply chain map with actual branch locations
+  // Full-width World supply chain map using Leaflet
   const renderRegionalMap = () => {
-    // Actual geographic positions of Indian cities scaled to a 320x240 viewBox
-    // Delhi (~28.6°N, 77.2°E), Mumbai (~19.1°N, 72.8°E), Pune (~18.5°N, 73.8°E), Bangalore (~12.9°N, 77.6°E)
-    const mapNodes = [
-      { name: "Delhi Branch",      branch: "Delhi Branch",      x: 148, y: 52,  ...getNodeStyle("Delhi Branch") },
-      { name: "Mumbai Hub",        branch: "Mumbai Hub",        x: 100, y: 122, ...getNodeStyle("Mumbai Hub") },
-      { name: "Pune Depot",        branch: "Pune Depot",        x: 112, y: 138, ...getNodeStyle("Pune Depot") },
-      { name: "Bangalore Branch",  branch: "Bangalore Branch",  x: 138, y: 172, ...getNodeStyle("Bangalore Branch") },
+    // Branch locations with accurate geographic coordinates [latitude, longitude]
+    const branchLocations = [
+      { name: "New York Hub",    branch: "New York Hub",    position: [40.7128, -74.006], ...getNodeStyle("New York Hub") },
+      { name: "London Branch",   branch: "London Branch",   position: [51.5074, -0.1276], ...getNodeStyle("London Branch") },
+      { name: "Mumbai Hub",      branch: "Mumbai Hub",      position: [19.0760, 72.8777], ...getNodeStyle("Mumbai Hub") },
+      { name: "Delhi Branch",   branch: "Delhi Branch",   position: [28.6139, 77.2090], ...getNodeStyle("Delhi Branch") },
+      { name: "Bangalore Branch", branch: "Bangalore Branch", position: [12.9716, 77.5946], ...getNodeStyle("Bangalore Branch") },
+      { name: "Pune Depot",      branch: "Pune Depot",      position: [18.5204, 73.8567], ...getNodeStyle("Pune Depot") },
+      { name: "Singapore Hub",  branch: "Singapore Hub",  position: [1.3521, 103.8198], ...getNodeStyle("Singapore Hub") },
+      { name: "Tokyo Depot",     branch: "Tokyo Depot",     position: [35.6895, 139.6917], ...getNodeStyle("Tokyo Depot") },
     ];
 
-    // Route connections between branches
+    // Route connections between global branches using coordinates
     const routes = [
-      { x1: 148, y1: 52,  x2: 100, y2: 122, type: "delhi-mumbai" },
-      { x1: 100, y1: 122, x2: 112, y2: 138, type: "mumbai-pune" },
-      { x1: 148, y1: 52,  x2: 138, y2: 172, type: "delhi-blr" },
-      { x1: 112, y1: 138, x2: 138, y2: 172, type: "pune-blr" },
+      [[40.7128, -74.006], [51.5074, -0.1276]],  // New York to London
+      [[51.5074, -0.1276], [19.0760, 72.8777]],  // London to Mumbai
+      [[19.0760, 72.8777], [28.6139, 77.2090]],  // Mumbai to Delhi
+      [[19.0760, 72.8777], [18.5204, 73.8567]],  // Mumbai to Pune
+      [[19.0760, 72.8777], [12.9716, 77.5946]],  // Mumbai to Bangalore
+      [[12.9716, 77.5946], [1.3521, 103.8198]],  // Bangalore to Singapore
+      [[1.3521, 103.8198], [35.6895, 139.6917]],  // Singapore to Tokyo
+      [[51.5074, -0.1276], [35.6895, 139.6917]],  // London to Tokyo
+      [[40.7128, -74.006], [1.3521, 103.8198]],  // New York to Singapore
     ];
+
+    // Create custom marker icons
+    const createCustomIcon = (color, isAlert) => {
+      return L.divIcon({
+        className: 'custom-marker',
+        html: `<div style="
+          background-color: ${color};
+          width: ${isAlert ? '20px' : '14px'};
+          height: ${isAlert ? '20px' : '14px'};
+          border-radius: 50%;
+          border: 3px solid #0f172a;
+          box-shadow: 0 0 10px ${color};
+          ${isAlert ? 'animation: pulse 2s infinite;' : ''}
+        "></div>
+        <style>
+          @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+          }
+        </style>`,
+        iconSize: [isAlert ? 20 : 14, isAlert ? 20 : 14],
+        iconAnchor: [isAlert ? 10 : 7, isAlert ? 10 : 7],
+      });
+    };
 
     return (
-      <div className="relative w-full h-full select-none flex items-center justify-center">
-        <svg width="100%" height="100%" viewBox="0 0 320 240" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
-          <defs>
-            {/* Grid dot pattern */}
-            <pattern id="indiaDots" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
-              <circle cx="4" cy="4" r="0.8" fill="#1e40af" opacity="0.4" />
-            </pattern>
-
-            {/* Glows */}
-            <radialGradient id="nodeGlowGreen" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-            </radialGradient>
-            <radialGradient id="nodeGlowRed" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-            </radialGradient>
-            <radialGradient id="nodeGlowAmber" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
-            </radialGradient>
-
-            {/* Route line gradients */}
-            <linearGradient id="routeGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.7" />
-            </linearGradient>
-            <linearGradient id="routeGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.6" />
-            </linearGradient>
-
-            <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-              <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-              <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
-            </filter>
-          </defs>
-
-          {/* ── Background dot grid ── */}
-          <rect x="0" y="0" width="320" height="240" fill="url(#indiaDots)" opacity="0.5" />
-
-          {/* ── Subtle horizontal scan lines ── */}
-          {Array.from({ length: 12 }).map((_, i) => (
-            <line key={i} x1="0" y1={i * 20} x2="320" y2={i * 20} stroke="#1e3a5f" strokeWidth="0.4" opacity="0.5" />
-          ))}
-
-          {/* ── India map silhouette (simplified but recognisable shape) ── */}
-          <path
-            d="M 118,10 C 128,8 145,10 158,14 C 170,18 182,16 192,22
-               C 200,28 202,36 198,44 C 195,50 190,52 186,56
-               C 182,60 180,66 176,72 C 172,78 168,84 165,90
-               C 162,96 158,100 155,106 C 152,112 150,118 148,126
-               C 146,134 144,142 140,148 C 136,154 130,160 124,164
-               C 118,168 112,168 108,164 C 104,160 102,154 100,148
-               C 98,142 96,136 92,130 C 88,124 84,118 80,112
-               C 76,106 72,100 70,92 C 68,84 68,76 70,68
-               C 72,60 76,54 80,48 C 84,42 86,36 90,30
-               C 94,24 100,18 108,14 C 112,12 115,11 118,10 Z"
-            fill="#0f2744"
-            stroke="#1e4080"
-            strokeWidth="1.5"
-            opacity="0.9"
+      <div className="relative w-full h-full">
+        <MapContainer
+          center={[20, 20]}
+          zoom={2}
+          style={{ height: '100%', width: '100%', backgroundColor: '#0f172a' }}
+          className="dark-map"
+        >
+          {/* Dark-themed map tiles */}
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            subdomains="abcd"
+            maxZoom={19}
           />
-          {/* Sri Lanka */}
-          <ellipse cx="136" cy="188" rx="5" ry="7" fill="#0f2744" stroke="#1e4080" strokeWidth="1" opacity="0.7" />
 
-          {/* ── Logistics route lines ── */}
-          {routes.map((r, i) => (
-            <g key={i}>
-              <path
-                d={`M ${r.x1},${r.y1} Q ${(r.x1 + r.x2) / 2 + (i % 2 === 0 ? -12 : 12)},${(r.y1 + r.y2) / 2} ${r.x2},${r.y2}`}
-                fill="none"
-                stroke={i % 2 === 0 ? "url(#routeGrad1)" : "url(#routeGrad2)"}
-                strokeWidth="1.8"
-                strokeDasharray="5 4"
-                opacity="0.85"
-              >
-                <animate attributeName="stroke-dashoffset" values="18;0" dur={`${1.5 + i * 0.3}s`} repeatCount="indefinite" />
-              </path>
-            </g>
+          {/* Route lines */}
+          {routes.map((route, i) => (
+            <Polyline
+              key={i}
+              positions={route}
+              color={i % 2 === 0 ? "#38bdf8" : "#10b981"}
+              weight={2}
+              opacity={0.6}
+              dashArray="5, 5"
+            />
           ))}
 
-          {/* ── Branch nodes ── */}
-          {mapNodes.map(node => {
-            const m = branchMetrics[node.branch];
-            const isHovered = hoveredNode === node.name;
-            const glowId = node.isAlert ? "nodeGlowRed" : node.fill === "#f59e0b" ? "nodeGlowAmber" : "nodeGlowGreen";
+          {/* Branch markers */}
+          {branchLocations.map((location) => {
+            const m = branchMetrics[location.branch];
+            const markerColor = location.isAlert ? "#ef4444" : location.fill === "#f59e0b" ? "#f59e0b" : "#10b981";
 
             return (
-              <g
-                key={node.name}
-                className="cursor-pointer"
-                onClick={() => setSelectedBranchPage(node.branch)}
-                onMouseEnter={() => setHoveredNode(node.name)}
-                onMouseLeave={() => setHoveredNode(null)}
+              <Marker
+                key={location.name}
+                position={location.position}
+                icon={createCustomIcon(markerColor, location.isAlert)}
+                eventHandlers={{
+                  click: () => setSelectedBranchPage(location.branch),
+                  mouseover: () => setHoveredNode(location.name),
+                  mouseout: () => setHoveredNode(null),
+                }}
               >
-                {/* Outer glow halo */}
-                <circle cx={node.x} cy={node.y} r="22" fill={`url(#${glowId})`} opacity={isHovered ? 0.9 : 0.5} />
-
-                {/* Radar ping rings */}
-                {node.isAlert ? (
-                  <>
-                    <circle cx={node.x} cy={node.y} r="5" fill="none" stroke="#ef4444" strokeWidth="1.5">
-                      <animate attributeName="r" values="5;18" dur="1.6s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="1;0" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx={node.x} cy={node.y} r="5" fill="none" stroke="#ef4444" strokeWidth="1">
-                      <animate attributeName="r" values="5;28" dur="2.4s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.7;0" dur="2.4s" repeatCount="indefinite" />
-                    </circle>
-                  </>
-                ) : (
-                  <circle cx={node.x} cy={node.y} r="5" fill="none" stroke={node.fill} strokeWidth="1.2">
-                    <animate attributeName="r" values="5;16" dur="2s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0" dur="2s" repeatCount="indefinite" />
-                  </circle>
-                )}
-
-                {/* Node circle */}
-                <circle
-                  cx={node.x} cy={node.y} r={isHovered ? 8 : 6.5}
-                  fill={node.fill}
-                  stroke="#0f172a"
-                  strokeWidth="2"
-                  filter="url(#glow)"
-                  style={{ transition: "r 0.2s" }}
-                />
-                {/* Inner white dot */}
-                <circle cx={node.x} cy={node.y} r="2.5" fill="white" opacity="0.9" />
-
-                {/* Branch name label */}
-                <text
-                  x={node.x}
-                  y={node.y - 12}
-                  fill={isHovered ? "#ffffff" : "#cbd5e1"}
-                  fontSize="8.5"
-                  fontWeight="800"
-                  textAnchor="middle"
-                  letterSpacing="0.02em"
-                  style={{ transition: "fill 0.2s" }}
-                >
-                  {node.name}
-                </text>
-
-                {/* Health pill badge */}
-                {m && (
-                  <>
-                    <rect
-                      x={node.x - 20} y={node.y + 10}
-                      width="40" height="11"
-                      rx="5"
-                      fill={node.isAlert ? "#7f1d1d" : node.fill === "#f59e0b" ? "#78350f" : "#064e3b"}
-                      opacity="0.9"
-                    />
-                    <text
-                      x={node.x} y={node.y + 18}
-                      fill={node.fill}
-                      fontSize="6"
-                      fontWeight="900"
-                      textAnchor="middle"
-                      letterSpacing="0.05em"
-                    >
-                      {m.stockLevel} · {m.health.toUpperCase()}
-                    </text>
-                  </>
-                )}
-              </g>
+                <Popup>
+                  <div className="text-slate-900">
+                    <div className="font-bold text-sm">{location.name}</div>
+                    <div className="text-xs mt-1">Sales Today: {m.sales}</div>
+                    <div className={`text-xs font-semibold ${location.isAlert ? 'text-red-600' : 'text-emerald-600'}`}>
+                      Status: {m.health} · {m.alerts > 0 ? `${m.alerts} Alerts` : "No Alerts"}
+                    </div>
+                    <div className="text-xs text-sky-600 font-bold mt-2">Click to manage branch →</div>
+                  </div>
+                </Popup>
+              </Marker>
             );
           })}
-
-          {/* ── Hover tooltip HUD ── */}
-          {hoveredNode && (() => {
-            const activeNode = mapNodes.find(n => n.name === hoveredNode);
-            if (!activeNode) return null;
-            const metrics = branchMetrics[activeNode.branch];
-            // Position tooltip: push right if node is on the left side
-            const tx = activeNode.x < 160 ? activeNode.x + 14 : activeNode.x - 144;
-            const ty = Math.max(5, activeNode.y - 36);
-
-            return (
-              <g transform={`translate(${tx}, ${ty})`}>
-                <rect width="130" height="52" rx="8" fill="#0f172a" opacity="0.97" stroke="#334155" strokeWidth="1" filter="url(#glow)" />
-                <rect width="130" height="4" rx="2" fill={activeNode.fill} opacity="0.9" />
-                <text x="8" y="17" fill="#f8fafc" fontSize="8.5" fontWeight="800">{activeNode.name}</text>
-                <text x="8" y="28" fill="#94a3b8" fontSize="7">Sales Today: {metrics.sales}</text>
-                <text x="8" y="38" fill={activeNode.fill} fontSize="7" fontWeight="700">Status: {metrics.health} · {metrics.alerts > 0 ? `${metrics.alerts} Alerts` : "No Alerts"}</text>
-                <text x="8" y="48" fill="#38bdf8" fontSize="6.5" fontWeight="900" letterSpacing="0.04em">TAP TO MANAGE →</text>
-              </g>
-            );
-          })()}
-
-          {/* ── Compass rose (decorative) ── */}
-          <g transform="translate(286, 18)" opacity="0.4">
-            <circle cx="0" cy="0" r="10" fill="none" stroke="#334155" strokeWidth="1" />
-            <text x="0" y="-13" fill="#64748b" fontSize="6" textAnchor="middle" fontWeight="bold">N</text>
-            <line x1="0" y1="-8" x2="0" y2="8" stroke="#475569" strokeWidth="0.8" />
-            <line x1="-8" y1="0" x2="8" y2="0" stroke="#475569" strokeWidth="0.8" />
-          </g>
-
-          {/* ── Scale indicator ── */}
-          <g transform="translate(10, 226)" opacity="0.5">
-            <line x1="0" y1="0" x2="30" y2="0" stroke="#475569" strokeWidth="1" />
-            <line x1="0" y1="-2" x2="0" y2="2" stroke="#475569" strokeWidth="1" />
-            <line x1="30" y1="-2" x2="30" y2="2" stroke="#475569" strokeWidth="1" />
-            <text x="15" y="-4" fill="#64748b" fontSize="5" textAnchor="middle">~500 km</text>
-          </g>
-        </svg>
+        </MapContainer>
       </div>
     );
   };
@@ -499,6 +395,50 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
         { label: "Q2", value: 1.8, display: "₹1.8L" },
         { label: "Q3", value: 2.0, display: "₹2.0L" },
         { label: "Q4", value: 2.2, display: "₹2.2L" }
+      ]
+    },
+    "New York Hub": {
+      projectedNet: "$32.5M",
+      growth: "+18.2%",
+      marginTarget: "31.0%",
+      points: [
+        { label: "Q1", value: 6.8, display: "$6.8M" },
+        { label: "Q2", value: 8.2, display: "$8.2M" },
+        { label: "Q3", value: 8.9, display: "$8.9M" },
+        { label: "Q4", value: 8.6, display: "$8.6M" }
+      ]
+    },
+    "London Branch": {
+      projectedNet: "£21.3M",
+      growth: "+12.5%",
+      marginTarget: "24.8%",
+      points: [
+        { label: "Q1", value: 4.5, display: "£4.5M" },
+        { label: "Q2", value: 5.3, display: "£5.3M" },
+        { label: "Q3", value: 5.7, display: "£5.7M" },
+        { label: "Q4", value: 5.8, display: "£5.8M" }
+      ]
+    },
+    "Tokyo Depot": {
+      projectedNet: "¥28.7M",
+      growth: "+15.3%",
+      marginTarget: "27.5%",
+      points: [
+        { label: "Q1", value: 6.2, display: "¥6.2M" },
+        { label: "Q2", value: 7.1, display: "¥7.1M" },
+        { label: "Q3", value: 7.6, display: "¥7.6M" },
+        { label: "Q4", value: 7.8, display: "¥7.8M" }
+      ]
+    },
+    "Singapore Hub": {
+      projectedNet: "S$16.8M",
+      growth: "+19.7%",
+      marginTarget: "29.2%",
+      points: [
+        { label: "Q1", value: 3.5, display: "S$3.5M" },
+        { label: "Q2", value: 4.2, display: "S$4.2M" },
+        { label: "Q3", value: 4.5, display: "S$4.5M" },
+        { label: "Q4", value: 4.6, display: "S$4.6M" }
       ]
     }
   };
@@ -941,7 +881,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
       {/* Top executive dashboard branch selector nodes bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {branchesList.map(branch => {
-          const m = branchMetrics[branch];
+          const m = branchMetrics[branch] || { sales: "₹0", stockLevel: "New", health: "Onboarding", alerts: 0 };
           const isWatch = m.health === "Watchlist";
           const isOver = m.health === "Overstocked";
           const isActive = activeBranch === branch;
@@ -949,28 +889,35 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
           return (
             <button
               key={branch}
-              onClick={() => setSelectedBranchPage(branch)}
-              className={`p-4 rounded-2xl border text-left transition-all duration-300 relative group overflow-hidden cursor-pointer ${
+              onClick={() => {
+                setActiveBranch(branch);
+                if (onOpenBranchPage) {
+                  onOpenBranchPage(branch);
+                } else {
+                  setSelectedBranchPage(branch);
+                }
+              }}
+              className={`min-h-44 p-5 rounded-[22px] border text-left transition-all duration-300 relative group overflow-hidden cursor-pointer ${
                 isActive 
-                  ? "border-emerald-600 bg-emerald-50/30" 
-                  : "border-slate-200 bg-slate-50 hover:bg-slate-100/70"
+                  ? "border-emerald-600 bg-emerald-50/60 shadow-[0_16px_34px_rgba(16,185,129,0.11)]" 
+                  : "border-slate-200 bg-slate-50 hover:bg-white hover:border-emerald-300 hover:shadow-[0_16px_34px_rgba(15,23,42,0.06)]"
               }`}
             >
-              <div className="absolute top-0 right-0 h-1.5 w-16 bg-emerald-600 rounded-bl-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className={`absolute top-0 right-7 h-2 w-20 bg-emerald-600 rounded-b-full transition-opacity ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} />
               <span className="text-[9px] font-black uppercase text-slate-400 flex justify-between items-center">
                 <span>Branch Node</span>
-                <span className="text-emerald-700 font-extrabold opacity-0 group-hover:opacity-100 transition-opacity">MANAGE HUB →</span>
+                <span className="text-emerald-700 font-extrabold opacity-0 group-hover:opacity-100 transition-opacity">MANAGE HUB &rarr;</span>
               </span>
-              <h4 className="text-[13.5px] font-black mt-1 text-slate-900">{branch}</h4>
+              <h4 className="text-base font-black mt-5 text-slate-950">{branch}</h4>
               
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+              <div className="mt-8 grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <span className="text-[9px] text-slate-400 font-extrabold uppercase">Sales today</span>
-                  <div className="font-black text-slate-800 mt-0.5">{m.sales}</div>
+                  <div className="font-black text-slate-950 mt-1 text-sm">{m.sales}</div>
                 </div>
                 <div className="text-right">
                   <span className="text-[9px] text-slate-400 font-extrabold uppercase">Health</span>
-                  <div className={`font-black mt-0.5 ${isWatch ? 'text-rose-600' : isOver ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  <div className={`font-black mt-1 text-sm ${isWatch ? 'text-rose-600' : isOver ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {m.health}
                   </div>
                 </div>
@@ -980,49 +927,43 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
         })}
       </div>
 
-      {/* Row 2: Visual Analytics Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6">
-        {/* SVG Geographical Map */}
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between h-full">
+      {/* Row 2: Full-width Regional Supply Chain Map */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+        <div className="flex justify-between items-center flex-wrap gap-2">
           <div>
-            <div className="flex justify-between items-center flex-wrap gap-2">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Geographical analysis</span>
-                <h3 className="text-lg font-black text-slate-900 mt-1">Regional Demand Analysis</h3>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="bg-sky-500 text-white rounded-full px-2.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider">Live Data</span>
-                <span className="bg-slate-100 text-slate-600 rounded-full px-2.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider">248 Nodes Active</span>
-              </div>
-            </div>
+            <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Geographical analysis</span>
+            <h3 className="text-lg font-black text-slate-900 mt-1">Regional Supply Chain Map</h3>
           </div>
-          
-          <div className="flex justify-center bg-slate-950 rounded-2xl border border-slate-800 mt-4 relative overflow-hidden flex-1 items-center" style={{ minHeight: '340px', height: '380px' }}>
-            {renderRegionalMap()}
-          </div>
-
-          {/* High-Fidelity KPI Column Row */}
-          <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100">
-            <div className="border-l-[3px] border-emerald-500 pl-2.5">
-              <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Top Performer</span>
-              <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">Bangalore Branch</span>
-              <span className="text-[9.5px] font-bold text-emerald-600 block mt-0.5">+14.5% Growth</span>
-            </div>
-            <div className="border-l-[3px] border-rose-500 pl-2.5">
-              <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Lowest Stock</span>
-              <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">Delhi Branch</span>
-              <span className="text-[9.5px] font-bold text-rose-600 block mt-0.5">Critical Buffer</span>
-            </div>
-            <div className="border-l-[3px] border-slate-300 pl-2.5">
-              <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Est. Demand</span>
-              <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">₹35L</span>
-              <span className="text-[9.5px] font-bold text-slate-500 block mt-0.5">Next 72 Hours</span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <span className="bg-sky-500 text-white rounded-full px-2.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider">Live Data</span>
+            <span className="bg-slate-100 text-slate-600 rounded-full px-2.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider">4 Branches Active</span>
+            <span className="text-[8.5px] font-bold text-slate-400">Hover to preview · Click to manage</span>
           </div>
         </div>
 
-        {/* Advanced Profit Forecasting Card */}
-        {renderAdvancedProfitForecast()}
+        {/* Map canvas */}
+        <div className="bg-slate-950 rounded-2xl border border-slate-800 mt-4 relative overflow-hidden" style={{ height: '480px' }}>
+          {renderRegionalMap()}
+        </div>
+
+        {/* KPI row beneath the map */}
+        <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100">
+          <div className="border-l-[3px] border-emerald-500 pl-2.5">
+            <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Top Performer</span>
+            <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">Bangalore Branch</span>
+            <span className="text-[9.5px] font-bold text-emerald-600 block mt-0.5">+14.5% Growth</span>
+          </div>
+          <div className="border-l-[3px] border-rose-500 pl-2.5">
+            <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Lowest Stock</span>
+            <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">Delhi Branch</span>
+            <span className="text-[9.5px] font-bold text-rose-600 block mt-0.5">Critical Buffer</span>
+          </div>
+          <div className="border-l-[3px] border-slate-300 pl-2.5">
+            <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider block">Est. Demand</span>
+            <span className="text-[13px] font-black text-slate-900 block leading-tight mt-0.5">₹35L</span>
+            <span className="text-[9.5px] font-bold text-slate-500 block mt-0.5">Next 72 Hours</span>
+          </div>
+        </div>
       </div>
 
       {/* Row 3: Operations & Actions Grid */}
@@ -1137,6 +1078,8 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
             </div>
           </div>
         </div>
+        {/* Advanced Profit Forecasting Card */}
+        {renderAdvancedProfitForecast()}
       </div>
     </div>
   );

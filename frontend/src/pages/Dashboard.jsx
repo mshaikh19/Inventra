@@ -1,12 +1,15 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
+  getBranchOpsTab,
   getBillingPosTab,
   getDashboardTab,
+  getInventoryOpsTab,
   getTierBadgeLabel,
   getTierDisplayName,
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
+import { addBranchToNetwork, getBranchNetwork } from "../utils/branches";
 import InventoryTable from "../components/InventoryTable";
 import CSVUpload from "../components/CSVUpload";
 import SmallDashboard from "../components/SmallDashboard";
@@ -134,6 +137,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   }, [activeSection]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertMenu, setShowAlertMenu] = useState(false);
+  const [showAddBranchModal, setShowAddBranchModal] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [branchNetwork, setBranchNetwork] = useState(() => getBranchNetwork(normalizedTier));
 
   // States for Medium and Large Analytics Page redone visually
   const [mediumRange, setMediumRange] = useState("30d");
@@ -277,6 +283,23 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
   const handleClearAlert = (id) => {
     setNotifications(prev => prev.filter(x => x.id !== id));
+  };
+
+  const handleAddBranch = (event) => {
+    event.preventDefault();
+    const trimmed = newBranchName.trim();
+    if (!trimmed) return;
+    addBranchToNetwork(trimmed);
+    setBranchNetwork(getBranchNetwork(normalizedTier));
+    setNewBranchName("");
+    setShowAddBranchModal(false);
+  };
+
+  const handleOpenBranchOperations = (branchName) => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("inventra_selected_branch", branchName);
+    }
+    setActiveTab(getBranchOpsTab(normalizedTier));
   };
 
   // ==========================================
@@ -855,6 +878,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                       setActiveTab(getBillingPosTab(normalizedTier));
                       return;
                     }
+                    if (tab.key === "inventory") {
+                      setActiveTab(getInventoryOpsTab(normalizedTier));
+                      return;
+                    }
                     setActiveSection(tab.key);
                   }}
                   className={`group w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-xs font-bold transition-all duration-200 active:scale-[0.98] cursor-pointer hover:scale-[1.005] ${
@@ -951,6 +978,16 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                 <button
                   key={tab.key}
                   onClick={() => {
+                    if (tab.key === "billing") {
+                      setActiveTab(getBillingPosTab(normalizedTier));
+                      setMobileSidebarOpen(false);
+                      return;
+                    }
+                    if (tab.key === "inventory") {
+                      setActiveTab(getInventoryOpsTab(normalizedTier));
+                      setMobileSidebarOpen(false);
+                      return;
+                    }
                     setActiveSection(tab.key);
                     setMobileSidebarOpen(false);
                   }}
@@ -984,23 +1021,25 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         {/* Dynamic Area Panels */}
         <main className="min-w-0 space-y-6 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 lg:py-8">
           {/* Header Strap */}
-          <section className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-left relative overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-            {/* Glowing spot */}
-            <div className="absolute w-48 h-48 rounded-full pointer-events-none -right-10 blur-[80px]" style={{ background: config.accentSoft }} />
+          {activeSection === "overview" && (
+            <section className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-left relative overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+              {/* Glowing spot */}
+              <div className="absolute w-48 h-48 rounded-full pointer-events-none -right-10 blur-[80px]" style={{ background: config.accentSoft }} />
 
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Retail Intelligence Node</span>
-              <h1 className="text-2xl md:text-3xl font-black text-slate-900 mt-1 leading-tight tracking-tight">{config.strap}</h1>
-              <p className="text-xs text-slate-500 font-semibold mt-1 max-w-xl leading-relaxed">{config.blurb}</p>
-            </div>
-            
-            <div className="flex items-center gap-2 shrink-0 border border-slate-100 rounded-full px-3 py-1.5 bg-slate-50/50">
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ background: config.accent }} />
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 font-mono whitespace-nowrap">
-                TIER: {tierDisplayName}
-              </span>
-            </div>
-          </section>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Retail Intelligence Node</span>
+                <h1 className="text-2xl md:text-3xl font-black text-slate-900 mt-1 leading-tight tracking-tight">{config.strap}</h1>
+                <p className="text-xs text-slate-500 font-semibold mt-1 max-w-xl leading-relaxed">{config.blurb}</p>
+              </div>
+              
+              <div className="flex items-center gap-2 shrink-0 border border-slate-100 rounded-full px-3 py-1.5 bg-slate-50/50">
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ background: config.accent }} />
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 font-mono whitespace-nowrap">
+                  TIER: {tierDisplayName}
+                </span>
+              </div>
+            </section>
+          )}
 
           {/* Section Router */}
           {activeSection === "overview" && (
@@ -1029,6 +1068,8 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   onUpdateProducts={setProducts}
                   tierAccent={config.accent}
                   tierAccentSoft={config.accentSoft}
+                  onOpenBranchPage={handleOpenBranchOperations}
+                  branchNetwork={branchNetwork}
                 />
               )}
             </>
@@ -1038,6 +1079,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             <InventoryTable 
               products={products} 
               onUpdateProducts={setProducts}
+              tier={normalizedTier}
               tierAccent={config.accent}
               tierAccentSoft={config.accentSoft}
             />
@@ -1247,21 +1289,178 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                 </div>
               )}
               {normalizedTier === "large" && (
-                <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6 text-left">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-                    <div className="mb-4">
-                      <h3 className="text-lg font-black text-slate-900 mb-1">NLP AI Chat Insights</h3>
-                      <p className="text-xs text-slate-500 font-semibold">Ask AI co-pilot about allocations.</p>
+                <div className="space-y-6 text-left">
+                  <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5 mb-6">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Enterprise AI Forecasting</span>
+                        <h3 className="text-2xl md:text-3xl font-black text-slate-950 mt-1 leading-tight">Network Demand & Inventory Risk Command</h3>
+                        <p className="text-xs md:text-sm text-slate-500 font-semibold mt-2 max-w-3xl leading-relaxed">
+                          Multi-branch forecast model combining sales velocity, stock cover, expiry exposure, fulfillment load, and transfer feasibility across regional hubs.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 min-w-0 lg:min-w-[520px]">
+                        {[
+                          { label: "Model Confidence", value: "96.4%", note: "+2.1 pts", tone: "text-emerald-600" },
+                          { label: "30D Revenue Forecast", value: "₹18.7Cr", note: "+12.8%", tone: "text-emerald-600" },
+                          { label: "Risk Exposure", value: "₹42.8L", note: "actionable", tone: "text-amber-600" },
+                          { label: "Service Level", value: "93.8%", note: "target 96%", tone: "text-sky-600" },
+                        ].map((metric) => (
+                          <div key={metric.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                            <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">{metric.label}</span>
+                            <span className="block text-lg font-black text-slate-950 mt-1">{metric.value}</span>
+                            <span className={`block text-[10px] font-black uppercase tracking-wider mt-0.5 ${metric.tone}`}>{metric.note}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    {renderNLPCommandConsole()}
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-                    <div className="mb-4">
-                      <h3 className="text-lg font-black text-slate-900 mb-1">Regional Heatmap</h3>
-                      <p className="text-xs text-slate-500 font-semibold">Geographical branch maps.</p>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
+                      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:p-5">
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">Demand Curve</span>
+                            <h4 className="text-lg font-black text-slate-900 mt-1">30-Day Network Forecast</h4>
+                          </div>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                            Auto-Rebalance Active
+                          </span>
+                        </div>
+                        <svg className="w-full h-72 overflow-visible" viewBox="0 0 760 280" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="enterpriseForecastFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10B981" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
+                            </linearGradient>
+                            <linearGradient id="enterpriseRiskFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.18" />
+                              <stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
+                            </linearGradient>
+                          </defs>
+                          {[40, 90, 140, 190, 240].map((y) => (
+                            <line key={y} x1="0" y1={y} x2="760" y2={y} stroke="#E2E8F0" strokeWidth="1" />
+                          ))}
+                          <path
+                            d="M0 214 C72 188 104 154 172 164 C232 172 260 104 326 116 C386 128 404 78 472 82 C552 86 584 140 646 108 C700 80 724 62 760 54 L760 280 L0 280 Z"
+                            fill="url(#enterpriseForecastFill)"
+                          />
+                          <path
+                            d="M0 224 C84 210 126 204 188 196 C260 188 326 174 390 154 C476 126 536 132 610 104 C672 82 718 76 760 68"
+                            fill="none"
+                            stroke="#10B981"
+                            strokeWidth="5"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92 L760 280 L0 280 Z"
+                            fill="url(#enterpriseRiskFill)"
+                          />
+                          <path
+                            d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92"
+                            fill="none"
+                            stroke="#F59E0B"
+                            strokeWidth="3"
+                            strokeDasharray="10 8"
+                            strokeLinecap="round"
+                          />
+                          {[
+                            { x: 172, y: 164, label: "Delhi buffer breach" },
+                            { x: 472, y: 82, label: "Holiday demand lift" },
+                            { x: 646, y: 108, label: "Pune surplus release" },
+                          ].map((point) => (
+                            <g key={point.label}>
+                              <circle cx={point.x} cy={point.y} r="7" fill="#fff" stroke="#10B981" strokeWidth="4" />
+                              <text x={point.x + 12} y={point.y - 10} fill="#475569" fontSize="11" fontWeight="800">{point.label}</text>
+                            </g>
+                          ))}
+                        </svg>
+                        <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-emerald-500" /> Demand forecast</span>
+                          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-amber-500" /> Inventory risk band</span>
+                          <span>Planning horizon: 30 days</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {[
+                          { label: "Delhi Branch", signal: "Understock risk", value: "68% cover", action: "Receive 30 Bakery + Dairy units", tone: "border-rose-200 bg-rose-50 text-rose-700" },
+                          { label: "Pune Depot", signal: "Overstock expiry", value: "98% capacity", action: "Release slow-moving surplus", tone: "border-amber-200 bg-amber-50 text-amber-700" },
+                          { label: "Bangalore Branch", signal: "Demand expansion", value: "+14% velocity", action: "Raise beverage reorder min", tone: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+                          { label: "London Branch", signal: "Service watch", value: "76% stock health", action: "Confirm supplier SLA", tone: "border-sky-200 bg-sky-50 text-sky-700" },
+                        ].map((branch) => (
+                          <div key={branch.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Branch Risk Signal</span>
+                                <h4 className="text-base font-black text-slate-950 mt-1">{branch.label}</h4>
+                              </div>
+                              <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${branch.tone}`}>{branch.signal}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mt-4">
+                              <div>
+                                <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Current State</span>
+                                <span className="block text-sm font-black text-slate-800 mt-1">{branch.value}</span>
+                              </div>
+                              <div>
+                                <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">AI Action</span>
+                                <span className="block text-sm font-black text-slate-800 mt-1">{branch.action}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    {renderGeographicalCommandMap()}
-                  </div>
+                  </section>
+
+                  <section className="grid grid-cols-1 xl:grid-cols-[0.85fr_1.15fr] gap-6">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">AI Decision Queue</span>
+                      <h3 className="text-lg font-black text-slate-900 mt-1">Recommended Enterprise Actions</h3>
+                      <div className="mt-5 space-y-3">
+                        {[
+                          ["1", "Rebalance Stock", "Move 30 Bakery/Dairy units from Pune Depot to Delhi Branch before tomorrow morning dispatch."],
+                          ["2", "Update Reorder Policy", "Increase beverage minimum stock by 18% for Bangalore and Mumbai through the next holiday window."],
+                          ["3", "Protect Margin", "Hold discounting on Dairy SKUs in high-velocity branches; route promotion spend to Snacks instead."],
+                          ["4", "Supplier Escalation", "Trigger SLA check for London cold-chain supply due to two-cycle service-level drift."],
+                        ].map(([step, title, body]) => (
+                          <div key={step} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                            <span className="h-7 w-7 rounded-full bg-emerald-600 text-white text-xs font-black grid place-items-center shrink-0">{step}</span>
+                            <div>
+                              <h4 className="text-sm font-black text-slate-950">{title}</h4>
+                              <p className="text-[11px] font-semibold text-slate-500 leading-relaxed mt-0.5">{body}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Category Exposure</span>
+                      <h3 className="text-lg font-black text-slate-900 mt-1">Inventory, Margin & Expiry Analysis</h3>
+                      <div className="mt-5 space-y-4">
+                        {[
+                          { label: "Dairy", stock: 74, margin: "18.4%", risk: "High expiry sensitivity", color: "#0EA5E9" },
+                          { label: "Bakery", stock: 61, margin: "21.7%", risk: "Short cover in Delhi", color: "#F59E0B" },
+                          { label: "Beverages", stock: 88, margin: "25.2%", risk: "Holiday demand lift", color: "#10B981" },
+                          { label: "Snacks", stock: 79, margin: "31.5%", risk: "Promo upside", color: "#6366F1" },
+                        ].map((category) => (
+                          <div key={category.label}>
+                            <div className="flex justify-between items-end gap-3 mb-1.5">
+                              <div>
+                                <span className="text-sm font-black text-slate-900">{category.label}</span>
+                                <span className="ml-2 text-[10px] font-bold text-slate-400">{category.risk}</span>
+                              </div>
+                              <span className="text-xs font-black text-slate-700">{category.margin} margin</span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${category.stock}%`, background: category.color }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+
                 </div>
               )}
             </>
@@ -1351,6 +1550,20 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
                 </div>
 
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <span className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Business Growth</span>
+                  <h4 className="text-base font-black text-slate-950 mt-1">Expand Branch Network</h4>
+                  <p className="text-xs font-semibold text-slate-600 leading-relaxed mt-1">
+                    Add a new branch when your business expands. It will appear in Branch Operations and Inventory Operations.
+                  </p>
+                  <button
+                    onClick={() => setShowAddBranchModal(true)}
+                    className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                  >
+                    + Add New Branch
+                  </button>
+                </div>
+
                 <button
                   onClick={handleLogout}
                   className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-[0.18em] text-white transition-all shadow-[0_10px_25px_rgba(15,23,42,0.16)] hover:opacity-95 cursor-pointer"
@@ -1359,6 +1572,47 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   End Active Session (Logout)
                 </button>
               </section>
+            </div>
+          )}
+
+          {showAddBranchModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">Branch Expansion</span>
+                    <h3 className="text-xl font-black text-slate-950 mt-1">Add New Business Branch</h3>
+                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">
+                      Create a new branch node for future inventory, transfer, and operations tracking.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddBranchModal(false)}
+                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddBranch} className="mt-5 space-y-4">
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch Name</span>
+                    <input
+                      value={newBranchName}
+                      onChange={(event) => setNewBranchName(event.target.value)}
+                      placeholder="e.g. Hyderabad Branch"
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                      autoFocus
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                  >
+                    Save Branch
+                  </button>
+                </form>
+              </div>
             </div>
           )}
         </main>
