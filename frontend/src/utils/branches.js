@@ -1,6 +1,6 @@
 const API_BASE = "http://127.0.0.1:8000/api/v1/branches";
 
-function getAuthHeaders() {
+export function getAuthHeaders() {
   const token = localStorage.getItem("inventra_token");
   return {
     "Content-Type": "application/json",
@@ -73,6 +73,19 @@ export async function getBranchById(branchId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || "Branch not found");
+  }
+  return data;
+}
+
+/** Fetch inventory for a branch from the backend database */
+export async function getBranchInventory(branchId) {
+  const res = await fetch(`${API_BASE}/${branchId}/inventory`, {
+    method: "GET",
+    headers: getAuthHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || "Failed to fetch branch inventory");
   }
   return data;
 }

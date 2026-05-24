@@ -132,6 +132,17 @@ body {
   display: none;
 }
 
+/* utility to hide scrollbars but allow scrolling (cross-browser) */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 @keyframes partners-marquee-right {
   0% {
     transform: translateX(-50%);

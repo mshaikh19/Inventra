@@ -534,7 +534,7 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
       {/* Table grid */}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+      <div className="max-h-[60vh] overflow-auto no-scrollbar rounded-2xl border border-slate-200 bg-white">
 
         <table className="w-full text-left border-collapse">
 

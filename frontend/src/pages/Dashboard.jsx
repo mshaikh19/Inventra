@@ -16,6 +16,7 @@ import CSVUpload from "../components/CSVUpload";
 import SmallDashboard from "../components/SmallDashboard";
 import MediumDashboard from "../components/MediumDashboard";
 import LargeDashboard from "../components/LargeDashboard";
+import { INVENTORY_PRODUCT_SEED, loadInventoryProducts, saveInventoryProducts } from "../utils/inventory";
 
 const DASHBOARD_CONFIG = {
   small: {
@@ -480,14 +481,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   const [activeBranch, setActiveBranch] = useState("Mumbai");
 
   // Global Products State seeded with high-fidelity items
-  const [products, setProducts] = useState([
-    { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 8, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15 },
-    { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 12, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20 },
-    { id: 3, name: "Coke 500ml", category: "Beverages", stock: 85, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10 },
-    { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 4, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25 },
-    { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 32, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12 },
-    { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 55, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15 },
-  ]);
+  const [products, setProducts] = useState(() => loadInventoryProducts(INVENTORY_PRODUCT_SEED));
+
+  useEffect(() => {
+    saveInventoryProducts(products);
+  }, [products]);
 
   // Consolidated Sales Metrics States
   const [salesCount, setSalesCount] = useState(14);

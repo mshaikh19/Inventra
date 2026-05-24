@@ -6,6 +6,7 @@ import {
   normalizeBusinessTier,
 } from "../utils/dashboard";
 import { getBranchNetwork, getUserBranches } from "../utils/branches";
+import { INVENTORY_PRODUCT_SEED, loadScopedInventoryProducts, saveScopedInventoryProducts } from "../utils/inventory";
 
 const BRANCH_RATIOS_BY_TIER = {
   small: { "Main Store": 0 },
@@ -48,6 +49,7 @@ const getStatus = (stock, reorderLevel) => {
 export default function InventoryOperations({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
   const [branchNames, setBranchNames] = React.useState(() => getBranchNetwork(normalizedTier));
+  const skipNextInventorySaveRef = React.useRef(false);
 
   React.useEffect(() => {
     getUserBranches()
@@ -56,9 +58,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
           const names = data.branches.map((b) => b.branch_name);
           setBranchNames(names);
           // Auto-select the first branch if current selected branch is not in names list
-          setSelectedBranch((current) => {
-            return names.includes(current) ? current : (names[0] || current);
-          });
+          const nextBranch = names.includes(selectedBranch) ? selectedBranch : (names[0] || selectedBranch);
+          skipNextInventorySaveRef.current = true;
+          setProducts(loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, nextBranch));
+          setSelectedBranch(nextBranch);
         }
       })
       .catch((err) => console.error("Failed to load branches from DB:", err));
@@ -86,7 +89,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     const saved = sessionStorage.getItem("inventra_inventory_branch");
     return branchNames.includes(saved) ? saved : branchNames[0];
   });
-  const [products, setProducts] = React.useState(initialProducts);
+  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, selectedBranch));
   const [searchTerm, setSearchTerm] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("all");
   const [editingId, setEditingId] = React.useState(null);
@@ -208,9 +211,20 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
   const handleBranchSelect = (branchName) => {
     setSelectedBranch(branchName);
+    skipNextInventorySaveRef.current = true;
+    setProducts(loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, branchName));
     setEditingId(null);
     sessionStorage.setItem("inventra_inventory_branch", branchName);
   };
+
+  React.useEffect(() => {
+    if (!selectedBranch) return;
+    if (skipNextInventorySaveRef.current) {
+      skipNextInventorySaveRef.current = false;
+      return;
+    }
+    saveScopedInventoryProducts(products, selectedBranch);
+  }, [products, selectedBranch]);
 
   const handleStartEdit = (product) => {
     setEditingId(product.id);

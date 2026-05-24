@@ -1,5 +1,6 @@
 import React from "react";
 import BillingSystem from "../components/BillingSystem";
+import BranchDropdown from "../components/BranchDropdown";
 import {
   getDashboardTierFromUser,
   getTierBadgeLabel,
@@ -7,9 +8,26 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
+import { getBranchNetwork, getBranchInventory, getUserBranches } from "../utils/branches";
+import {
+  INVENTORY_PRODUCT_SEED,
+  hydrateInventoryProducts,
+  loadScopedInventoryProducts,
+  saveScopedInventoryProducts,
+} from "../utils/inventory";
+
+function buildFallbackBranches(branchNames) {
+  return branchNames.map((branchName, index) => ({
+    branch_id: `fallback-${index + 1}`,
+    branch_name: branchName,
+    branch_code: `BR${String(index + 1).padStart(3, "0")}`,
+    status: "Active",
+  }));
+}
 
 export default function BillingPOS({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
+  const fallbackBranches = React.useMemo(() => buildFallbackBranches(getBranchNetwork(normalizedTier)), [normalizedTier]);
 
   const userSession = React.useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -30,19 +48,116 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   const tierAccent     = normalizedTier === "medium" ? "#D97706" : normalizedTier === "large" ? "#059669" : "#0284C7";
   const tierAccentSoft = normalizedTier === "medium" ? "rgba(217,119,6,0.1)" : normalizedTier === "large" ? "rgba(5,150,105,0.1)" : "rgba(2,132,199,0.1)";
 
+  const [branchOptions, setBranchOptions] = React.useState(fallbackBranches);
+  const [selectedBranchId, setSelectedBranchId] = React.useState(() => {
+    if (typeof window === "undefined") return fallbackBranches[0]?.branch_id || "";
+    return sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch") || fallbackBranches[0]?.branch_id || "";
+  });
+  const [isBranchLoading, setIsBranchLoading] = React.useState(true);
+  const [isInventorySyncing, setIsInventorySyncing] = React.useState(false);
+  const [inventoryStatus, setInventoryStatus] = React.useState("Loading branch inventory…");
+
   const handleBack = () => {
     const fallbackTier = normalizeBusinessTier(getDashboardTierFromUser(userSession?.user) || normalizedTier);
     setActiveTab(`dashboard-${fallbackTier}`);
   };
 
-  const [products, setProducts] = React.useState([
-    { id: 1, name: "Fresh Bread 400g",    category: "Bakery",    stock: 8,  price: 40,  sold: 120, expiryDate: "2026-05-24", reorderLevel: 15, barcode: "8901234567890" },
-    { id: 2, name: "Organic Milk 1L",     category: "Dairy",     stock: 12, price: 60,  sold: 240, expiryDate: "2026-05-23", reorderLevel: 20, barcode: "8901234567891" },
-    { id: 3, name: "Coke 500ml",          category: "Beverages", stock: 85, price: 40,  sold: 310, expiryDate: "2026-11-12", reorderLevel: 10, barcode: "8901234567892" },
-    { id: 4, name: "Potato Chips 150g",   category: "Snacks",    stock: 4,  price: 20,  sold: 480, expiryDate: "2026-09-08", reorderLevel: 25, barcode: "8901234567893" },
-    { id: 5, name: "Amul Butter 500g",    category: "Dairy",     stock: 32, price: 250, sold: 85,  expiryDate: "2026-06-15", reorderLevel: 12, barcode: "8901234567894" },
-    { id: 6, name: "Dark Chocolate 100g", category: "Snacks",    stock: 55, price: 80,  sold: 150, expiryDate: "2026-10-30", reorderLevel: 15, barcode: "8901234567895" },
-  ]);
+  const selectedBranch = React.useMemo(
+    () => branchOptions.find((branch) => branch.branch_id === selectedBranchId || branch.branch_name === selectedBranchId) || branchOptions[0] || null,
+    [branchOptions, selectedBranchId],
+  );
+  const selectedBranchKey = selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId || "default";
+  const selectedBranchLabel = selectedBranch?.branch_name || selectedBranch?.branch_id || "Main Store";
+  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, selectedBranchKey));
+
+  React.useEffect(() => {
+    saveScopedInventoryProducts(products, selectedBranchKey);
+  }, [products, selectedBranchKey]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const syncBranches = async () => {
+      try {
+        const data = await getUserBranches();
+        if (cancelled) return;
+
+        const branches = Array.isArray(data?.branches) && data.branches.length > 0 ? data.branches : fallbackBranches;
+        setBranchOptions(branches);
+
+        const storedBranch = sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch");
+        const matchedBranch =
+          branches.find((branch) => branch.branch_id === storedBranch || branch.branch_name === storedBranch) ||
+          branches[0] ||
+          null;
+
+        if (matchedBranch) {
+          setSelectedBranchId(matchedBranch.branch_id || matchedBranch.branch_name);
+        }
+      } catch {
+        if (!cancelled) {
+          setBranchOptions(fallbackBranches);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsBranchLoading(false);
+        }
+      }
+    };
+
+    syncBranches();
+    return () => {
+      cancelled = true;
+    };
+  }, [fallbackBranches]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadBranchInventory = async () => {
+      if (!selectedBranch) return;
+
+      const branchKey = selectedBranch.branch_id || selectedBranch.branch_name;
+      const cachedProducts = loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, branchKey);
+      setProducts(cachedProducts);
+      setIsInventorySyncing(true);
+      setInventoryStatus(`Loading ${selectedBranchLabel} inventory from database…`);
+
+      try {
+        const payload = await getBranchInventory(branchKey);
+        if (cancelled) return;
+
+        const nextProducts = hydrateInventoryProducts(payload, cachedProducts);
+        setProducts(nextProducts);
+        saveScopedInventoryProducts(nextProducts, branchKey);
+        setInventoryStatus(`Synced ${nextProducts.length} products from database.`);
+      } catch (error) {
+        if (cancelled) return;
+        setInventoryStatus(error?.message ? `${error.message} — using cached inventory.` : "Using cached inventory.");
+      } finally {
+        if (!cancelled) {
+          setIsInventorySyncing(false);
+        }
+      }
+    };
+
+    loadBranchInventory();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranch, selectedBranchLabel]);
+
+  const handleBranchChange = (branch) => {
+    if (!branch) return;
+    const nextKey = branch.branch_id || branch.branch_name;
+    setSelectedBranchId(nextKey);
+    try {
+      sessionStorage.setItem("inventra_billing_branch_id", nextKey);
+      sessionStorage.setItem("inventra_billing_branch", branch.branch_name || nextKey);
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   const handleRecordSale = (cartItems, totalPaid) => {
     setProducts((curr) =>
@@ -95,6 +210,16 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="hidden md:block">
+            <BranchDropdown
+              branches={branchOptions}
+              selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
+              onSelect={handleBranchChange}
+              loading={isBranchLoading}
+              syncing={isInventorySyncing}
+              statusText={inventoryStatus}
+            />
+          </div>
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{userDisplayName}</div>
           <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.08)" }} />
           <span

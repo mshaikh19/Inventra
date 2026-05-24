@@ -77,7 +77,7 @@ async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -
             "barcode": "8901234567890",
             "category": "Dairy",
             "subcategory": "Milk",
-            "quantity": 0,
+            "quantity": 12,
             "minimum_stock": 20,
             "maximum_stock": 500,
             "unit": "Packets",
@@ -109,7 +109,7 @@ async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -
             "barcode": "8901234567891",
             "category": "Bakery",
             "subcategory": "Bread",
-            "quantity": 0,
+            "quantity": 8,
             "minimum_stock": 15,
             "maximum_stock": 300,
             "unit": "Loaves",
@@ -141,7 +141,7 @@ async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -
             "barcode": "8901234567892",
             "category": "Beverages",
             "subcategory": "Cold Drinks",
-            "quantity": 0,
+            "quantity": 85,
             "minimum_stock": 10,
             "maximum_stock": 1000,
             "unit": "Bottles",
@@ -179,6 +179,47 @@ async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -
         "updated_at": datetime.utcnow(),
     }
     await db.inventories.insert_one(inventory_doc)
+
+
+def _serialize_inventory_item(item: dict) -> dict:
+    """Convert an inventory item into a JSON-safe dict."""
+    if item is None:
+        return {}
+
+    doc = dict(item)
+    if "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+
+    for field in ("created_at", "updated_at", "manufacturing_date", "expiry_date", "last_sold_date"):
+        value = doc.get(field)
+        if value is not None and hasattr(value, "isoformat"):
+            doc[field] = value.isoformat()
+
+    return doc
+
+
+def _serialize_inventory_doc(doc: dict) -> dict:
+    """Convert an inventory document into a JSON-safe dict."""
+    if doc is None:
+        return {}
+
+    inventory = dict(doc)
+    if "_id" in inventory:
+        inventory["_id"] = str(inventory["_id"])
+    if "branch_id" in inventory and inventory["branch_id"] is not None:
+        inventory["branch_id"] = str(inventory["branch_id"])
+
+    for field in ("created_at", "updated_at"):
+        value = inventory.get(field)
+        if value is not None and hasattr(value, "isoformat"):
+            inventory[field] = value.isoformat()
+
+    inventory["items"] = [
+        _serialize_inventory_item(item)
+        for item in (inventory.get("items") or [])
+    ]
+    inventory["total_items"] = len(inventory["items"])
+    return inventory
 
 
 # ── CREATE ────────────────────────────────────────────────────────────────────
@@ -265,6 +306,46 @@ async def get_branch(branch_id: str, authorization: Optional[str] = Header(None)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
 
     return _serialize_branch(doc)
+
+
+@router.get("/{branch_id}/inventory")
+async def get_branch_inventory(branch_id: str, authorization: Optional[str] = Header(None)):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+
+    if ObjectId.is_valid(branch_id):
+        branch_query = {"_id": ObjectId(branch_id), "business_id": business_id}
+    else:
+        branch_query = {"branch_id": branch_id, "business_id": business_id}
+
+    branch = await db.branches.find_one(branch_query)
+    if not branch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+
+    inventory = await db.inventories.find_one({"business_id": business_id, "branch_id": branch["branch_id"]})
+    if not inventory:
+        return {
+            "branch": _serialize_branch(branch),
+            "inventory": {
+                "business_id": business_id,
+                "branch_id": branch["branch_id"],
+                "branch_code": branch.get("branch_code"),
+                "branch_name": branch.get("branch_name"),
+                "items": [],
+                "total_items": 0,
+            },
+            "items": [],
+            "total_items": 0,
+        }
+
+    serialized_inventory = _serialize_inventory_doc(inventory)
+    return {
+        "branch": _serialize_branch(branch),
+        "inventory": serialized_inventory,
+        "items": serialized_inventory.get("items", []),
+        "total_items": serialized_inventory.get("total_items", 0),
+    }
 
 
 # ── UPDATE ────────────────────────────────────────────────────────────────────

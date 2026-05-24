@@ -1,4 +1,7 @@
 import React, { useMemo, useState } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+
+const normalizeBarcode = (value) => String(value ?? "").replace(/\s+/g, "").trim();
 
 export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft }) {
   const [cart, setCart] = useState(() => {
@@ -28,8 +31,13 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerInput, setScannerInput] = useState("");
   const [scannerFeedback, setScannerFeedback] = useState(null);
+  const [scannerCameraStatus, setScannerCameraStatus] = useState("idle");
+  const [scannerCameraMessage, setScannerCameraMessage] = useState("");
 
   const scannerInputRef = React.useRef(null);
+  const scannerVideoRef = React.useRef(null);
+  const scannerControlsRef = React.useRef(null);
+  const barcodeReaderRef = React.useRef(null);
 
   React.useEffect(() => {
     const handleKeyDown = (e) => {
@@ -43,13 +51,113 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
   }, []);
 
   React.useEffect(() => {
-    if (isScannerOpen) {
-      const timer = setTimeout(() => {
-        scannerInputRef.current?.focus();
-      }, 80);
-      return () => clearTimeout(timer);
+    if (!isScannerOpen || scannerCameraStatus !== "error") return undefined;
+    const timer = setTimeout(() => {
+      scannerInputRef.current?.focus();
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [isScannerOpen, scannerCameraStatus]);
+
+  const stopScannerCamera = React.useCallback(() => {
+    try {
+      scannerControlsRef.current?.stop?.();
+    } catch {
+      // ignore teardown errors when closing the modal
     }
-  }, [isScannerOpen]);
+    scannerControlsRef.current = null;
+    setScannerCameraStatus("idle");
+    setScannerCameraMessage("");
+  }, []);
+
+  React.useEffect(() => {
+    if (!isScannerOpen) {
+      stopScannerCamera();
+      return undefined;
+    }
+
+    let cancelled = false;
+    let activeControls = null;
+
+    const startCameraScanner = async () => {
+      if (!scannerVideoRef.current) return;
+
+      setScannerCameraStatus("starting");
+      setScannerCameraMessage("Starting live camera scan...");
+
+      try {
+        const reader = barcodeReaderRef.current ?? new BrowserMultiFormatReader();
+        barcodeReaderRef.current = reader;
+
+        activeControls = await reader.decodeFromVideoDevice(
+          undefined,
+          scannerVideoRef.current,
+          (result, error) => {
+            if (cancelled) return;
+
+            if (result) {
+              const matched = handleScanBarcode(result.getText());
+              if (matched) {
+                try {
+                  activeControls?.stop?.();
+                } catch {
+                  // ignore teardown issues after a successful scan
+                }
+                scannerControlsRef.current = null;
+                setScannerCameraStatus("idle");
+                setScannerCameraMessage("");
+              }
+              return;
+            }
+
+            if (error && error.name && error.name !== "NotFoundException") {
+              const friendlyMessage = error.message || "Unable to read barcode from camera.";
+              setScannerCameraStatus("error");
+              setScannerCameraMessage(friendlyMessage);
+              setScannerFeedback({
+                status: "error",
+                message: friendlyMessage,
+              });
+            }
+          },
+        );
+
+        if (cancelled) {
+          try {
+            activeControls?.stop?.();
+          } catch {
+            // ignore teardown issues during cleanup
+          }
+          return;
+        }
+
+        scannerControlsRef.current = activeControls;
+        setScannerCameraStatus("ready");
+        setScannerCameraMessage("Camera ready. Hold an EAN/UPC code inside the frame.");
+      } catch (error) {
+        if (cancelled) return;
+        const friendlyMessage =
+          error?.message || "Camera access failed. Check permissions or use manual barcode entry.";
+        setScannerCameraStatus("error");
+        setScannerCameraMessage(friendlyMessage);
+        setScannerFeedback({
+          status: "error",
+          message: friendlyMessage,
+        });
+      }
+    };
+
+    startCameraScanner();
+
+    return () => {
+      cancelled = true;
+      try {
+        activeControls?.stop?.();
+      } catch {
+        // ignore teardown issues during cleanup
+      }
+      scannerControlsRef.current = null;
+    };
+  }, [isScannerOpen, stopScannerCamera]);
 
   React.useEffect(() => {
     if (!scannerFeedback) return;
@@ -93,11 +201,23 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
     }
   };
 
+  const barcodeIndex = useMemo(() => {
+    const index = new Map();
+    products.forEach((product) => {
+      const barcode = normalizeBarcode(product.barcode);
+      if (barcode && !index.has(barcode)) {
+        index.set(barcode, product);
+      }
+    });
+    return index;
+  }, [products]);
+
   const handleScanBarcode = (barcodeStr) => {
-    const trimmed = barcodeStr.trim();
-    if (!trimmed) return;
+    const scannedBarcode = normalizeBarcode(barcodeStr);
+    if (!scannedBarcode) return false;
+    setScannerInput("");
     
-    const product = products.find((p) => p.barcode === trimmed);
+    const product = barcodeIndex.get(scannedBarcode) || products.find((p) => normalizeBarcode(p.barcode) === scannedBarcode);
     
     if (product) {
       if (product.stock <= 0) {
@@ -106,6 +226,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
           status: "error",
           message: `"${product.name}" is out of stock!`,
         });
+        return false;
       } else {
         addToCart(product);
         playScanSound(true);
@@ -113,15 +234,16 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
           status: "success",
           message: `Added ${product.name} to basket!`,
         });
+        return true;
       }
     } else {
       playScanSound(false);
       setScannerFeedback({
         status: "error",
-        message: `Barcode "${trimmed}" not registered in POS inventory!`,
+        message: `Barcode "${scannedBarcode}" not registered in POS inventory!`,
       });
+      return false;
     }
-    setScannerInput("");
   };
 
   const categoryOptions = useMemo(() => {
@@ -664,6 +786,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
               <button
                 type="button"
                 onClick={() => {
+                  stopScannerCamera();
                   setIsScannerOpen(false);
                   setScannerFeedback(null);
                 }}
@@ -675,8 +798,18 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
               </button>
             </div>
 
-            {/* Scanning Viewport */}
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Scan with camera or use hardware wedge</p>
             <div className="relative aspect-video max-w-sm w-full mx-auto rounded-2xl bg-slate-955 border border-slate-800 overflow-hidden flex items-center justify-center scanner-grid-pattern">
+              <video
+                ref={scannerVideoRef}
+                className="absolute inset-0 h-full w-full object-cover"
+                muted
+                playsInline
+                autoPlay
+              />
+
+              <div className="absolute inset-0 bg-slate-950/40" />
+
               {/* Sweeping Laser Line */}
               <div className="scan-laser-line" />
 
@@ -687,12 +820,14 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
               <div className="absolute bottom-4 right-4 w-4 h-4 border-b-2 border-r-2 border-rose-500 rounded-br" />
 
               {/* Central text indicator */}
-              <div className="text-center z-20 pointer-events-none select-none">
+              <div className="text-center z-20 pointer-events-none select-none px-4">
                 <div className="text-[9px] font-black uppercase text-rose-500 tracking-[0.25em] animate-pulse-soft">
-                  CAMERA PREVIEW ACTIVE
+                  {scannerCameraStatus === "error" ? "CAMERA UNAVAILABLE" : "LIVE CAMERA SCAN ACTIVE"}
                 </div>
-                <div className="text-[8px] font-bold text-slate-500 tracking-wider mt-1">
-                  READY FOR EAN-13 TRANSMISSION
+                <div className="text-[8px] font-bold text-slate-300 tracking-wider mt-1">
+                  {scannerCameraStatus === "error"
+                    ? "Use manual barcode entry below"
+                    : scannerCameraMessage || "READY TO READ EAN / UPC / CODE128"}
                 </div>
               </div>
             </div>
@@ -700,7 +835,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
             {/* Quick Simulation Options */}
             <div>
               <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400 mb-2 select-none">
-                Click to Simulate Product Scan
+                Known barcode shortcuts
               </div>
               <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
                 {products.map((p) => {
@@ -713,9 +848,8 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                       onClick={() => handleScanBarcode(p.barcode)}
                       className="flex items-center justify-between text-left p-2 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/85 hover:border-slate-700 transition-all text-xs font-semibold text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                     >
-                      <div className="min-w-0">
-                        <div className="font-bold text-white text-[11px] truncate">{p.name}</div>
-                        <div className="text-[9px] text-slate-500 font-mono tracking-wider mt-0.5">{p.barcode}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] text-slate-500 font-mono tracking-wider truncate">{p.barcode}</div>
                       </div>
                       <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded shrink-0 uppercase tracking-widest ml-1 select-none">
                         Scan
