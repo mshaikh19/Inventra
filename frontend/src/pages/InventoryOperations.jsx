@@ -5,41 +5,35 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
-import { getBranchNetwork } from "../utils/branches";
+import { getBranchNetwork, getUserBranches } from "../utils/branches";
 
 const BRANCH_RATIOS_BY_TIER = {
-  small: { "Main Store": 1 },
-  medium: { "Mumbai Hub": 0.4, "Delhi Branch": 0.15, "Bangalore Branch": 0.25, "Pune Depot": 0.2 },
+  small: { "Main Store": 0 },
+  medium: { "Mumbai Hub": 0, "Delhi Branch": 0, "Bangalore Branch": 0, "Pune Depot": 0 },
   large: {
-    "Mumbai Hub": 0.28,
-    "Delhi Branch": 0.12,
-    "Bangalore Branch": 0.18,
-    "Pune Depot": 0.14,
-    "New York Hub": 0.1,
-    "London Branch": 0.06,
-    "Tokyo Depot": 0.07,
-    "Singapore Hub": 0.05,
+    "Mumbai Hub": 0,
+    "Delhi Branch": 0,
+    "Bangalore Branch": 0,
+    "Pune Depot": 0,
+    "New York Hub": 0,
+    "London Branch": 0,
+    "Tokyo Depot": 0,
+    "Singapore Hub": 0,
   },
 };
 
 const initialProducts = [
-  { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 8, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15, barcode: "8901234567890" },
-  { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 12, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20, barcode: "8901234567891" },
-  { id: 3, name: "Coke 500ml", category: "Beverages", stock: 85, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10, barcode: "8901234567892" },
-  { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 4, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25, barcode: "8901234567893" },
-  { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 32, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12, barcode: "8901234567894" },
-  { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 55, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15, barcode: "8901234567895" },
+  { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 0, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15, barcode: "8901234567890" },
+  { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 0, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20, barcode: "8901234567891" },
+  { id: 3, name: "Coke 500ml", category: "Beverages", stock: 0, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10, barcode: "8901234567892" },
+  { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 0, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25, barcode: "8901234567893" },
+  { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 0, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12, barcode: "8901234567894" },
+  { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 0, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15, barcode: "8901234567895" },
 ];
 
 const getBranchAllocation = (product, branchNames, ratios) => {
-  const totalStock = Number(product.stock || 0);
-  let usedStock = 0;
-
-  return branchNames.reduce((allocation, branchName, index) => {
-    const isLastBranch = index === branchNames.length - 1;
-    const branchStock = isLastBranch ? totalStock - usedStock : Math.floor(totalStock * (ratios[branchName] || 0));
-    usedStock += branchStock;
-    allocation[branchName] = Math.max(0, branchStock);
+  return branchNames.reduce((allocation, branchName) => {
+    allocation[branchName] = 0;
     return allocation;
   }, {});
 };
@@ -53,7 +47,23 @@ const getStatus = (stock, reorderLevel) => {
 
 export default function InventoryOperations({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
-  const [branchNames] = React.useState(() => getBranchNetwork(normalizedTier));
+  const [branchNames, setBranchNames] = React.useState(() => getBranchNetwork(normalizedTier));
+
+  React.useEffect(() => {
+    getUserBranches()
+      .then((data) => {
+        if (data && data.branches) {
+          const names = data.branches.map((b) => b.branch_name);
+          setBranchNames(names);
+          // Auto-select the first branch if current selected branch is not in names list
+          setSelectedBranch((current) => {
+            return names.includes(current) ? current : (names[0] || current);
+          });
+        }
+      })
+      .catch((err) => console.error("Failed to load branches from DB:", err));
+  }, [normalizedTier]);
+
   const branchRatios = BRANCH_RATIOS_BY_TIER[normalizedTier] || BRANCH_RATIOS_BY_TIER.small;
   const tierAccent = normalizedTier === "medium" ? "#D97706" : normalizedTier === "large" ? "#059669" : "#0284C7";
   const tierBadgeLabel = getTierBadgeLabel(normalizedTier);

@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -99,3 +99,88 @@ class ResetPasswordRequest(BaseModel):
 
 class ResetPasswordResponse(BaseModel):
     message: str
+
+
+# ── Branch Module ─────────────────────────────────────────────────────────────
+class BranchType(str, Enum):
+    STORE     = "Store"
+    WAREHOUSE = "Warehouse"
+    FRANCHISE = "Franchise"
+    DEPOT     = "Depot"
+
+
+class BranchStatus(str, Enum):
+    ACTIVE   = "Active"
+    INACTIVE = "Inactive"
+
+
+class BranchCreate(BaseModel):
+    # Basic info
+    branch_name: str = Field(..., min_length=2, max_length=100)
+    branch_code: str = Field(..., min_length=2, max_length=20)
+    branch_type: BranchType = BranchType.STORE
+
+    # Location
+    address:  str = Field(..., min_length=5)
+    city:     str = Field(..., min_length=2)
+    state:    str = Field(..., min_length=2)
+    pincode:  str = Field(..., min_length=4, max_length=10)
+    latitude:  Optional[float] = None
+    longitude: Optional[float] = None
+
+    # Contact & operations
+    phone:          str = Field(..., min_length=7)
+    manager_name:   str = Field(..., min_length=2)
+    employee_count: int = Field(default=1, ge=1)
+    working_hours:  str = Field(default="9AM-9PM")
+    opening_date:   Optional[date] = None
+
+    # Optional
+    gstin:  Optional[str] = None
+    status: BranchStatus = BranchStatus.ACTIVE
+
+
+class BranchResponse(BaseModel):
+    id:           Optional[str] = Field(None, alias="_id")
+    branch_id:    str           # e.g. "BR001"
+    business_id:  str
+    branch_name:  str
+    branch_code:  str
+    branch_type:  BranchType
+    address:      str
+    city:         str
+    state:        str
+    pincode:      str
+    latitude:     Optional[float] = None
+    longitude:    Optional[float] = None
+    phone:        str
+    manager_name: str
+    employee_count: int
+    working_hours:  str
+    opening_date:   Optional[date] = None
+    gstin:          Optional[str]  = None
+    status:         BranchStatus
+    created_at:     Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class BranchUpdate(BaseModel):
+    branch_name:    Optional[str]        = None
+    branch_code:    Optional[str]        = None
+    branch_type:    Optional[BranchType] = None
+    address:        Optional[str]        = None
+    city:           Optional[str]        = None
+    state:          Optional[str]        = None
+    country:        Optional[str]        = None
+    pincode:        Optional[str]        = None
+    latitude:       Optional[float]      = None
+    longitude:      Optional[float]      = None
+    phone:          Optional[str]        = None
+    manager_name:   Optional[str]        = None
+    employee_count: Optional[int]        = None
+    working_hours:  Optional[str]        = None
+    opening_date:   Optional[date]       = None
+    gstin:          Optional[str]        = None
+    status:         Optional[BranchStatus] = None

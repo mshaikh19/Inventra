@@ -8,6 +8,7 @@ from app.database.mongo import connectDatabase, closeConnection
 from app.routes import auth
 from app.routes import classify
 from app.routes import dashboard
+from app.routes import branches
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -40,6 +41,8 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -53,13 +56,10 @@ app.add_middleware(
 )
 
 # Include sub-routers under api v1 namespace
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-# classifier endpoints (schema, classify, status, retrain)
-# the router already defines /classify and /schema, so mount it at /api/v1
-app.include_router(classify.router, prefix="/api/v1", tags=["Classifier"])
-app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboards"])
-# app.include_router(inventory.router, prefix="/api/v1/inventory", tags=["Inventory & Billing"])
-# app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["AI Forecasting"])
+app.include_router(auth.router,      prefix="/api/v1/auth",      tags=["Authentication"])
+app.include_router(classify.router,   prefix="/api/v1",           tags=["Classifier"])
+app.include_router(dashboard.router,  prefix="/api/v1/dashboard", tags=["Dashboards"])
+app.include_router(branches.router,   prefix="/api/v1/branches",  tags=["Branches"])
 
 @app.get("/")
 async def getRoot():

@@ -5,17 +5,17 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
-import { getBranchNetwork } from "../utils/branches";
+import { getBranchNetwork, getUserBranches } from "../utils/branches";
 
 const branchMetrics = {
-  "Mumbai Hub": { sales: "₹4.8L", stockLevel: "94%", health: "Optimal", alerts: 0, growth: "+12.4%", orders: 428 },
-  "Delhi Branch": { sales: "₹3.6L", stockLevel: "68%", health: "Watchlist", alerts: 4, growth: "+5.8%", orders: 312 },
-  "Bangalore Branch": { sales: "₹4.2L", stockLevel: "88%", health: "Optimal", alerts: 0, growth: "+14.5%", orders: 386 },
-  "Pune Depot": { sales: "₹1.9L", stockLevel: "98%", health: "Overstocked", alerts: 1, growth: "-2.1%", orders: 184 },
-  "New York Hub": { sales: "$8.2M", stockLevel: "91%", health: "Optimal", alerts: 0, growth: "+9.9%", orders: 612 },
-  "London Branch": { sales: "£5.4M", stockLevel: "76%", health: "Watchlist", alerts: 2, growth: "+3.4%", orders: 441 },
-  "Tokyo Depot": { sales: "¥6.8M", stockLevel: "89%", health: "Optimal", alerts: 1, growth: "+8.1%", orders: 506 },
-  "Singapore Hub": { sales: "S$3.9M", stockLevel: "95%", health: "Optimal", alerts: 0, growth: "+10.7%", orders: 358 },
+  "Mumbai Hub": { sales: "₹0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "Delhi Branch": { sales: "₹0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "Bangalore Branch": { sales: "₹0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "Pune Depot": { sales: "₹0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "New York Hub": { sales: "$0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "London Branch": { sales: "£0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "Tokyo Depot": { sales: "¥0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
+  "Singapore Hub": { sales: "S$0", stockLevel: "0%", health: "New", alerts: 0, growth: "+0.0%", orders: 0 },
 };
 
 const capacityLimits = {
@@ -30,12 +30,12 @@ const capacityLimits = {
 };
 
 const productsSeed = [
-  { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 8, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15 },
-  { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 12, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20 },
-  { id: 3, name: "Coke 500ml", category: "Beverages", stock: 85, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10 },
-  { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 4, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25 },
-  { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 32, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12 },
-  { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 55, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15 },
+  { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 0, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15 },
+  { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 0, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20 },
+  { id: 3, name: "Coke 500ml", category: "Beverages", stock: 0, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10 },
+  { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 0, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25 },
+  { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 0, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12 },
+  { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 0, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15 },
 ];
 
 const shelfCoordinates = {
@@ -48,20 +48,10 @@ const shelfCoordinates = {
 };
 
 const allocateStock = (productId, totalStock) => {
-  const ratios = productId === 4
-    ? [0.5, 0.08, 0.22, 0.2]
-    : productId === 3
-    ? [0.34, 0.08, 0.3, 0.18, 0.04, 0.02, 0.02, 0.02]
-    : [0.28, 0.12, 0.18, 0.14, 0.1, 0.06, 0.07, 0.05];
-
-  let used = 0;
   const branchesList = getBranchNetwork("large");
 
   return branchesList.reduce((acc, branch, index) => {
-    const isLast = index === branchesList.length - 1;
-    const value = isLast ? totalStock - used : Math.floor(totalStock * (ratios[index] || 0));
-    used += value;
-    acc[branch] = Math.max(0, value);
+    acc[branch] = 0;
     return acc;
   }, {});
 };
@@ -90,7 +80,22 @@ export default function BranchOperations({ tier = "large", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
   const tierAccent = normalizedTier === "medium" ? "#D97706" : normalizedTier === "large" ? "#059669" : "#0284C7";
   const tierBadgeLabel = getTierBadgeLabel(normalizedTier);
-  const branchesList = React.useMemo(() => getBranchNetwork(normalizedTier), [normalizedTier]);
+  const [branchesList, setBranchesList] = React.useState(() => getBranchNetwork(normalizedTier));
+
+  React.useEffect(() => {
+    getUserBranches()
+      .then((data) => {
+        if (data && data.branches) {
+          const names = data.branches.map((b) => b.branch_name);
+          setBranchesList(names);
+          // Auto-select the first branch if current selected branch is not in names list
+          setSelectedBranch((current) => {
+            return names.includes(current) ? current : (names[0] || current);
+          });
+        }
+      })
+      .catch((err) => console.error("Failed to load branches from DB:", err));
+  }, [normalizedTier]);
 
   const userSession = React.useMemo(() => {
     if (typeof window === "undefined") return null;

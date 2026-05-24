@@ -17,6 +17,7 @@
     "react-dom": "^19.2.6",
     "react-leaflet": "^5.0.0",
     "react-simple-maps": "^3.0.0",
+    "react-toastify": "^11.1.0",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {

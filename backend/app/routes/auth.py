@@ -179,6 +179,12 @@ async def login(user: schemas.UserLogin):
         "user": user_response,
     }
 
+@router.get("/check-email")
+async def checkEmail(email: EmailStr):
+    db = getDatabase()
+    user = await db.users.find_one({"email": email})
+    return {"exists": user is not None}
+
 
 @router.get("/debug/signup-status")
 async def getSignupStatus(email: EmailStr):

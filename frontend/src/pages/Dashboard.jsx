@@ -9,7 +9,8 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
-import { addBranchToNetwork, getBranchNetwork } from "../utils/branches";
+import { addBranchToNetwork, getBranchNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch } from "../utils/branches";
+import { toast } from "react-toastify";
 import InventoryTable from "../components/InventoryTable";
 import CSVUpload from "../components/CSVUpload";
 import SmallDashboard from "../components/SmallDashboard";
@@ -51,7 +52,7 @@ const DASHBOARD_CONFIG = {
     blurb: "Enterprise command center for branch networks, warehouse distribution hubs, and NLP-powered AI insights.",
     accent: "#059669",
     accentSoft: "rgba(5, 150, 105, 0.08)",
-    shell: "#059669",
+    accentBase: "#059669",
     summary: "Central command center for regional demand, branch transfers, automated allocations, and NLP insights.",
     profile: {
       role: "Executive VP / Regional Director",
@@ -116,6 +117,255 @@ const QUICK_LINKS = [
   { label: "Documentation", icon: "📘" },
 ];
 
+// ── Supported Countries with country codes and flags ──────────────────────────
+const COUNTRIES = [
+  { name: "India", code: "+91", flag: "🇮🇳" },
+  { name: "United States", code: "+1", flag: "🇺🇸" },
+  { name: "United Kingdom", code: "+44", flag: "🇬🇧" },
+  { name: "United Arab Emirates", code: "+971", flag: "🇦🇪" },
+  { name: "Canada", code: "+1", flag: "🇨🇦" },
+  { name: "Australia", code: "+61", flag: "🇦🇺" },
+  { name: "Singapore", code: "+65", flag: "🇸🇬" },
+];
+
+// ── Indian states list ──────────────────────────────────────────────────────
+const INDIAN_STATES = [
+  "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
+  "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
+  "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
+  "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+  "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+  "Andaman & Nicobar Islands","Chandigarh","Dadra & Nagar Haveli",
+  "Daman & Diu","Delhi","Jammu & Kashmir","Ladakh","Lakshadweep","Puducherry",
+];
+
+// City to State mapper for smooth Indian location detection
+const CITY_TO_STATE_MAP = {
+  "mumbai": "Maharashtra",
+  "pune": "Maharashtra",
+  "nagpur": "Maharashtra",
+  "nashik": "Maharashtra",
+  "thane": "Maharashtra",
+  "navi mumbai": "Maharashtra",
+  "kolhapur": "Maharashtra",
+  "solapur": "Maharashtra",
+  "aurangabad": "Maharashtra",
+  "amravati": "Maharashtra",
+  "bangalore": "Karnataka",
+  "bengaluru": "Karnataka",
+  "mysore": "Karnataka",
+  "mysuru": "Karnataka",
+  "mangalore": "Karnataka",
+  "mangaluru": "Karnataka",
+  "hubli": "Karnataka",
+  "hubballi": "Karnataka",
+  "belgaum": "Karnataka",
+  "belagavi": "Karnataka",
+  "chennai": "Tamil Nadu",
+  "coimbatore": "Tamil Nadu",
+  "madurai": "Tamil Nadu",
+  "trichy": "Tamil Nadu",
+  "tiruchirappalli": "Tamil Nadu",
+  "salem": "Tamil Nadu",
+  "tirunelveli": "Tamil Nadu",
+  "delhi": "Delhi",
+  "new delhi": "Delhi",
+  "noida": "Uttar Pradesh",
+  "greater noida": "Uttar Pradesh",
+  "ghaziabad": "Uttar Pradesh",
+  "lucknow": "Uttar Pradesh",
+  "kanpur": "Uttar Pradesh",
+  "agra": "Uttar Pradesh",
+  "varanasi": "Uttar Pradesh",
+  "prayagraj": "Uttar Pradesh",
+  "allahabad": "Uttar Pradesh",
+  "meerut": "Uttar Pradesh",
+  "bareilly": "Uttar Pradesh",
+  "aligarh": "Uttar Pradesh",
+  "moradabad": "Uttar Pradesh",
+  "gurgaon": "Haryana",
+  "gurugram": "Haryana",
+  "faridabad": "Haryana",
+  "panipat": "Haryana",
+  "ambala": "Haryana",
+  "rohtak": "Haryana",
+  "kolkata": "West Bengal",
+  "howrah": "West Bengal",
+  "darjeeling": "West Bengal",
+  "durgapur": "West Bengal",
+  "siliguri": "West Bengal",
+  "asansol": "West Bengal",
+  "hyderabad": "Telangana",
+  "warangal": "Telangana",
+  "secunderabad": "Telangana",
+  "nizamabad": "Telangana",
+  "ahmedabad": "Gujarat",
+  "surat": "Gujarat",
+  "vadodara": "Gujarat",
+  "rajkot": "Gujarat",
+  "bhavnagar": "Gujarat",
+  "jamnagar": "Gujarat",
+  "jaipur": "Rajasthan",
+  "jodhpur": "Rajasthan",
+  "udaipur": "Rajasthan",
+  "kota": "Rajasthan",
+  "bikaner": "Rajasthan",
+  "ajmer": "Rajasthan",
+  "indore": "Madhya Pradesh",
+  "bhopal": "Madhya Pradesh",
+  "gwalior": "Madhya Pradesh",
+  "jabalpur": "Madhya Pradesh",
+  "ujjain": "Madhya Pradesh",
+  "chandigarh": "Chandigarh",
+  "amritsar": "Punjab",
+  "ludhiana": "Punjab",
+  "jalandhar": "Punjab",
+  "patiala": "Punjab",
+  "kochi": "Kerala",
+  "trivandrum": "Kerala",
+  "thiruvananthapuram": "Kerala",
+  "calicut": "Kerala",
+  "kozhikode": "Kerala",
+  "thrissur": "Kerala",
+  "kollam": "Kerala",
+  "patna": "Bihar",
+  "gaya": "Bihar",
+  "muzaffarpur": "Bihar",
+  "bhagalpur": "Bihar",
+  "ranchi": "Jharkhand",
+  "jamshedpur": "Jharkhand",
+  "dhanbad": "Jharkhand",
+  "bhubaneswar": "Odisha",
+  "cuttack": "Odisha",
+  "puri": "Odisha",
+  "rourkela": "Odisha",
+  "guwahati": "Assam",
+  "dibrugarh": "Assam",
+  "silchar": "Assam",
+  "jorhat": "Assam",
+  "dehradun": "Uttarakhand",
+  "haridwar": "Uttarakhand",
+  "nainital": "Uttarakhand",
+  "rishikesh": "Uttarakhand",
+  "shimla": "Himachal Pradesh",
+  "dharamshala": "Himachal Pradesh",
+  "manali": "Himachal Pradesh",
+  "raipur": "Chhattisgarh",
+  "bilaspur": "Chhattisgarh",
+  "bhilai": "Chhattisgarh",
+  "panaji": "Goa",
+  "margao": "Goa",
+  "vasco da gama": "Goa",
+  "srinagar": "Jammu & Kashmir",
+  "jammu": "Jammu & Kashmir",
+  "visakhapatnam": "Andhra Pradesh",
+  "vijayawada": "Andhra Pradesh",
+  "guntur": "Andhra Pradesh",
+  "tirupati": "Andhra Pradesh",
+  "nellore": "Andhra Pradesh",
+};
+
+function getStateForCity(city) {
+  if (!city) return "";
+  const normalized = city.trim().toLowerCase();
+  return CITY_TO_STATE_MAP[normalized] || "";
+}
+
+const BRANCH_TYPES = [
+  { value: "Store",     icon: "🏪", desc: "Retail outlet" },
+  { value: "Warehouse", icon: "🏭", desc: "Storage hub" },
+  { value: "Franchise", icon: "🤝", desc: "Licensed store" },
+  { value: "Depot",     icon: "📦", desc: "Wholesale depot" },
+];
+
+const WORKING_HOURS_PRESETS = [
+  "8AM-8PM", "9AM-9PM", "9AM-6PM", "10AM-10PM", "24 Hours",
+];
+
+const EMPTY_BRANCH_FORM = {
+  branch_name:        "",
+  branch_code:        "",
+  branch_type:        "Store",
+  address:            "",
+  city:               "",
+  state:              "",
+  pincode:            "",
+  country:            "India",
+  phone:              "",
+  phone_country_code: "+91",
+  phone_number:       "",
+  manager_name:       "",
+  employee_count:     1,
+  working_hours:      "9AM-9PM",
+  opening_date:       "",
+  gstin:              "",
+};
+
+// Auto-generate an intelligent branch code from the name
+function autoCode(name) {
+  if (!name) return "";
+  const clean = name.replace(/[^a-zA-Z0-9\s]/g, "").trim().toUpperCase();
+  const words = clean.split(/\s+/).filter(w => !["AND", "THE", "OF", "IN", "AT", "FOR", "BY", "WITH"].includes(w));
+  
+  if (words.length === 0) return "BR-01";
+  
+  const dict = {
+    "MUMBAI": "MUM", "PUNE": "PUN", "DELHI": "DEL", "BANGALORE": "BLR", "BENGALURU": "BLR",
+    "KOLKATA": "KOL", "CHENNAI": "MAA", "HYDERABAD": "HYD", "AHMEDABAD": "AMD", "JAIPUR": "JPR",
+    "FLAGSHIP": "FLG", "BOUTIQUE": "BTQ", "STORE": "STR", "WAREHOUSE": "WH", "DEPOT": "DEP",
+    "FRANCHISE": "FRN", "OUTLET": "OUT", "OFFICE": "OFF", "HEADQUARTERS": "HQ", "CENTRAL": "CTL",
+    "RETAIL": "RTL", "EXPERIENCE": "EXP", "STUDIO": "STD"
+  };
+
+  const translate = (w) => dict[w] || (w.length <= 4 ? w : w.slice(0, 3));
+
+  if (words.length === 1) {
+    const w = words[0];
+    return w.length <= 6 ? `${w}-01` : `${w.slice(0, 4)}-01`;
+  }
+  
+  const parts = words.map(translate);
+  if (parts[0].length > 5) parts[0] = parts[0].slice(0, 4);
+
+  return parts.join("-").slice(0, 12);
+}
+
+// Step indicator dot (Larger, elegant, perfectly contrastive on white background)
+function StepDot({ n, current, label }) {
+  const done = n < current;
+  const active = n === current;
+  return (
+    <div className="flex flex-col items-center gap-1.5 flex-1 relative">
+      <div
+        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${
+          done
+            ? "bg-emerald-500 text-white shadow-[0_3px_10px_rgba(16,185,129,0.2)]"
+            : active
+            ? "bg-slate-900 text-white ring-4 ring-slate-900/10 shadow-[0_3px_10px_rgba(15,23,42,0.1)]"
+            : "bg-slate-100 text-slate-550 border border-slate-200/80"
+        }`}
+      >
+        {done ? (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+          </svg>
+        ) : n}
+      </div>
+      <span className={`text-[10px] font-black uppercase tracking-[0.14em] hidden sm:block ${active ? "text-slate-800" : "text-slate-400"}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function StepConnector({ done }) {
+  return (
+    <div className="flex-1 self-center px-1 mb-4">
+      <div className={`h-[2.5px] w-full rounded-full transition-colors duration-500 ${done ? "bg-emerald-400" : "bg-slate-200"}`} />
+    </div>
+  );
+}
+
 export default function Dashboard({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
   const config = DASHBOARD_CONFIG[normalizedTier];
@@ -137,11 +387,82 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   }, [activeSection]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertMenu, setShowAlertMenu] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [showAddBranchModal, setShowAddBranchModal] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [newBranchProperName, setNewBranchProperName] = useState("");
-  const [newBranchAddress, setNewBranchAddress] = useState("");
+  
+  // Wizard States
+  const [modalStep, setModalStep] = useState(1);
+  const [modalForm, setModalForm] = useState(EMPTY_BRANCH_FORM);
+  const [modalErrors, setModalErrors] = useState({});
+  const [modalDropdownOpen, setModalDropdownOpen] = useState(false);
+  const [modalDropdownSearch, setModalDropdownSearch] = useState("");
+  const [modalCountryDropdownOpen, setModalCountryDropdownOpen] = useState(false);
+  const [modalPhonePrefixOpen, setModalPhonePrefixOpen] = useState(false);
+
+  // Sync branches draft auto code generation if name updates
+  useEffect(() => {
+    if (modalForm.branch_name && !modalForm.branch_code) {
+      setModalForm((p) => ({ ...p, branch_code: autoCode(modalForm.branch_name) }));
+    }
+  }, [modalForm.branch_name, modalForm.branch_code]);
+
+  // Outside click listener for custom dropdowns
+  useEffect(() => {
+    if (!modalDropdownOpen && !modalCountryDropdownOpen && !modalPhonePrefixOpen) return;
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest(".custom-dropdown-container")) {
+        setModalDropdownOpen(false);
+      }
+      if (!e.target.closest(".custom-country-container")) {
+        setModalCountryDropdownOpen(false);
+      }
+      if (!e.target.closest(".custom-phone-prefix-container")) {
+        setModalPhonePrefixOpen(false);
+      }
+    };
+    document.addEventListener("click", handleOutsideClick);
+    return () => document.removeEventListener("click", handleOutsideClick);
+  }, [modalDropdownOpen, modalCountryDropdownOpen, modalPhonePrefixOpen]);
+
   const [branchNetwork, setBranchNetwork] = useState(() => getBranchNetwork(normalizedTier));
+  const [branchesList, setBranchesList] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem("inventra_branches_list");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+  const [expandedBranches, setExpandedBranches] = useState({});
+  const [firstLoadDone, setFirstLoadDone] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem("inventra_branches_list");
+  });
+
+  // Sync branches from DB on mount
+  useEffect(() => {
+    getUserBranches()
+      .then((data) => {
+        if (data && data.branches) {
+          const names = data.branches.map((b) => b.branch_name);
+          setBranchNetwork(names);
+          setBranchesList(data.branches);
+          try {
+            localStorage.setItem("inventra_branches_list", JSON.stringify(data.branches));
+          } catch (e) {}
+        }
+        setFirstLoadDone(true);
+      })
+      .catch((err) => {
+        console.error("Failed to load branches from DB:", err);
+        setFirstLoadDone(true);
+      });
+  }, [normalizedTier, setActiveTab]);
 
   // States for Medium and Large Analytics Page redone visually
   const [mediumRange, setMediumRange] = useState("30d");
@@ -340,17 +661,254 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     setNotifications(prev => prev.filter(x => x.id !== id));
   };
 
-  const handleAddBranch = (event) => {
-    event.preventDefault();
-    const name = newBranchName.trim();
-    if (!name) return;
-    const payload = { name, properName: (newBranchProperName || "").trim(), address: (newBranchAddress || "").trim() };
-    addBranchToNetwork(payload);
-    setBranchNetwork(getBranchNetwork(normalizedTier));
-    setNewBranchName("");
-    setNewBranchProperName("");
-    setNewBranchAddress("");
-    setShowAddBranchModal(false);
+  const validateModalStep = (s) => {
+    const e = {};
+    if (s === 1) {
+      if (!modalForm.branch_name.trim()) e.branch_name = "Branch name is required";
+      if (!modalForm.branch_code.trim()) e.branch_code = "Branch code is required";
+    }
+    if (s === 2) {
+      if (!modalForm.address.trim()) e.address = "Address is required";
+      if (!modalForm.city.trim()) e.city = "City is required";
+      if (!modalForm.state) e.state = "State is required";
+      if (!modalForm.country) e.country = "Country is required";
+      if (!modalForm.pincode.trim()) e.pincode = "Pincode is required";
+      else if (!/^\d{4,10}$/.test(modalForm.pincode)) e.pincode = "Enter a valid pincode";
+    }
+    if (s === 3) {
+      if (!modalForm.phone_number.trim()) e.phone = "Phone number is required";
+      else if (!/^\+?[\d\s\-]{7,15}$/.test((modalForm.phone_country_code + modalForm.phone_number).replace(/\s+/g, ""))) e.phone = "Enter a valid phone number";
+      if (!modalForm.manager_name.trim()) e.manager_name = "Manager name is required";
+    }
+    return e;
+  };
+
+  const goNextModalStep = () => {
+    const e = validateModalStep(modalStep);
+    if (Object.keys(e).length) { setModalErrors(e); return; }
+    setModalErrors({});
+    setModalStep((s) => Math.min(4, s + 1));
+  };
+
+  const goBackModalStep = () => setModalStep((s) => Math.max(1, s - 1));
+
+  const setModalFormField = (k, v) => {
+    setModalForm((p) => ({ ...p, [k]: v }));
+    setModalErrors((p) => { const n = { ...p }; delete n[k]; return n; });
+  };
+
+  const handleAddBranch = async () => {
+    const e = validateModalStep(modalStep);
+    if (Object.keys(e).length) { setModalErrors(e); return; }
+    
+    const payload = {
+      branch_name:    modalForm.branch_name.trim(),
+      branch_code:    modalForm.branch_code.trim().toUpperCase(),
+      branch_type:    modalForm.branch_type,
+      address:        modalForm.address.trim(),
+      city:           modalForm.city.trim(),
+      state:          modalForm.state,
+      country:        modalForm.country,
+      pincode:        modalForm.pincode.trim(),
+      phone:          (modalForm.phone_country_code + " " + modalForm.phone_number.trim()).trim(),
+      manager_name:   modalForm.manager_name.trim(),
+      employee_count: Number(modalForm.employee_count) || 1,
+      working_hours:  modalForm.working_hours,
+      opening_date:   modalForm.opening_date || null,
+      gstin:          modalForm.gstin.trim() || null,
+      status:         "Active",
+    };
+
+    setLoading(true);
+    try {
+      let result;
+      if (modalForm._id) {
+        result = await updateBranch(modalForm._id, payload);
+      } else {
+        result = await createBranch(payload);
+      }
+      
+      // Update cache
+      addBranchToNetwork(result);
+      
+      // Sync branches from DB
+      const data = await getUserBranches();
+      if (data && data.branches) {
+        setBranchNetwork(data.branches.map(b => b.branch_name));
+        setBranchesList(data.branches);
+        try {
+          localStorage.setItem("inventra_branches_list", JSON.stringify(data.branches));
+        } catch (e) {}
+      } else {
+        setBranchNetwork((prev) => [...prev, result.branch_name]);
+        setBranchesList((prev) => {
+          const next = [...prev, result];
+          try {
+            localStorage.setItem("inventra_branches_list", JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      }
+      
+      toast.success(
+        <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-250 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
+          <div className="min-w-0 flex-1 pr-8 text-left">
+            <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-emerald-700">
+              {modalForm._id ? "Branch Updated" : "Branch Added"}
+            </div>
+            <div className="mt-0.5 text-[0.78rem] font-semibold text-emerald-950/80">
+              {modalForm.branch_name} {modalForm._id ? "successfully updated inside database." : "registered in database as " + modalForm.branch_code + "."}
+            </div>
+          </div>
+        </div>,
+        {
+          className: "inventra-toast inventra-toast--success",
+          bodyClassName: "inventra-toast__body",
+          icon: false,
+          closeOnClick: false,
+          pauseOnHover: true,
+          autoClose: 3500,
+        }
+      );
+      
+      setModalForm(EMPTY_BRANCH_FORM);
+      setModalStep(1);
+      setShowAddBranchModal(false);
+    } catch (err) {
+      toast.error(
+        <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-rose-250 bg-rose-50 text-rose-700 text-xs font-black">!</div>
+          <div className="min-w-0 flex-1 pr-8 text-left">
+            <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-rose-700">Failed to Save Branch</div>
+            <div className="mt-0.5 text-[0.78rem] font-semibold text-rose-950/80">{err.message || "Unable to communicate with the server."}</div>
+          </div>
+        </div>,
+        {
+          className: "inventra-toast inventra-toast--error",
+          bodyClassName: "inventra-toast__body",
+          icon: false,
+          closeOnClick: false,
+          pauseOnHover: true,
+          autoClose: 4200,
+        }
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditBranch = async (branch) => {
+    try {
+      setLoading(true);
+      const phoneRaw = branch.phone || "";
+      let phone_country_code = "+91";
+      let phone_number = phoneRaw;
+      const m = phoneRaw.match(/^(\+\d+)\s*(.*)$/);
+      if (m) {
+        phone_country_code = m[1];
+        phone_number = m[2] || "";
+      }
+
+      setModalForm({
+        branch_name: branch.branch_name || "",
+        branch_code: branch.branch_code || "",
+        branch_type: branch.branch_type || "Store",
+        address: branch.address || "",
+        city: branch.city || "",
+        state: branch.state || "",
+        pincode: branch.pincode || "",
+        country: branch.country || "India",
+        phone: phoneRaw,
+        phone_country_code,
+        phone_number,
+        manager_name: branch.manager_name || "",
+        employee_count: branch.employee_count || 1,
+        working_hours: branch.working_hours || "9AM-9PM",
+        opening_date: branch.opening_date || "",
+        gstin: branch.gstin || "",
+        _id: branch._id || branch.branch_id || null,
+      });
+
+      setModalStep(1);
+      setModalErrors({});
+      setShowAddBranchModal(true);
+    } catch (err) {
+      toast.error(
+        <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-rose-250 bg-rose-50 text-rose-700 text-xs font-black">!</div>
+          <div className="min-w-0 flex-1 pr-8 text-left">
+            <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-rose-700">Edit Failed</div>
+            <div className="mt-0.5 text-[0.78rem] font-semibold text-rose-950/80">{err.message || "Unable to open edit form"}</div>
+          </div>
+        </div>,
+        {
+          className: "inventra-toast inventra-toast--error",
+          bodyClassName: "inventra-toast__body",
+          icon: false,
+          closeOnClick: false,
+          pauseOnHover: true,
+          autoClose: 4200,
+        }
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBranch = async (branchId) => {
+    if (!window.confirm("Are you sure you want to permanently deactivate this branch?")) return;
+    setLoading(true);
+    try {
+      await deactivateBranch(branchId);
+      
+      const data = await getUserBranches();
+      if (data && data.branches) {
+        setBranchNetwork(data.branches.map(b => b.branch_name));
+        setBranchesList(data.branches);
+        try {
+          localStorage.setItem("inventra_branches_list", JSON.stringify(data.branches));
+        } catch (e) {}
+      }
+      
+      toast.success(
+        <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-250 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
+          <div className="min-w-0 flex-1 pr-8 text-left">
+            <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-emerald-700">Branch Removed</div>
+            <div className="mt-0.5 text-[0.78rem] font-semibold text-emerald-950/80">Branch node deactivated and removed from live system.</div>
+          </div>
+        </div>,
+        {
+          className: "inventra-toast inventra-toast--success",
+          bodyClassName: "inventra-toast__body",
+          icon: false,
+          closeOnClick: false,
+          pauseOnHover: true,
+          autoClose: 3500,
+        }
+      );
+    } catch (err) {
+      toast.error(
+        <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-rose-250 bg-rose-50 text-rose-700 text-xs font-black">!</div>
+          <div className="min-w-0 flex-1 pr-8 text-left">
+            <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-rose-700">Deactivation Failed</div>
+            <div className="mt-0.5 text-[0.78rem] font-semibold text-rose-950/80">{err.message || "Failed to remove branch"}</div>
+          </div>
+        </div>,
+        {
+          className: "inventra-toast inventra-toast--error",
+          bodyClassName: "inventra-toast__body",
+          icon: false,
+          closeOnClick: false,
+          pauseOnHover: true,
+          autoClose: 4200,
+        }
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenBranchOperations = (branchName) => {
@@ -1533,122 +2091,335 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
           )}
 
           {activeSection === "profile" && (
-            <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-6 text-left">
-              <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
-                <div className="rounded-3xl border border-slate-200/70 bg-[linear-gradient(120deg,#f8fafc_0%,#f1f5f9_100%)] p-4 md:p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-11 w-11 rounded-2xl text-white text-sm font-black grid place-items-center shadow-[0_8px_20px_rgba(15,23,42,0.18)]" style={{ background: config.accent }}>
-                        {String(userDisplayName || "M").trim().charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Executive Identity</span>
-                        <h3 className="text-xl md:text-2xl font-black text-slate-900 mt-1 leading-tight">{userDisplayName}</h3>
-                        <div className="text-xs text-slate-500 mt-1">
-                          {userProfile?.businessName || userSession?.user?.businessName || userSession?.user?.company || ""}
-                          {userProfile?.email || userSession?.user?.email ? (
-                            <div className="text-[11px] text-slate-400 mt-1">{userProfile?.email || userSession?.user?.email}</div>
-                          ) : null}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_0.7fr] gap-6 text-left">
+              {/* ── LEFT DESK: Identity & Active Branch Nodes ── */}
+              <div className="space-y-6">
+                {/* Executive Header Banner */}
+                <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                  {/* Decorative ambient background blur shapes */}
+                  <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full blur-[60px] opacity-20 transition-all duration-700" style={{ background: config.accent }} />
+                  <div className="absolute -left-12 -bottom-12 h-36 w-36 rounded-full blur-[50px] opacity-15" style={{ background: config.accent }} />
+
+                  <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
+                    <div className="flex items-center gap-4">
+                      {/* Premium large avatar node */}
+                      <div className="relative">
+                        <div className="h-16 w-16 rounded-[1.25rem] text-white text-xl font-black grid place-items-center shadow-[0_12px_28px_rgba(0,0,0,0.12)] transition-all duration-300 hover:scale-[1.05]" style={{ background: `linear-gradient(135deg, ${config.accent} 0%, #1e293b 100%)` }}>
+                          {String(userDisplayName || "M").trim().charAt(0).toUpperCase()}
                         </div>
+                        <span className="absolute -bottom-1 -right-1 flex h-4 w-4 rounded-full border-2 border-white bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Executive identity</span>
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600">SYSTEM OWNER</span>
+                        </div>
+                        <h2 className="text-2xl font-black text-slate-900 mt-1.5 leading-none tracking-tight">{userDisplayName}</h2>
+                        <p className="text-xs text-slate-500 font-extrabold mt-2 flex items-center gap-1.5">
+                          🏢 {userProfile?.businessName || userSession?.user?.businessName || userSession?.user?.company || "Your Enterprise"}
+                        </p>
+                        <p className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-1.5">
+                          ✉️ {userProfile?.email || userSession?.user?.email}
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ borderColor: `${config.accent}66`, color: config.accent, background: `${config.accent}14` }}>
-                        {tierDisplayName}
+
+                    <div className="flex items-center gap-2.5 sm:self-start">
+                      <span className="rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.22em] shadow-sm select-none" style={{ borderColor: `${config.accent}44`, color: config.accent, background: `${config.accent}0d` }}>
+                        {tierDisplayName} Tier
                       </span>
-                      <button onClick={openEditProfile} className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200">Edit</button>
+                      <button onClick={openEditProfile} className="rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 px-4 py-1.5 text-xs font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer select-none">
+                        Edit
+                      </button>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-slate-500 font-semibold leading-relaxed">{config.profile.role}</p>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Access Tier</div>
-                    <div className="mt-1 text-sm font-black" style={{ color: config.accent }}>{tierDisplayName}</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Session</div>
-                    <div className="mt-1 text-sm font-black text-emerald-600">Active</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-                    <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Security</div>
-                    <div className="mt-1 text-sm font-black text-slate-900">JWT Secured</div>
+                  <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs font-semibold text-slate-500 leading-normal">
+                    <p className="max-w-md">
+                      ✨ {config.profile.role}. You possess full operations permissions, ledger scopes, and forecasting triggers for your enterprise.
+                    </p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-450">Active Status</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-3 text-xs">
-                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                    <span className="font-semibold text-slate-500">Logged In As</span>
-                    <span className="text-slate-900 font-black">{userDisplayName}</span>
+                {/* Live Platform Stats Panels */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Access Scope</span>
+                    <div className="mt-2 text-base font-black text-slate-905 flex items-center gap-1.5">
+                      🔑 <span style={{ color: config.accent }}>Full scope Access</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                    <span className="font-semibold text-slate-500">Assigned Role</span>
-                    <span className="text-slate-900 font-black">{(userProfile && (userProfile.role || "OWNER")) || "OWNER"}</span>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Authentication</span>
+                    <div className="mt-2 text-base font-black text-emerald-600 flex items-center gap-1.5">
+                      🛡️ <span>Active JWT SSL</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                    <span className="font-semibold text-slate-500">Platform Tier</span>
-                    <span className="font-black" style={{ color: config.accent }}>{tierDisplayName}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5">
-                    <span className="font-semibold text-slate-500">Authentication</span>
-                    <span className="font-black" style={{ color: config.accent }}>ACTIVE SESSION (JWT SECURE)</span>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">System Security</span>
+                    <div className="mt-2 text-base font-black text-slate-905 flex items-center gap-1.5">
+                      🔒 <span>Secure Socket Layer</span>
+                    </div>
                   </div>
                 </div>
-              </section>
 
-              <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action Console</span>
-                    <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">Operational Next Actions</h3>
+                {/* MongoDB Active Branch Nodes Grid */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                  <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-4">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">Database nodes</span>
+                      <h3 className="text-lg font-black text-slate-900 mt-1">Active Registered Branch Networks</h3>
+                    </div>
+                    <span className="rounded-xl bg-slate-105 text-[10px] font-black px-3 py-1 uppercase tracking-wider text-slate-600">
+                      {branchesList.length} Nodes Online
+                    </span>
                   </div>
-                  <div>
+
+                  {!firstLoadDone && branchesList.length === 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[1, 2].map((n) => (
+                        <div key={n} className="animate-pulse bg-slate-50 border border-slate-100 rounded-2xl p-5 h-44 flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-center">
+                              <div className="h-3 w-16 bg-slate-200 rounded" />
+                              <div className="h-4 w-12 bg-slate-200 rounded" />
+                            </div>
+                            <div className="mt-4 flex gap-3 items-center">
+                              <div className="w-10 h-10 bg-slate-200 rounded-xl" />
+                              <div className="space-y-2 flex-1">
+                                <div className="h-4 w-32 bg-slate-200 rounded" />
+                                <div className="h-3 w-40 bg-slate-200 rounded" />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-4 pt-3.5 border-t border-slate-100">
+                            <div className="h-3 w-16 bg-slate-200 rounded" />
+                            <div className="h-3 w-12 bg-slate-200 rounded justify-self-end" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : branchesList.filter(b => b.status !== "Inactive").length === 0 ? (
+                    <div className="py-8 text-center bg-slate-50/50 border border-dashed border-slate-200 rounded-2xl p-6">
+                      <div className="text-slate-400 text-3xl mb-3">📍</div>
+                      <span className="block text-sm font-black text-slate-800">No active branch nodes registered in MongoDB yet.</span>
+                      <p className="text-xs text-slate-500 font-semibold max-w-sm mx-auto mt-1 leading-normal">
+                        Your enterprise branch network has no database mappings. Use the **Growth Console** to initialize your first node!
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                      {branchesList.filter(b => b.status !== "Inactive").map((branch) => {
+                        const isExpanded = !!expandedBranches[branch._id || branch.branch_id];
+                        return (
+                          <div 
+                            key={branch._id || branch.branch_id} 
+                            onClick={() => setExpandedBranches((prev) => ({ ...prev, [branch._id || branch.branch_id]: !isExpanded }))}
+                            className={`relative overflow-hidden rounded-2xl border transition-all duration-305 shadow-sm flex flex-col justify-between p-5 cursor-pointer select-none group self-start ${
+                              isExpanded 
+                                ? "border-slate-800 bg-slate-50/90 ring-4 ring-slate-900/5 shadow-md" 
+                                : "border-slate-150 bg-slate-50/40 hover:bg-slate-50/80 hover:border-slate-350 hover:shadow-md"
+                            }`}
+                          >
+                            {/* Card Content Header */}
+                            <div>
+                              <div className="flex justify-between items-center gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Node: Active</span>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded-md border border-slate-250 bg-slate-100 text-[9px] font-black uppercase text-slate-705 tracking-wider">
+                                    {branch.branch_code || "CODE"}
+                                  </span>
+                                  <span className={`text-[10px] text-slate-450 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>
+                                    ▼
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="mt-3.5 flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200/80 shadow-sm flex items-center justify-center text-xl shrink-0">
+                                  {branch.branch_type === "Warehouse" ? "🏭" : branch.branch_type === "Franchise" ? "🤝" : branch.branch_type === "Depot" ? "📦" : "🏪"}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-base font-black text-slate-900 leading-tight">{branch.branch_name}</h4>
+                                  <p className="text-[11px] font-semibold text-slate-500 mt-1 truncate">
+                                    📍 {branch.address}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Minimal default view */}
+                            {!isExpanded && (
+                              <div className="grid grid-cols-2 gap-2 mt-4 pt-3.5 border-t border-slate-105 text-left">
+                                <div>
+                                  <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Manager</span>
+                                  <span className="block text-[10px] font-black text-slate-705 mt-0.5 truncate">{branch.manager_name}</span>
+                                </div>
+                                <div>
+                                  <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400 text-right">Employees</span>
+                                  <span className="block text-[10px] font-black text-slate-750 mt-0.5 text-right">{branch.employee_count} assigned</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Expanded premium details view */}
+                            {isExpanded && (
+                              <div className="mt-4 pt-4 border-t border-slate-100 text-left space-y-3.5">
+                                <div className="grid grid-cols-1 gap-y-3.5 text-xs leading-normal">
+                                  <div>
+                                    <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Full Address</span>
+                                    <span className="block text-[10.5px] font-bold text-slate-800 leading-relaxed mt-0.5">{branch.address}</span>
+                                    <span className="block text-[10.5px] font-bold text-slate-805 leading-relaxed mt-0.5">{branch.city}, {branch.state}, {branch.country} - {branch.pincode}</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Branch Type</span>
+                                      <span className="inline-flex items-center gap-1 mt-1 rounded bg-slate-200/60 border border-slate-300 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-700">
+                                        {branch.branch_type || "Store"}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Opening Date</span>
+                                      <span className="block text-[10px] font-bold text-slate-800 mt-1">{branch.opening_date || "Not Specified"}</span>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Operations Manager</span>
+                                      <span className="block text-[10px] font-black text-slate-800 mt-0.5 truncate">{branch.manager_name}</span>
+                                      <span className="block text-[9px] font-bold text-slate-500 mt-0.5">{branch.phone || "No Contact"}</span>
+                                    </div>
+                                    <div>
+                                      <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Allocated Staff</span>
+                                      <span className="block text-[10px] font-black text-slate-800 mt-0.5">{branch.employee_count} assigned member{branch.employee_count !== 1 ? "s" : ""}</span>
+                                      <span className="block text-[9px] font-bold text-slate-500 mt-0.5">Shifts: {branch.working_hours || "9AM-9PM"}</span>
+                                    </div>
+                                  </div>
+                                  {branch.gstin && (
+                                    <div>
+                                      <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">GSTIN Identification</span>
+                                      <span className="inline-block text-[9.5px] font-mono font-black uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md mt-0.5">{branch.gstin}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Premium Actions Row */}
+                                <div className="flex gap-2.5 pt-3 border-t border-slate-100">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditBranch(branch);
+                                    }}
+                                    className="flex-1 py-2 border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
+                                  >
+                                    ✏️ Edit Node
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteBranch(branch._id || branch.branch_id);
+                                    }}
+                                    className="flex-1 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
+                                  >
+                                    Deactivate Node
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── RIGHT DESK: Growth Console & Session Monitor ── */}
+              <div className="space-y-6">
+                {/* Actions & Next Steps */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action desk</span>
+                      <h3 className="text-lg font-black text-slate-900 mt-0.5">Console Actions</h3>
+                    </div>
+                  </div>
+
+
+
+                  {/* Growth console expand branch */}
+                  <div className="rounded-2xl border border-emerald-250 bg-emerald-50/50 p-4">
+                    <span className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">Enterprise Expansion</span>
+                    <h4 className="text-base font-black text-slate-950 mt-1">Scale Branch Networks</h4>
+                    <p className="text-xs font-semibold text-slate-600 leading-normal mt-1">
+                      Register a new branch node inside MongoDB. It will instantly initialize stock records conforming to the latest Complete Inventory Schema.
+                    </p>
                     <button
-                      onClick={openEditProfile}
-                      className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                      onClick={() => {
+                        setModalStep(1);
+                        setModalForm(EMPTY_BRANCH_FORM);
+                        setModalErrors({});
+                        setModalDropdownOpen(false);
+                        setModalDropdownSearch("");
+                        setModalCountryDropdownOpen(false);
+                        setModalPhonePrefixOpen(false);
+                        setShowAddBranchModal(true);
+                      }}
+                      className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_8px_20px_rgba(16,185,129,0.25)] hover:bg-emerald-700 transition-all cursor-pointer select-none"
                     >
-                      Edit Profile
+                      + Add New Branch
                     </button>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                  <p className="text-xs text-slate-600 font-semibold leading-relaxed">{config.profile.nextStep}</p>
-                  <div className="space-y-2 text-[11px] font-bold text-slate-600">
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 h-1.5 w-1.5 rounded-full" style={{ background: config.accent }} />
-                      <span>Review live alert stream before shift handover.</span>
+                {/* Session Security Terminal */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Security desk</span>
+                    <h3 className="text-base font-black text-slate-900 mt-0.5">Session Monitor</h3>
+                  </div>
+
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-[11px] font-mono text-slate-300 space-y-2.5">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span>SECURE_ID:</span>
+                      <span className="text-slate-100 font-bold select-all truncate max-w-[140px]">{userSession?.user?.id || userSession?.user?._id || "system_admin"}</span>
                     </div>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 h-1.5 w-1.5 rounded-full" style={{ background: config.accent }} />
-                      <span>Approve pending inventory updates and billing queue.</span>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span>ENCRYPTION:</span>
+                      <span className="text-emerald-400 font-bold">SHA-256 JWT</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span>SSL_STATUS:</span>
+                      <span className="text-emerald-400 font-bold">100% SECURE SSL</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span>API_HOST:</span>
+                      <span className="text-slate-100 truncate">127.0.0.1:8000</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span>WORKSPACE:</span>
+                      <span className="text-sky-400 truncate">{tierDisplayName.toUpperCase()}_DESK</span>
                     </div>
                   </div>
-                </div>
 
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                  <span className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Business Growth</span>
-                  <h4 className="text-base font-black text-slate-950 mt-1">Expand Branch Network</h4>
-                  <p className="text-xs font-semibold text-slate-600 leading-relaxed mt-1">
-                    Add a new branch when your business expands. It will appear in Branch Operations and Inventory Operations.
-                  </p>
                   <button
-                    onClick={() => setShowAddBranchModal(true)}
-                    className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                    onClick={handleLogout}
+                    className="w-full py-3 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] text-white transition-all shadow-[0_8px_20px_rgba(15,23,42,0.18)] hover:opacity-95 cursor-pointer select-none"
+                    style={{ background: "linear-gradient(90deg,#0f172a 0%,#1e293b 100%)" }}
                   >
-                    + Add New Branch
+                    End Active Session (Logout)
                   </button>
                 </div>
-
-                <button
-                  onClick={handleLogout}
-                  className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-[0.18em] text-white transition-all shadow-[0_10px_25px_rgba(15,23,42,0.16)] hover:opacity-95 cursor-pointer"
-                  style={{ background: "linear-gradient(90deg,#0f172a 0%,#1e293b 100%)" }}
-                >
-                  End Active Session (Logout)
-                </button>
-              </section>
+              </div>
             </div>
           )}
 
@@ -1731,66 +2502,538 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             </div>
           )}
 
-          {showAddBranchModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">Branch Expansion</span>
-                    <h3 className="text-xl font-black text-slate-950 mt-1">Add New Business Branch</h3>
-                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">
-                      Create a new branch node for future inventory, transfer, and operations tracking.
-                    </p>
+          {showAddBranchModal && (() => {
+            const inp = (field) =>
+              `w-full border ${
+                modalErrors[field] ? "border-rose-450 bg-rose-50/40" : "border-slate-200 bg-slate-50/50"
+              } text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white transition-all`;
+
+            const ErrMsg = ({ field }) =>
+              modalErrors[field] ? <p className="text-rose-600 text-xs font-bold mt-1.5 leading-none">{modalErrors[field]}</p> : null;
+
+            const Label = ({ children }) => (
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-450 block mb-1.5">
+                {children}
+              </label>
+            );
+
+            const filteredStates = INDIAN_STATES.filter((stateName) =>
+              stateName.toLowerCase().includes(modalDropdownSearch.toLowerCase())
+            );
+
+            const STEPS = ["Branch", "Location", "Contact", "Review"];
+
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+                <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden max-h-[90vh]">
+                  {/* Decorative top colored line */}
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-slate-900" />
+                  
+                  {/* Modal Header */}
+                  <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700">
+                        {modalForm._id ? "Enterprise Modifier Desk" : "Enterprise Onboarding Desk"}
+                      </span>
+                      <h3 className="text-xl font-black text-slate-950 mt-1">
+                        {modalForm._id ? `Modify ${modalForm.branch_name}` : "Scale Branch Networks"}
+                      </h3>
+                      <p className="text-xs font-semibold text-slate-500 mt-1 leading-relaxed">
+                        {modalForm._id
+                          ? "Update manager contact ledger mapping, change business name, address, or re-allocate branch employees."
+                          : "Configure regional parameters, manager contact ledger mapping, and initial staff distribution."
+                        }
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddBranchModal(false)}
+                      className="rounded-xl bg-slate-100 hover:bg-slate-200 px-3.5 py-2 text-xs font-black text-slate-600 hover:text-slate-900 cursor-pointer transition-all shrink-0"
+                    >
+                      Close
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setShowAddBranchModal(false)}
-                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
-                  >
-                    Close
-                  </button>
+
+                  {/* Step progress bar */}
+                  <div className="px-6 py-4 border-b border-slate-150 bg-slate-50/60">
+                    <div className="flex items-start justify-between w-full max-w-[480px] mx-auto">
+                      {STEPS.map((label, i) => (
+                        <React.Fragment key={label}>
+                          <StepDot n={i + 1} current={modalStep} label={label} />
+                          {i < STEPS.length - 1 && <StepConnector done={modalStep > i + 1} />}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Form Content Scroll Area */}
+                  <div className="p-6 overflow-y-auto flex-1 min-h-[300px]">
+                    {/* ── Step 1: Branch Basics ── */}
+                    {modalStep === 1 && (
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Branch Identity</h4>
+                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                          <div className="md:col-span-5 flex flex-col gap-4">
+                            <div>
+                              <Label>Branch Name <span className="text-rose-500 font-black">*</span></Label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Dhara Flagship"
+                                value={modalForm.branch_name}
+                                onChange={(e) => {
+                                  setModalFormField("branch_name", e.target.value);
+                                  if (!modalForm.branch_code || modalForm.branch_code === autoCode(modalForm.branch_name)) {
+                                    setModalFormField("branch_code", autoCode(e.target.value));
+                                  }
+                                }}
+                                className={inp("branch_name")}
+                                autoFocus
+                              />
+                              <ErrMsg field="branch_name" />
+                            </div>
+                            <div>
+                              <Label>Branch Code <span className="text-rose-500 font-black">*</span></Label>
+                              <input
+                                type="text"
+                                placeholder="e.g. DHA-FLG-01"
+                                value={modalForm.branch_code}
+                                onChange={(e) => setModalFormField("branch_code", e.target.value.toUpperCase())}
+                                className={inp("branch_code")}
+                                maxLength={20}
+                              />
+                              <ErrMsg field="branch_code" />
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-7 flex flex-col justify-between">
+                            <div>
+                              <Label>Branch Type <span className="text-rose-500 font-black">*</span></Label>
+                              <div className="grid grid-cols-2 gap-3 mt-1">
+                                {BRANCH_TYPES.map((t) => {
+                                  const isSelected = modalForm.branch_type === t.value;
+                                  return (
+                                    <button
+                                      key={t.value}
+                                      type="button"
+                                      onClick={() => setModalFormField("branch_type", t.value)}
+                                      className={`p-2.5 rounded-2xl border-2 text-center transition-all duration-205 cursor-pointer flex flex-col items-center justify-center ${
+                                        isSelected
+                                          ? "border-slate-900 bg-slate-900 text-white shadow-md shadow-slate-950/10"
+                                          : "border-slate-200 bg-slate-50 hover:border-slate-350 hover:bg-slate-105 text-slate-700"
+                                      }`}
+                                    >
+                                      <span className="text-xl mb-0.5 leading-none">{t.icon}</span>
+                                      <span className="text-[11px] font-black tracking-tight">{t.value}</span>
+                                      <span className={`text-[9px] font-semibold mt-0.5 leading-none ${isSelected ? "text-slate-350" : "text-slate-400"}`}>
+                                        {t.desc}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Step 2: Location ── */}
+                    {modalStep === 2 && (
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Location Parameters</h4>
+                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                        </div>
+
+                        <div className="grid grid-cols-12 gap-4">
+                          {/* Line 1: Address (Full width) */}
+                          <div className="col-span-12">
+                            <Label>Address <span className="text-rose-500 font-black">*</span></Label>
+                            <input
+                              type="text"
+                              placeholder="Shop No., Street, Area..."
+                              value={modalForm.address}
+                              onChange={(e) => setModalFormField("address", e.target.value)}
+                              className={inp("address")}
+                            />
+                            <ErrMsg field="address" />
+                          </div>
+
+                          {/* Line 2: City & State side-by-side */}
+                          <div className="col-span-12 sm:col-span-6">
+                            <Label>City <span className="text-rose-500 font-black">*</span></Label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Pune"
+                              value={modalForm.city}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setModalFormField("city", val);
+                                const matchedState = getStateForCity(val);
+                                if (matchedState) {
+                                  setModalFormField("state", matchedState);
+                                }
+                              }}
+                              className={inp("city")}
+                            />
+                            <ErrMsg field="city" />
+                          </div>
+                          <div className="col-span-12 sm:col-span-6 relative custom-dropdown-container">
+                            <Label>State <span className="text-rose-500 font-black">*</span></Label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModalDropdownOpen(!modalDropdownOpen);
+                                setModalDropdownSearch("");
+                              }}
+                              className={`w-full border ${
+                                modalErrors.state ? "border-rose-400 bg-rose-50/40" : "border-slate-200 bg-slate-50/50"
+                              } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
+                            >
+                              <span className={modalForm.state ? "text-slate-900 font-bold" : "text-slate-400 font-bold"}>
+                                {modalForm.state || "Select State"}
+                              </span>
+                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-205 ${modalDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                              </svg>
+                            </button>
+                            <ErrMsg field="state" />
+
+                            {modalDropdownOpen && (
+                              <div className="absolute left-0 right-0 z-50 mt-1.5 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl p-1.5 flex flex-col gap-1.5">
+                                <div className="px-1.5 py-1 sticky top-0 bg-white z-10 border-b border-slate-100">
+                                  <input
+                                    type="text"
+                                    placeholder="Search state..."
+                                    value={modalDropdownSearch}
+                                    onChange={(e) => setModalDropdownSearch(e.target.value)}
+                                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-slate-400 bg-slate-50/80"
+                                    onClick={(e) => e.stopPropagation()}
+                                    autoFocus
+                                  />
+                                </div>
+                                <div className="overflow-y-auto max-h-40 space-y-0.5">
+                                  {filteredStates.length === 0 ? (
+                                    <div className="text-[11px] text-slate-400 font-bold py-2.5 text-center">No states found</div>
+                                  ) : (
+                                    filteredStates.map((s) => {
+                                      const isSelected = modalForm.state === s;
+                                      return (
+                                        <button
+                                          key={s}
+                                          type="button"
+                                          onClick={() => {
+                                            setModalFormField("state", s);
+                                            setModalDropdownOpen(false);
+                                            setModalDropdownSearch("");
+                                          }}
+                                          className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                            isSelected
+                                              ? "bg-slate-900 text-white"
+                                              : "text-slate-700 hover:bg-slate-100"
+                                          }`}
+                                        >
+                                          <span>{s}</span>
+                                          {isSelected && <span className="text-emerald-400 font-black">✓</span>}
+                                        </button>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Line 3: Country & Pincode side-by-side */}
+                          <div className="col-span-12 sm:col-span-6 relative custom-country-container">
+                            <Label>Country <span className="text-rose-500 font-black">*</span></Label>
+                            <button
+                              type="button"
+                              onClick={() => setModalCountryDropdownOpen(!modalCountryDropdownOpen)}
+                              className={`w-full border ${
+                                modalErrors.country ? "border-rose-400 bg-rose-50/40" : "border-slate-200 bg-slate-50/50"
+                              } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
+                            >
+                              <span className="text-slate-900 font-bold flex items-center gap-1.5">
+                                <span>{COUNTRIES.find(c => c.name === modalForm.country)?.flag || "🇮🇳"}</span>
+                                <span>{modalForm.country}</span>
+                              </span>
+                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-205 ${modalCountryDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                              </svg>
+                            </button>
+                            <ErrMsg field="country" />
+
+                            {modalCountryDropdownOpen && (
+                              <div className="absolute left-0 right-0 z-50 mt-1.5 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl p-1.5 flex flex-col gap-0.5">
+                                {COUNTRIES.map((c) => {
+                                  const isSelected = modalForm.country === c.name;
+                                  return (
+                                    <button
+                                      key={c.name}
+                                      type="button"
+                                      onClick={() => {
+                                        setModalFormField("country", c.name);
+                                        setModalFormField("phone_country_code", c.code);
+                                        setModalFormField("phone", c.code + " " + modalForm.phone_number);
+                                        setModalCountryDropdownOpen(false);
+                                      }}
+                                      className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                        isSelected ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span>{c.flag}</span>
+                                        <span>{c.name}</span>
+                                      </span>
+                                      {isSelected && <span className="text-emerald-400 font-black">✓</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <div className="col-span-12 sm:col-span-6">
+                            <Label>Pincode <span className="text-rose-500 font-black">*</span></Label>
+                            <input type="text" placeholder="e.g. 411001" value={modalForm.pincode} onChange={(e) => setModalFormField("pincode", e.target.value)} className={inp("pincode")} maxLength={10} />
+                            <ErrMsg field="pincode" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Step 3: Contact & Operations ── */}
+                    {modalStep === 3 && (
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Contact & Shifts</h4>
+                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                          <div className="md:col-span-6 flex flex-col gap-4">
+                            <div>
+                              <Label>Branch Manager Name <span className="text-rose-500 font-black">*</span></Label>
+                              <input type="text" placeholder="e.g. Rahul Patil" value={modalForm.manager_name} onChange={(e) => setModalFormField("manager_name", e.target.value)} className={inp("manager_name")} />
+                              <ErrMsg field="manager_name" />
+                            </div>
+                            <div className="relative custom-phone-prefix-container">
+                              <Label>Phone Number <span className="text-rose-500 font-black">*</span></Label>
+                              <div className="flex relative">
+                                <div className="absolute left-0 top-0 bottom-0 flex items-center z-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => setModalPhonePrefixOpen(!modalPhonePrefixOpen)}
+                                    className="h-full px-3 bg-slate-50 border-r border-slate-200 hover:bg-slate-100 rounded-l-xl text-slate-800 font-black text-xs flex items-center gap-1 transition-all cursor-pointer select-none"
+                                  >
+                                    <span>{COUNTRIES.find(c => c.code === modalForm.phone_country_code)?.flag || "🇮🇳"}</span>
+                                    <span className="text-[11px] font-extrabold">{modalForm.phone_country_code}</span>
+                                    <svg className={`w-2.5 h-2.5 text-slate-500 transition-transform ${modalPhonePrefixOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                                    </svg>
+                                  </button>
+
+                                  {modalPhonePrefixOpen && (
+                                    <div className="absolute left-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-2xl p-1 z-50 flex flex-col gap-0.5 max-h-48 overflow-y-auto">
+                                      {COUNTRIES.map((c) => {
+                                        const isSelected = modalForm.phone_country_code === c.code;
+                                        return (
+                                          <button
+                                            key={c.name}
+                                            type="button"
+                                            onClick={() => {
+                                              setModalFormField("phone_country_code", c.code);
+                                              setModalFormField("phone", c.code + " " + modalForm.phone_number);
+                                              setModalPhonePrefixOpen(false);
+                                            }}
+                                            className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                              isSelected ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                                            }`}
+                                          >
+                                            <span className="flex items-center gap-1.5">
+                                              <span>{c.flag}</span>
+                                              <span>{c.name} ({c.code})</span>
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <input
+                                  type="tel"
+                                  placeholder="98765 43210"
+                                  value={modalForm.phone_number}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/[^\d\s\-]/g, ""); // allow digits, spaces, hyphens
+                                    setModalFormField("phone_number", val);
+                                    setModalFormField("phone", (modalForm.phone_country_code + " " + val).trim());
+                                  }}
+                                  className={inp("phone_number") + " pl-[84px]"}
+                                />
+                              </div>
+                              <ErrMsg field="phone" />
+                            </div>
+                            <div>
+                              <Label>GSTIN (Optional)</Label>
+                              <input type="text" placeholder="27AAAAA0000A1Z5" value={modalForm.gstin} onChange={(e) => setModalFormField("gstin", e.target.value.toUpperCase())} className={inp("gstin") + " font-mono uppercase tracking-wider text-sm"} maxLength={15} />
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-6 flex flex-col gap-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>Employee Count</Label>
+                                <input type="number" min={1} value={modalForm.employee_count} onChange={(e) => setModalFormField("employee_count", e.target.value)} className={inp("employee_count")} />
+                              </div>
+                              <div>
+                                <Label>Opening Date</Label>
+                                <input type="date" value={modalForm.opening_date} onChange={(e) => setModalFormField("opening_date", e.target.value)} className={inp("opening_date") + " cursor-pointer"} />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between items-center mb-1">
+                                <Label>Working Hours</Label>
+                              </div>
+                              <input type="text" placeholder="e.g. 9AM-9PM" value={modalForm.working_hours} onChange={(e) => setModalFormField("working_hours", e.target.value)} className={inp("working_hours")} />
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {WORKING_HOURS_PRESETS.map((h) => {
+                                  const isSelected = modalForm.working_hours === h;
+                                  return (
+                                    <button
+                                      key={h}
+                                      type="button"
+                                      onClick={() => setModalFormField("working_hours", h)}
+                                      className={`px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wide border transition-all cursor-pointer ${
+                                        isSelected
+                                          ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                      }`}
+                                    >
+                                      {h}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Step 4: Review ── */}
+                    {modalStep === 4 && (
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Final Verification</h4>
+                          <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">Ready to launch</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 bg-slate-950 rounded-2xl p-4 shadow-xl border border-slate-900 text-[13px] leading-tight text-white text-left">
+                          <div className="space-y-3 md:border-r md:border-slate-800 md:pr-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-lg">
+                                {BRANCH_TYPES.find((t) => t.value === modalForm.branch_type)?.icon || "🏪"}
+                              </div>
+                              <div>
+                                <h5 className="text-white font-black text-sm leading-none">{modalForm.branch_name || "New Branch"}</h5>
+                                <span className="text-emerald-400 text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-full inline-block mt-1">{modalForm.branch_code || "CODE"}</span>
+                              </div>
+                            </div>
+                            <div className="pt-1">
+                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Registered Address</span>
+                              <span className="text-slate-350 text-xs font-semibold leading-relaxed block">{modalForm.address}</span>
+                              <span className="text-white text-xs font-bold block mt-1">{modalForm.city}, {modalForm.state}, {modalForm.country} – {modalForm.pincode}</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3 md:border-r md:border-slate-800 md:px-4">
+                            <div>
+                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Branch Manager</span>
+                              <span className="text-white text-sm font-bold block">{modalForm.manager_name}</span>
+                              <span className="text-slate-400 text-xs font-semibold block mt-0.5">{modalForm.phone}</span>
+                            </div>
+                            {modalForm.gstin && (
+                              <div>
+                                <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">GST Identification</span>
+                                <span className="text-emerald-400 font-mono text-[10px] font-black uppercase tracking-widest">{modalForm.gstin}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-3 md:pl-4">
+                            <div>
+                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Operating Hours</span>
+                              <span className="text-white text-sm font-bold block">{modalForm.working_hours}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Team & Launch</span>
+                              <span className="text-white text-xs font-bold block">{modalForm.employee_count} Active Staff Member{modalForm.employee_count !== 1 ? "s" : ""}</span>
+                              {modalForm.opening_date && (
+                                <span className="text-slate-400 text-[10px] font-semibold block mt-0.5">Opening: {modalForm.opening_date}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modal Footer Controls */}
+                  <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between gap-3">
+                    {modalStep === 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddBranchModal(false)}
+                        className="px-5 py-2.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-black rounded-xl transition-all text-xs tracking-wider cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={goBackModalStep}
+                        className="px-5 py-2.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-black rounded-xl transition-all text-xs tracking-wider cursor-pointer"
+                      >
+                        ← Back
+                      </button>
+                    )}
+
+                    {modalStep < 4 ? (
+                      <button
+                        type="button"
+                        onClick={goNextModalStep}
+                        className="px-7 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl transition-all text-xs tracking-widest cursor-pointer shadow-lg shadow-slate-900/10 ml-auto"
+                      >
+                        Continue →
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleAddBranch}
+                        disabled={loading}
+                        className="px-7 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black rounded-xl transition-all text-xs tracking-widest cursor-pointer shadow-lg shadow-emerald-600/20 ml-auto flex items-center gap-1.5"
+                      >
+                        {loading ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            {modalForm._id ? "Saving..." : "Creating..."}
+                          </>
+                        ) : (
+                          <>{modalForm._id ? "💾 Save Changes" : "🚀 Launch Branch"}</>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                <form onSubmit={handleAddBranch} className="mt-5 space-y-4">
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch Name</span>
-                    <input
-                      value={newBranchName}
-                      onChange={(event) => setNewBranchName(event.target.value)}
-                      placeholder="e.g. Hyderabad Branch"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                      autoFocus
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Proper Name (Official)</span>
-                    <input
-                      value={newBranchProperName}
-                      onChange={(e) => setNewBranchProperName(e.target.value)}
-                      placeholder="e.g. Inventra Hyderabad - Golconda Outlet"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Location / Address</span>
-                    <textarea
-                      value={newBranchAddress}
-                      onChange={(e) => setNewBranchAddress(e.target.value)}
-                      placeholder={"Street address, Area, City, State, PIN"}
-                      rows={3}
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
-                  >
-                    Save Branch
-                  </button>
-                </form>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </main>
       </div>
     </div>

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
@@ -199,6 +198,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
   const [transferStatus, setTransferStatus] = useState("idle"); // idle, sending, success
+  const [transferError, setTransferError] = useState("");
 
   const [forecastBranch, setForecastBranch] = useState("Mumbai Hub");
 
@@ -339,8 +339,8 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
     e.preventDefault();
 
     if (transferForm.source === transferForm.destination) {
-
-      alert("Source and Destination branches cannot be the same.");
+      setTransferError("Source and destination branches must be different.");
+      setTransferStatus("error");
 
       return;
 
@@ -359,8 +359,8 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
     const sourceStock = branchStocksMap[prodId]?.[transferForm.source] || 0;
 
     if (sourceStock < qty) {
-
-      alert(`Source branch (${transferForm.source}) only has ${sourceStock} units of this item. Cannot transfer ${qty} units.`);
+      setTransferError(`Only ${sourceStock} units are available in ${transferForm.source}.`);
+      setTransferStatus("error");
 
       return;
 
@@ -368,7 +368,8 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
 
-    setTransferStatus("sending");
+  setTransferError("");
+  setTransferStatus("sending");
 
 
 
@@ -419,6 +420,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
   };
 
 
+  setTransferError("");
 
   // Trigger quick transfer request from the branch list
 
@@ -1709,6 +1711,16 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
                   <div className="text-center font-black text-emerald-700 py-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
 
                     ✓ Dispatch Allocated & Completed!
+
+                  </div>
+
+                )}
+
+                {transferStatus === "error" && transferError && (
+
+                  <div className="text-center font-black text-rose-700 py-2.5 bg-rose-50 border border-rose-200 rounded-2xl">
+
+                    {transferError}
 
                   </div>
 

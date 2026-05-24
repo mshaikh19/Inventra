@@ -28,8 +28,28 @@ export function getDashboardTab(tier) {
   return `dashboard-${normalizeBusinessTier(tier)}`;
 }
 
+export function getBusinessSlug() {
+  if (typeof window === "undefined") return "my-business";
+  try {
+    const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+    if (rawUser) {
+      const user = JSON.parse(rawUser);
+      const name = user.businessName || user.company || "my-business";
+      return name
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/[\s_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "my-business";
+}
+
 export function getDashboardPath(tier) {
-  return `/dashboard/${normalizeBusinessTier(tier)}`;
+  return `/dashboard/${getBusinessSlug()}`;
 }
 
 export function getBillingPosTab(tier) {
@@ -37,7 +57,7 @@ export function getBillingPosTab(tier) {
 }
 
 export function getBillingPosPath(tier) {
-  return `/billing-pos/${normalizeBusinessTier(tier)}`;
+  return `/billing-pos/${getBusinessSlug()}`;
 }
 
 export function getBranchOpsTab(tier) {
@@ -45,7 +65,7 @@ export function getBranchOpsTab(tier) {
 }
 
 export function getBranchOpsPath(tier) {
-  return `/branch-ops/${normalizeBusinessTier(tier)}`;
+  return `/branch-ops/${getBusinessSlug()}`;
 }
 
 export function getInventoryOpsTab(tier) {
@@ -53,38 +73,70 @@ export function getInventoryOpsTab(tier) {
 }
 
 export function getInventoryOpsPath(tier) {
-  return `/inventory-ops/${normalizeBusinessTier(tier)}`;
+  return `/inventory-ops/${getBusinessSlug()}`;
 }
 
 export function getDashboardTierFromPath(pathname) {
   const path = String(pathname || "").toLowerCase();
-  if (path.startsWith("/dashboard/large")) return "large";
-  if (path.startsWith("/dashboard/medium")) return "medium";
-  if (path.startsWith("/dashboard/small")) return "small";
+  if (path.startsWith("/dashboard/")) {
+    if (typeof window !== "undefined") {
+      try {
+        const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+        if (rawUser) return getDashboardTierFromUser(JSON.parse(rawUser));
+      } catch (e) {}
+    }
+    if (path.includes("large")) return "large";
+    if (path.includes("medium")) return "medium";
+    return "small";
+  }
   return null;
 }
 
 export function getBillingPosTierFromPath(pathname) {
   const path = String(pathname || "").toLowerCase();
-  if (path.startsWith("/billing-pos/large")) return "large";
-  if (path.startsWith("/billing-pos/medium")) return "medium";
-  if (path.startsWith("/billing-pos/small")) return "small";
+  if (path.startsWith("/billing-pos/")) {
+    if (typeof window !== "undefined") {
+      try {
+        const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+        if (rawUser) return getDashboardTierFromUser(JSON.parse(rawUser));
+      } catch (e) {}
+    }
+    if (path.includes("large")) return "large";
+    if (path.includes("medium")) return "medium";
+    return "small";
+  }
   return null;
 }
 
 export function getBranchOpsTierFromPath(pathname) {
   const path = String(pathname || "").toLowerCase();
-  if (path.startsWith("/branch-ops/large")) return "large";
-  if (path.startsWith("/branch-ops/medium")) return "medium";
-  if (path.startsWith("/branch-ops/small")) return "small";
+  if (path.startsWith("/branch-ops/")) {
+    if (typeof window !== "undefined") {
+      try {
+        const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+        if (rawUser) return getDashboardTierFromUser(JSON.parse(rawUser));
+      } catch (e) {}
+    }
+    if (path.includes("large")) return "large";
+    if (path.includes("medium")) return "medium";
+    return "small";
+  }
   return null;
 }
 
 export function getInventoryOpsTierFromPath(pathname) {
   const path = String(pathname || "").toLowerCase();
-  if (path.startsWith("/inventory-ops/large")) return "large";
-  if (path.startsWith("/inventory-ops/medium")) return "medium";
-  if (path.startsWith("/inventory-ops/small")) return "small";
+  if (path.startsWith("/inventory-ops/")) {
+    if (typeof window !== "undefined") {
+      try {
+        const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+        if (rawUser) return getDashboardTierFromUser(JSON.parse(rawUser));
+      } catch (e) {}
+    }
+    if (path.includes("large")) return "large";
+    if (path.includes("medium")) return "medium";
+    return "small";
+  }
   return null;
 }
 

@@ -5,6 +5,7 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
   const [uploadState, setUploadState] = useState("idle"); // idle, uploading, success
   const [fileName, setFileName] = useState("");
   const [progress, setProgress] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -18,6 +19,7 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
   const simulateParse = (name) => {
     setFileName(name);
     setUploadState("uploading");
+    setErrorMessage("");
     setProgress(0);
 
     const interval = setInterval(() => {
@@ -43,7 +45,8 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
     if (file && file.name.endsWith(".csv")) {
       simulateParse(file.name);
     } else {
-      alert("Invalid file format. Please upload a spreadsheet in .csv format.");
+      setErrorMessage("Please upload a .csv file to continue.");
+      setUploadState("idle");
     }
   };
 
@@ -59,6 +62,11 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
       <div className="mb-5">
         <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Historical Import</span>
         <h2 className="text-xl md:text-2xl font-black text-slate-900 mt-1">Spreadsheet Data Import</h2>
+        {errorMessage && (
+          <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+            {errorMessage}
+          </div>
+        )}
       </div>
 
       {uploadState === "idle" && (
