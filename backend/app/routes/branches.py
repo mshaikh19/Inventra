@@ -65,115 +65,14 @@ async def _generate_branch_id(db, business_id: str) -> str:
 
 
 async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -> None:
-    """Create an empty inventory record so new branches start with zero units."""
-    iso_now = datetime.utcnow().isoformat() + "Z"
+    """Create an empty inventory record so new branches start with zero items."""
     branch_id = branch_doc["branch_id"]
-    
-    starter_items = [
-        {
-            "product_id": "PROD001",
-            "product_name": "Amul Milk",
-            "sku": "MILK001",
-            "barcode": "8901234567890",
-            "category": "Dairy",
-            "subcategory": "Milk",
-            "quantity": 12,
-            "minimum_stock": 20,
-            "maximum_stock": 500,
-            "unit": "Packets",
-            "purchase_price": 25.0,
-            "selling_price": 30.0,
-            "profit_margin": 5.0,
-            "gst_percentage": 5.0,
-            "batch_number": "BATCH102",
-            "manufacturing_date": "2026-06-01",
-            "expiry_date": "2026-06-20",
-            "supplier_id": "SUP001",
-            "supplier_name": "Amul Distributors",
-            "branch_id": branch_id,
-            "warehouse_id": "WH001",
-            "predicted_demand": 200.0,
-            "reorder_recommendation": True,
-            "fast_moving": True,
-            "seasonal_product": False,
-            "total_sales": 0.0,
-            "last_sold_date": "2026-06-15",
-            "product_image": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=100&q=80",
-            "created_at": iso_now,
-            "updated_at": iso_now
-        },
-        {
-            "product_id": "PROD002",
-            "product_name": "Fresh Bread 400g",
-            "sku": "BREAD001",
-            "barcode": "8901234567891",
-            "category": "Bakery",
-            "subcategory": "Bread",
-            "quantity": 8,
-            "minimum_stock": 15,
-            "maximum_stock": 300,
-            "unit": "Loaves",
-            "purchase_price": 32.0,
-            "selling_price": 40.0,
-            "profit_margin": 8.0,
-            "gst_percentage": 0.0,
-            "batch_number": "BATCH103",
-            "manufacturing_date": "2026-06-01",
-            "expiry_date": "2026-06-05",
-            "supplier_id": "SUP002",
-            "supplier_name": "Modern Bakeries",
-            "branch_id": branch_id,
-            "warehouse_id": "WH001",
-            "predicted_demand": 150.0,
-            "reorder_recommendation": True,
-            "fast_moving": True,
-            "seasonal_product": False,
-            "total_sales": 0.0,
-            "last_sold_date": "2026-06-15",
-            "product_image": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=100&q=80",
-            "created_at": iso_now,
-            "updated_at": iso_now
-        },
-        {
-            "product_id": "PROD003",
-            "product_name": "Coke 500ml",
-            "sku": "COKE001",
-            "barcode": "8901234567892",
-            "category": "Beverages",
-            "subcategory": "Cold Drinks",
-            "quantity": 85,
-            "minimum_stock": 10,
-            "maximum_stock": 1000,
-            "unit": "Bottles",
-            "purchase_price": 30.0,
-            "selling_price": 40.0,
-            "profit_margin": 10.0,
-            "gst_percentage": 18.0,
-            "batch_number": "BATCH104",
-            "manufacturing_date": "2026-05-01",
-            "expiry_date": "2026-11-01",
-            "supplier_id": "SUP003",
-            "supplier_name": "Hindustan Coca-Cola",
-            "branch_id": branch_id,
-            "warehouse_id": "WH001",
-            "predicted_demand": 400.0,
-            "reorder_recommendation": True,
-            "fast_moving": True,
-            "seasonal_product": True,
-            "total_sales": 0.0,
-            "last_sold_date": "2026-06-15",
-            "product_image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=100&q=80",
-            "created_at": iso_now,
-            "updated_at": iso_now
-        }
-    ]
-
     inventory_doc = {
         "business_id": business_id,
         "branch_id": branch_id,
         "branch_code": branch_doc["branch_code"],
         "branch_name": branch_doc["branch_name"],
-        "items": starter_items,
+        "items": [],
         "total_units": 0,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
@@ -219,7 +118,70 @@ def _serialize_inventory_doc(doc: dict) -> dict:
         for item in (inventory.get("items") or [])
     ]
     inventory["total_items"] = len(inventory["items"])
+    inventory["total_units"] = sum(int(item.get("quantity") or 0) for item in inventory["items"])
     return inventory
+
+
+def _serialize_inventory_doc_safe(doc: dict) -> dict:
+    inventory = _serialize_inventory_doc(doc)
+    inventory["items"] = [_serialize_inventory_item_safe(item) for item in (doc.get("items") or [])]
+    inventory["total_items"] = len(inventory["items"])
+    inventory["total_units"] = sum(int(item.get("quantity") or item.get("stock") or 0) for item in inventory["items"])
+    return inventory
+
+
+def _serialize_inventory_item_safe(item: dict) -> dict:
+    normalized = _serialize_inventory_item(item)
+    if not normalized.get("_id"):
+        fallback_id = item.get("_id") or item.get("product_id") or item.get("sku") or item.get("barcode")
+        if fallback_id is not None:
+            normalized["_id"] = str(fallback_id)
+    return normalized
+
+
+def _build_branch_query(branch_id: str, business_id: str) -> dict:
+    if ObjectId.is_valid(branch_id):
+        return {"_id": ObjectId(branch_id), "business_id": business_id}
+    return {
+        "business_id": business_id,
+        "$or": [
+            {"branch_id": branch_id},
+            {"branch_name": branch_id},
+        ],
+    }
+
+
+async def _get_branch_for_inventory(branch_id: str, business_id: str, db):
+    branch = await db.branches.find_one(_build_branch_query(branch_id, business_id))
+    if not branch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+    return branch
+
+
+def _ensure_item_ids(items: list) -> list:
+    normalized_items = []
+    for item in items or []:
+        normalized = dict(item)
+        item_id = normalized.get("_id") or normalized.get("product_id") or normalized.get("sku") or normalized.get("barcode") or str(ObjectId())
+        normalized["_id"] = str(item_id)
+        normalized_items.append(normalized)
+    return normalized_items
+
+
+def _normalize_inventory_value(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _normalize_inventory_payload(payload: dict) -> dict:
+    data = {k: v for k, v in payload.items() if v is not None}
+    for field in ("manufacturing_date", "expiry_date"):
+        if field in data:
+            data[field] = _normalize_inventory_value(data[field])
+    return data
 
 
 # ── CREATE ────────────────────────────────────────────────────────────────────
@@ -314,14 +276,7 @@ async def get_branch_inventory(branch_id: str, authorization: Optional[str] = He
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
 
-    if ObjectId.is_valid(branch_id):
-        branch_query = {"_id": ObjectId(branch_id), "business_id": business_id}
-    else:
-        branch_query = {"branch_id": branch_id, "business_id": business_id}
-
-    branch = await db.branches.find_one(branch_query)
-    if not branch:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+    branch = await _get_branch_for_inventory(branch_id, business_id, db)
 
     inventory = await db.inventories.find_one({"business_id": business_id, "branch_id": branch["branch_id"]})
     if not inventory:
@@ -339,12 +294,144 @@ async def get_branch_inventory(branch_id: str, authorization: Optional[str] = He
             "total_items": 0,
         }
 
-    serialized_inventory = _serialize_inventory_doc(inventory)
+    serialized_inventory = _serialize_inventory_doc_safe(inventory)
     return {
         "branch": _serialize_branch(branch),
         "inventory": serialized_inventory,
         "items": serialized_inventory.get("items", []),
         "total_items": serialized_inventory.get("total_items", 0),
+    }
+
+
+@router.post("/{branch_id}/inventory/items", status_code=status.HTTP_201_CREATED)
+async def create_inventory_item(branch_id: str, item: schemas.InventoryItemCreate, authorization: Optional[str] = Header(None)):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+    branch = await _get_branch_for_inventory(branch_id, business_id, db)
+
+    inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
+    inventory = await db.inventories.find_one(inventory_query) or {
+        "business_id": business_id,
+        "branch_id": branch["branch_id"],
+        "branch_code": branch.get("branch_code"),
+        "branch_name": branch.get("branch_name"),
+        "items": [],
+        "total_units": 0,
+    }
+
+    items = _ensure_item_ids(inventory.get("items", []))
+    payload = _normalize_inventory_payload(item.model_dump())
+
+    if payload.get("barcode") and any(str(existing.get("barcode") or "").strip() == str(payload["barcode"]).strip() for existing in items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Barcode already exists for this branch")
+    if payload.get("sku") and any(str(existing.get("sku") or "").strip() == str(payload["sku"]).strip() for existing in items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU already exists for this branch")
+
+    now = datetime.utcnow()
+    item_doc = {
+        **payload,
+        "_id": str(ObjectId()),
+        "branch_id": branch["branch_id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    items.append(item_doc)
+
+    inventory_doc = {
+        "business_id": business_id,
+        "branch_id": branch["branch_id"],
+        "branch_code": branch.get("branch_code"),
+        "branch_name": branch.get("branch_name"),
+        "items": items,
+        "total_units": sum(int(existing.get("quantity") or 0) for existing in items),
+        "updated_at": now,
+    }
+    await db.inventories.update_one(inventory_query, {"$set": inventory_doc}, upsert=True)
+
+    serialized_inventory = _serialize_inventory_doc_safe(inventory_doc)
+    return {
+        "message": "Inventory item added.",
+        "item": _serialize_inventory_item_safe(item_doc),
+        "inventory": serialized_inventory,
+        "items": serialized_inventory.get("items", []),
+    }
+
+
+@router.put("/{branch_id}/inventory/items/{item_id}")
+async def update_inventory_item(branch_id: str, item_id: str, updates: schemas.InventoryItemUpdate, authorization: Optional[str] = Header(None)):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+    branch = await _get_branch_for_inventory(branch_id, business_id, db)
+
+    inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
+    inventory = await db.inventories.find_one(inventory_query)
+    if not inventory:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory not found")
+
+    items = _ensure_item_ids(inventory.get("items", []))
+    item_index = next((index for index, existing in enumerate(items) if str(existing.get("_id")) == str(item_id)), None)
+    if item_index is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+
+    payload = _normalize_inventory_payload(updates.model_dump(exclude_none=True))
+    current_item = dict(items[item_index])
+
+    if payload.get("barcode") and any(str(existing.get("barcode") or "").strip() == str(payload["barcode"]).strip() and str(existing.get("_id")) != str(item_id) for existing in items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Barcode already exists for this branch")
+    if payload.get("sku") and any(str(existing.get("sku") or "").strip() == str(payload["sku"]).strip() and str(existing.get("_id")) != str(item_id) for existing in items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU already exists for this branch")
+
+    current_item.update(payload)
+    current_item["updated_at"] = datetime.utcnow()
+    next_items = [current_item if index == item_index else existing for index, existing in enumerate(items)]
+
+    inventory_doc = {
+        "items": next_items,
+        "total_units": sum(int(existing.get("quantity") or 0) for existing in next_items),
+        "updated_at": datetime.utcnow(),
+    }
+    await db.inventories.update_one(inventory_query, {"$set": inventory_doc})
+
+    serialized_inventory = _serialize_inventory_doc_safe({**inventory, **inventory_doc})
+    return {
+        "message": "Inventory item updated.",
+        "item": _serialize_inventory_item_safe(current_item),
+        "inventory": serialized_inventory,
+        "items": serialized_inventory.get("items", []),
+    }
+
+
+@router.delete("/{branch_id}/inventory/items/{item_id}")
+async def delete_inventory_item(branch_id: str, item_id: str, authorization: Optional[str] = Header(None)):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+    branch = await _get_branch_for_inventory(branch_id, business_id, db)
+
+    inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
+    inventory = await db.inventories.find_one(inventory_query)
+    if not inventory:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory not found")
+
+    items = _ensure_item_ids(inventory.get("items", []))
+    next_items = [item for item in items if str(item.get("_id")) != str(item_id)]
+    if len(next_items) == len(items):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+
+    inventory_doc = {
+        "items": next_items,
+        "total_units": sum(int(existing.get("quantity") or 0) for existing in next_items),
+        "updated_at": datetime.utcnow(),
+    }
+    await db.inventories.update_one(inventory_query, {"$set": inventory_doc})
+
+    serialized_inventory = _serialize_inventory_doc_safe({**inventory, **inventory_doc})
+    return {
+        "message": "Inventory item deleted.",
+        "inventory": serialized_inventory,
+        "items": serialized_inventory.get("items", []),
     }
 
 
