@@ -184,3 +184,62 @@ class BranchUpdate(BaseModel):
     opening_date:   Optional[date]       = None
     gstin:          Optional[str]        = None
     status:         Optional[BranchStatus] = None
+
+
+# ── Inventory Module ─────────────────────────────────────────────────────────
+class InventoryItemBase(BaseModel):
+    product_name: str = Field(..., min_length=1, max_length=200)
+    category: str = Field(default="Uncategorized", min_length=1, max_length=100)
+    sku: Optional[str] = Field(default=None, max_length=80)
+    barcode: Optional[str] = Field(default=None, max_length=80)
+    quantity: int = Field(default=0, ge=0)
+    minimum_stock: int = Field(default=0, ge=0)
+    maximum_stock: Optional[int] = Field(default=None, ge=0)
+    unit: Optional[str] = Field(default=None, max_length=30)
+    purchase_price: Optional[float] = Field(default=None, ge=0)
+    selling_price: Optional[float] = Field(default=None, ge=0)
+    profit_margin: Optional[float] = None
+    gst_percentage: Optional[float] = None
+    batch_number: Optional[str] = Field(default=None, max_length=80)
+    manufacturing_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    supplier_id: Optional[str] = Field(default=None, max_length=80)
+    supplier_name: Optional[str] = Field(default=None, max_length=200)
+    warehouse_id: Optional[str] = Field(default=None, max_length=80)
+    product_image: Optional[str] = None
+
+
+class InventoryItemCreate(InventoryItemBase):
+    pass
+
+
+class InventoryItemUpdate(BaseModel):
+    product_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sku: Optional[str] = Field(default=None, max_length=80)
+    barcode: Optional[str] = Field(default=None, max_length=80)
+    quantity: Optional[int] = Field(default=None, ge=0)
+    minimum_stock: Optional[int] = Field(default=None, ge=0)
+    maximum_stock: Optional[int] = Field(default=None, ge=0)
+    unit: Optional[str] = Field(default=None, max_length=30)
+    purchase_price: Optional[float] = Field(default=None, ge=0)
+    selling_price: Optional[float] = Field(default=None, ge=0)
+    profit_margin: Optional[float] = None
+    gst_percentage: Optional[float] = None
+    batch_number: Optional[str] = Field(default=None, max_length=80)
+    manufacturing_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    supplier_id: Optional[str] = Field(default=None, max_length=80)
+    supplier_name: Optional[str] = Field(default=None, max_length=200)
+    warehouse_id: Optional[str] = Field(default=None, max_length=80)
+    product_image: Optional[str] = None
+
+
+class InventoryItemResponse(InventoryItemBase):
+    id: Optional[str] = Field(None, alias="_id")
+    branch_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True

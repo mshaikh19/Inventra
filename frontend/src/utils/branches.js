@@ -23,7 +23,7 @@ export async function createBranch(branchData) {
         : data.detail) || "Failed to create branch";
     throw new Error(msg);
   }
-  
+
   // Automatically add the new branch name to localStorage cache
   if (data.branch_name && typeof window !== "undefined") {
     try {
@@ -40,7 +40,7 @@ export async function createBranch(branchData) {
       console.warn("Failed to update branches cache:", e);
     }
   }
-  
+
   return data;
 }
 
@@ -56,8 +56,12 @@ export async function getUserBranches() {
   }
 
   // Automatically sync to localStorage
-  if (data.branches && Array.isArray(data.branches) && typeof window !== "undefined") {
-    const names = data.branches.map(b => b.branch_name);
+  if (
+    data.branches &&
+    Array.isArray(data.branches) &&
+    typeof window !== "undefined"
+  ) {
+    const names = data.branches.map((b) => b.branch_name);
     localStorage.setItem("inventra_branches", JSON.stringify(names));
   }
 
@@ -86,6 +90,59 @@ export async function getBranchInventory(branchId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || "Failed to fetch branch inventory");
+  }
+  return data;
+}
+
+/** Add a new inventory item for a branch */
+export async function createBranchInventoryItem(branchId, itemData) {
+  const res = await fetch(`${API_BASE}/${branchId}/inventory/items`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(itemData),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      (data.detail && typeof data.detail === "string"
+        ? data.detail
+        : data.detail?.message) || "Failed to add inventory item",
+    );
+  }
+  return data;
+}
+
+/** Update an inventory item for a branch */
+export async function updateBranchInventoryItem(branchId, itemId, itemData) {
+  const res = await fetch(`${API_BASE}/${branchId}/inventory/items/${itemId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(itemData),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      (data.detail && typeof data.detail === "string"
+        ? data.detail
+        : data.detail?.message) || "Failed to update inventory item",
+    );
+  }
+  return data;
+}
+
+/** Delete an inventory item from a branch */
+export async function deleteBranchInventoryItem(branchId, itemId) {
+  const res = await fetch(`${API_BASE}/${branchId}/inventory/items/${itemId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      (data.detail && typeof data.detail === "string"
+        ? data.detail
+        : data.detail?.message) || "Failed to delete inventory item",
+    );
   }
   return data;
 }
@@ -137,11 +194,11 @@ export function getBranchNetwork(tier) {
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
-  
+
   // Standard fallback lists if not loaded/saved yet
   if (tier === "small") {
     return ["Main Store"];
@@ -164,7 +221,8 @@ export function getBranchNetwork(tier) {
 /** Synchronously add branch to network (cached in localStorage) */
 export function addBranchToNetwork(branch) {
   if (typeof window === "undefined") return;
-  const name = typeof branch === "string" ? branch : (branch.name || branch.branch_name);
+  const name =
+    typeof branch === "string" ? branch : branch.name || branch.branch_name;
   if (!name) return;
   const current = getBranchNetwork("large");
   if (!current.includes(name)) {
@@ -172,4 +230,3 @@ export function addBranchToNetwork(branch) {
     localStorage.setItem("inventra_branches", JSON.stringify(updated));
   }
 }
-
