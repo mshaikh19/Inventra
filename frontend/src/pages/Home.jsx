@@ -1,7 +1,7 @@
 import React from 'react';
-import Hero from '../components/Hero';
-import Features from '../components/Features';
-import Footer from '../components/Footer';
+import Hero from '../components/hero';
+import Features from '../components/features';
+import Footer from '../components/footer';
 
 export default function Home({ setActiveTab }) {
   const partners = [

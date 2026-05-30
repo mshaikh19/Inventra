@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import FormInput from "../components/FormInput";
-import FormError from "../components/FormError";
+import FormInput from "../components/formInput";
+import FormError from "../components/formError";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 

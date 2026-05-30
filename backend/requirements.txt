@@ -10,3 +10,7 @@ python-multipart
 pandas
 scikit-learn
 numpy
+requests
+pydantic-email-validator
+jinja2
+

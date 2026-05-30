@@ -14,9 +14,25 @@ class Database:
 databaseConnection = Database()
 
 async def connectDatabase():
-    databaseConnection.client = AsyncIOMotorClient(MONGODB_URL)
-    databaseConnection.db = databaseConnection.client[DATABASE_NAME]
-    print(f"Connected to MongoDB at {MONGODB_URL}, using database: {DATABASE_NAME}")
+    """Connect to MongoDB with connection pooling and timeouts."""
+    print("[DEBUG] Starting MongoDB connection...")
+    try:
+        # AsyncIOMotorClient with connection timeout
+        databaseConnection.client = AsyncIOMotorClient(
+            MONGODB_URL,
+            serverSelectionTimeoutMS=5000,  # 5 second timeout for server selection
+            socketTimeoutMS=5000,  # 5 second socket timeout
+            connectTimeoutMS=5000  # 5 second connection timeout
+        )
+        # Test the connection
+        await databaseConnection.client.admin.command('ping')
+        print(f"[DEBUG] Ping successful")
+        
+        databaseConnection.db = databaseConnection.client[DATABASE_NAME]
+        print(f"[DEBUG] Connected to MongoDB at {MONGODB_URL}, using database: {DATABASE_NAME}")
+    except Exception as e:
+        print(f"[DEBUG] MongoDB connection error: {e}")
+        raise
 
 async def closeConnection():
     if databaseConnection.client:

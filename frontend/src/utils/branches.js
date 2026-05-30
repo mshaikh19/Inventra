@@ -230,3 +230,28 @@ export function addBranchToNetwork(branch) {
     localStorage.setItem("inventra_branches", JSON.stringify(updated));
   }
 }
+
+/**
+ * Record a completed POS sale to the database.
+ * Deducts quantities from live branch inventory and writes a sales document.
+ *
+ * @param {string} branchId - Branch ID or name
+ * @param {Object} saleData - { items, invoice_number, payment_mode, amount_paid, grand_total, change_due, customer_name, customer_state, cashier }
+ */
+export async function recordBranchSale(branchId, saleData) {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}/sales`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(saleData),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      (data.detail && typeof data.detail === "string"
+        ? data.detail
+        : data.detail?.message) || "Failed to record sale";
+    throw new Error(msg);
+  }
+  return data; // { message, invoice_number, updated_items, ... }
+}
+

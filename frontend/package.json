@@ -13,11 +13,13 @@
     "@tailwindcss/vite": "^4.3.0",
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.23.0",
+    "axios": "^1.6.0",
     "leaflet": "^1.9.4",
     "prop-types": "^15.8.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-leaflet": "^5.0.0",
+    "react-qr-barcode-scanner": "^2.1.25",
     "react-simple-maps": "^3.0.0",
     "react-toastify": "^11.1.0",
     "tailwindcss": "^4.3.0"

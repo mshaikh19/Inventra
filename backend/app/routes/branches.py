@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Header
+from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 from bson import ObjectId
 from app.models import schemas
 from app.database.mongo import getDatabase
+from app.services.notifications import build_inventory_notifications, upsert_notification, NotificationCreate, NotificationType
 from app.utils import security
 
 router = APIRouter()
@@ -184,6 +186,17 @@ def _normalize_inventory_payload(payload: dict) -> dict:
     return data
 
 
+async def _sync_inventory_notifications(db, business_id: str, branch: dict, inventory_doc: dict) -> None:
+    notifications = build_inventory_notifications(
+        inventory_doc.get("items") or [],
+        business_id,
+        branch.get("branch_id"),
+        branch.get("branch_name"),
+    )
+    for payload in notifications:
+        await upsert_notification(db, payload)
+
+
 # ── CREATE ────────────────────────────────────────────────────────────────────
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_branch(
@@ -294,6 +307,26 @@ async def get_branch_inventory(branch_id: str, authorization: Optional[str] = He
             "total_items": 0,
         }
 
+    # Aggregate sales for this branch to get correct sold counts
+    pipeline = [
+        {"$match": {"business_id": business_id, "branch_id": branch["branch_id"]}},
+        {"$unwind": "$items"},
+        {"$group": {
+            "_id": "$items.item_id",
+            "total_sold": {"$sum": "$items.quantity"}
+        }}
+    ]
+    cursor = db.sales.aggregate(pipeline)
+    sales_list = await cursor.to_list(length=1000)
+    sales_map = {str(s["_id"]): s["total_sold"] for s in sales_list}
+    
+    # Inject correct sold counts dynamically
+    raw_items = inventory.get("items", [])
+    for it in raw_items:
+        it_id = str(it.get("_id"))
+        it["sold"] = sales_map.get(it_id, 0)
+        it["total_sales"] = sales_map.get(it_id, 0)
+
     serialized_inventory = _serialize_inventory_doc_safe(inventory)
     return {
         "branch": _serialize_branch(branch),
@@ -350,6 +383,7 @@ async def create_inventory_item(branch_id: str, item: schemas.InventoryItemCreat
     await db.inventories.update_one(inventory_query, {"$set": inventory_doc}, upsert=True)
 
     serialized_inventory = _serialize_inventory_doc_safe(inventory_doc)
+    await _sync_inventory_notifications(db, business_id, branch, inventory_doc)
     return {
         "message": "Inventory item added.",
         "item": _serialize_inventory_item_safe(item_doc),
@@ -395,6 +429,7 @@ async def update_inventory_item(branch_id: str, item_id: str, updates: schemas.I
     await db.inventories.update_one(inventory_query, {"$set": inventory_doc})
 
     serialized_inventory = _serialize_inventory_doc_safe({**inventory, **inventory_doc})
+    await _sync_inventory_notifications(db, business_id, branch, {**inventory, **inventory_doc})
     return {
         "message": "Inventory item updated.",
         "item": _serialize_inventory_item_safe(current_item),
@@ -428,6 +463,7 @@ async def delete_inventory_item(branch_id: str, item_id: str, authorization: Opt
     await db.inventories.update_one(inventory_query, {"$set": inventory_doc})
 
     serialized_inventory = _serialize_inventory_doc_safe({**inventory, **inventory_doc})
+    await _sync_inventory_notifications(db, business_id, branch, {**inventory, **inventory_doc})
     return {
         "message": "Inventory item deleted.",
         "inventory": serialized_inventory,
@@ -435,7 +471,112 @@ async def delete_inventory_item(branch_id: str, item_id: str, authorization: Opt
     }
 
 
-# ── UPDATE ────────────────────────────────────────────────────────────────────
+# ── RECORD SALE (POS Checkout) ────────────────────────────────────────────────
+class SaleItem(BaseModel):
+    item_id: str
+    product_name: str
+    quantity: int
+    selling_price: float
+    mrp: Optional[float] = None
+    sell_on_mrp: Optional[bool] = False
+    discount_percent: Optional[float] = 0
+    discount_amount: Optional[float] = 0
+    taxable_amount: Optional[float] = 0
+    gst_rate: Optional[float] = 0
+    cgst_amount: Optional[float] = 0
+    sgst_amount: Optional[float] = 0
+    igst_amount: Optional[float] = 0
+    tax_amount: Optional[float] = 0
+    line_total: Optional[float] = 0
+
+class SalePayload(BaseModel):
+    items: List[SaleItem]
+    invoice_number: str
+    payment_mode: str
+    amount_paid: float
+    grand_total: float
+    change_due: float
+    customer_name: Optional[str] = "Walk-in Customer"
+    customer_state: Optional[str] = "Local"
+    cashier: Optional[str] = None
+
+@router.post("/{branch_id}/sales", status_code=status.HTTP_201_CREATED)
+async def record_sale(branch_id: str, payload: SalePayload, authorization: Optional[str] = Header(None)):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+    branch = await _get_branch_for_inventory(branch_id, business_id, db)
+
+    inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
+    inventory = await db.inventories.find_one(inventory_query)
+    if not inventory:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory not found for this branch")
+
+    items = _ensure_item_ids(inventory.get("items", []))
+    errors = []
+
+    for sold in payload.items:
+        idx = next((i for i, it in enumerate(items) if str(it.get("_id")) == str(sold.item_id)), None)
+        if idx is None:
+            errors.append(f"Item '{sold.product_name}' (id={sold.item_id}) not found in inventory")
+            continue
+        current_qty = int(items[idx].get("quantity") or 0)
+        if current_qty < sold.quantity:
+            errors.append(f"Insufficient stock for '{sold.product_name}': available={current_qty}, requested={sold.quantity}")
+            continue
+        
+        # Calculate new sold and total_sales
+        prev_sold = int(items[idx].get("sold") or items[idx].get("total_sales") or 0)
+        new_sold = prev_sold + sold.quantity
+        
+        items[idx] = {
+            **items[idx],
+            "quantity": current_qty - sold.quantity,
+            "sold": new_sold,
+            "total_sales": new_sold,
+            "updated_at": datetime.utcnow(),
+        }
+
+    if errors:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="; ".join(errors))
+
+    await db.inventories.update_one(inventory_query, {"$set": {
+        "items": items,
+        "total_units": sum(int(it.get("quantity") or 0) for it in items),
+        "updated_at": datetime.utcnow(),
+    }})
+
+    now = datetime.utcnow()
+    sale_doc = {
+        "business_id": business_id,
+        "branch_id": branch["branch_id"],
+        "branch_name": branch.get("branch_name"),
+        "invoice_number": payload.invoice_number,
+        "payment_mode": payload.payment_mode,
+        "amount_paid": payload.amount_paid,
+        "grand_total": payload.grand_total,
+        "change_due": payload.change_due,
+        "customer_name": payload.customer_name,
+        "customer_state": payload.customer_state,
+        "cashier": payload.cashier or user_id,
+        "items": [item.model_dump() for item in payload.items],
+        "sold_at": now,
+        "created_at": now,
+    }
+    await db.sales.insert_one(sale_doc)
+
+    refreshed = await db.inventories.find_one(inventory_query)
+    serialized = _serialize_inventory_doc_safe(refreshed)
+    await _sync_inventory_notifications(db, business_id, branch, refreshed)
+    return {
+        "message": "Sale recorded successfully.",
+        "invoice_number": payload.invoice_number,
+        "items_sold": len(payload.items),
+        "grand_total": payload.grand_total,
+        "inventory": serialized,
+        "updated_items": serialized.get("items", []),
+    }
+
 @router.put("/{branch_id}")
 async def update_branch(
     branch_id: str,
@@ -489,4 +630,17 @@ async def deactivate_branch(branch_id: str, authorization: Optional[str] = Heade
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
 
     await db.branches.update_one(query, {"$set": {"status": "Inactive", "deactivated_at": datetime.utcnow()}})
+    await upsert_notification(
+        db,
+        NotificationCreate(
+            key=f"branch-deactivated::{business_id}::{existing.get('branch_id') or branch_id}",
+            type=NotificationType.BRANCH,
+            title="Branch deactivated",
+            text=f"Branch {existing.get('branch_name') or branch_id} was deactivated.",
+            business_id=business_id,
+            branch_id=existing.get("branch_id") or branch_id,
+            source="branch",
+            meta={"branch_name": existing.get("branch_name"), "status": "Inactive"},
+        )
+    )
     return {"message": f"Branch {branch_id} deactivated successfully."}

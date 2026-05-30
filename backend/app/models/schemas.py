@@ -101,6 +101,49 @@ class ResetPasswordResponse(BaseModel):
     message: str
 
 
+# ── Notifications ────────────────────────────────────────────────────────────
+class NotificationType(str, Enum):
+    LOW_STOCK = "low_stock"
+    EXPIRY = "expiry"
+    FESTIVAL = "festival"
+    PAYMENT = "payment"
+    REFUND = "refund"
+    BRANCH = "branch"
+    SYSTEM = "system"
+
+
+class NotificationCreate(BaseModel):
+    key: str
+    type: NotificationType = NotificationType.SYSTEM
+    title: str = ""
+    text: str
+    business_id: str
+    branch_id: Optional[str] = None
+    user_id: Optional[str] = None
+    source: str = "system"
+    is_read: bool = False
+    meta: Optional[Dict] = None
+
+
+class NotificationResponse(BaseModel):
+    id: Optional[str] = Field(None, alias="_id")
+    key: str
+    type: NotificationType
+    title: str = ""
+    text: str
+    business_id: str
+    branch_id: Optional[str] = None
+    user_id: Optional[str] = None
+    source: str = "system"
+    is_read: bool = False
+    meta: Optional[Dict] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+
+
 # ── Branch Module ─────────────────────────────────────────────────────────────
 class BranchType(str, Enum):
     STORE     = "Store"
@@ -198,6 +241,9 @@ class InventoryItemBase(BaseModel):
     unit: Optional[str] = Field(default=None, max_length=30)
     purchase_price: Optional[float] = Field(default=None, ge=0)
     selling_price: Optional[float] = Field(default=None, ge=0)
+    mrp: Optional[float] = Field(default=None, ge=0)
+    discount_percent: Optional[float] = Field(default=0, ge=0, le=100)
+    sell_on_mrp: Optional[bool] = False
     profit_margin: Optional[float] = None
     gst_percentage: Optional[float] = None
     batch_number: Optional[str] = Field(default=None, max_length=80)
@@ -207,6 +253,8 @@ class InventoryItemBase(BaseModel):
     supplier_name: Optional[str] = Field(default=None, max_length=200)
     warehouse_id: Optional[str] = Field(default=None, max_length=80)
     product_image: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
 
 
 class InventoryItemCreate(InventoryItemBase):
@@ -224,6 +272,9 @@ class InventoryItemUpdate(BaseModel):
     unit: Optional[str] = Field(default=None, max_length=30)
     purchase_price: Optional[float] = Field(default=None, ge=0)
     selling_price: Optional[float] = Field(default=None, ge=0)
+    mrp: Optional[float] = Field(default=None, ge=0)
+    discount_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    sell_on_mrp: Optional[bool] = None
     profit_margin: Optional[float] = None
     gst_percentage: Optional[float] = None
     batch_number: Optional[str] = Field(default=None, max_length=80)
@@ -233,6 +284,8 @@ class InventoryItemUpdate(BaseModel):
     supplier_name: Optional[str] = Field(default=None, max_length=200)
     warehouse_id: Optional[str] = Field(default=None, max_length=80)
     product_image: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
 
 
 class InventoryItemResponse(InventoryItemBase):
@@ -241,5 +294,122 @@ class InventoryItemResponse(InventoryItemBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
+
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+    CANCELLED = "cancelled"
+
+
+class PaymentMethod(str, Enum):
+    CARD = "card"
+    NETBANKING = "netbanking"
+    WALLET = "wallet"
+    UPI = "upi"
+    EMANDATE = "emandate"
+
+
+class OrderItem(BaseModel):
+    product_id: str
+    product_name: str
+    quantity: int
+    price: float
+    gst_percentage: Optional[float] = 0.0
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
+    total: float
+
+
+class PaymentInitiateRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+    description: str
+    order_id: Optional[str] = None
+    items: Optional[List[OrderItem]] = None
+    customer_name: Optional[str] = None
+    customer_email: str
+    customer_phone: str
+    branch_id: Optional[str] = None
+    payment_mode: Optional[str] = None
+
+
+class PaymentInitiateResponse(BaseModel):
+    order_id: str
+    razorpay_order_id: str
+    key_id: str
+    amount: float
+    currency: str = "INR"
+    timeout: int = 900
+
+
+class PaymentVerifyRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+    order_id: str
+
+
+class PaymentVerifyResponse(BaseModel):
+    success: bool
+    message: str
+    transaction_id: str
+    amount: float
+    payment_id: str
+
+
+class TransactionRecord(BaseModel):
+    transaction_id: str
+    business_id: str
+    branch_id: Optional[str] = None
+    user_id: str
+    razorpay_order_id: str
+    razorpay_payment_id: Optional[str] = None
+    amount: float
+    currency: str = "INR"
+    status: PaymentStatus
+    payment_method: Optional[PaymentMethod] = None
+    items: Optional[List[OrderItem]] = None
+    customer_name: Optional[str] = None
+    customer_email: str
+    customer_phone: str
+    description: str
+    receipt_number: Optional[str] = None
+    invoice_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    refund_id: Optional[str] = None
+    refund_amount: Optional[float] = None
+    refund_reason: Optional[str] = None
+    metadata: Optional[Dict] = None
+
+
+class RefundRequest(BaseModel):
+    transaction_id: str
+    refund_amount: Optional[float] = None
+    reason: str
+
+
+class RefundResponse(BaseModel):
+    success: bool
+    message: str
+    refund_id: Optional[str] = None
+    refund_amount: Optional[float] = None
+
+
+class InvoiceData(BaseModel):
+    invoice_number: str
+    business_name: str
+    gstin: Optional[str] = None
+    business_email: str
+    customer_name: str
+    customer_email: str
+    customer_phone: str
+    items: List[OrderItem]
+    subtotal: float
+    total_gst: float
+    total_amount: float
+    payment_method: str
+    transaction_id: str
+    invoice_date: datetime
+    due_date: Optional[datetime] = None

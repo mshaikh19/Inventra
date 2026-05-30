@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import Header from "./components/Header";
-import BottomNav from "./components/BottomNav";
-import FloatingChatbot from "./components/FloatingChatbot";
-import Home from "./pages/Home";
-import Signup from "./pages/Signup";
-import Login from "./pages/Login";
-import ForgotPassword from "./pages/ForgotPassword";
-import Dashboard from "./pages/Dashboard";
-import BillingPOS from "./pages/BillingPOS";
-import BranchOperations from "./pages/BranchOperations";
-import InventoryOperations from "./pages/InventoryOperations";
-import BranchSetupWizard from "./pages/BranchSetupWizard";
+import Header from "./components/header";
+import BottomNav from "./components/bottomNav";
+import FloatingChatbot from "./components/floatingChatbot";
+import Home from "./pages/home";
+import Signup from "./pages/signup";
+import Login from "./pages/login";
+import ForgotPassword from "./pages/forgotPassword";
+import Dashboard from "./pages/dashboard";
+import BillingPOS from "./pages/billingPos";
+import BranchOperations from "./pages/branchOperations";
+import InventoryOperations from "./pages/inventoryOperations";
+import BranchSetupWizard from "./pages/branchSetupWizard";
 import {
   getBranchOpsPath,
   getBranchOpsTab,
@@ -501,9 +501,9 @@ function App() {
 
       {/* Global Floating AI Co-Pilot Chatbot */}
 
-      {(isDashboardTab || isBillingPosTab) && (
+      {isDashboardTab && (
 
-        <FloatingChatbot activeTier={activeDashboardTier || activeBillingTier} />
+        <FloatingChatbot activeTier={activeDashboardTier} />
 
       )}
 
