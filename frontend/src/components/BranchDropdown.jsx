@@ -74,7 +74,7 @@ export default function BranchDropdown({
   };
 
   return (
-    <div ref={wrapperRef} className="relative min-w-[320px] max-w-[520px]">
+    <div ref={wrapperRef} className="relative w-full min-w-0 md:min-w-[320px] md:max-w-[520px]">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -105,7 +105,7 @@ export default function BranchDropdown({
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[min(100vw-1.5rem,520px)] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black/50">
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 w-[min(100vw-1.5rem,520px)] overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black/50 md:left-auto md:right-0">
           <div className="border-b border-slate-800 p-3">
             <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-400">Branch</div>
             <input

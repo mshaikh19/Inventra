@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
-import FormInput from "../components/FormInput";
+import FormInput from "../components/formInput";
 
-import FormError from "../components/FormError";
+import FormError from "../components/formError";
 
 import { getDashboardTabFromUser } from "../utils/dashboard";
 

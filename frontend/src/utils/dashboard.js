@@ -157,9 +157,7 @@ export function getDashboardTabFromUser(user) {
   return getDashboardTab(getDashboardTierFromUser(user));
 }
 
-export function getBillingPosTabFromUser(user) {
-  return getBillingPosTab(getDashboardTierFromUser(user));
-}
+
 
 export function getTierDisplayName(value) {
   const normalized = normalizeBusinessTier(value);

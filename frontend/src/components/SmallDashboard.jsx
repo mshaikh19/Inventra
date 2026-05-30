@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function SmallDashboard({ products, salesCount, salesRevenue, notifications, tierAccent }) {
+export default function SmallDashboard({ products, salesCount, salesRevenue, salesRevenueNote = "+12.4% vs yesterday", notifications, tierAccent }) {
   const lowStockProducts = products.filter((p) => p.stock <= (p.reorderLevel || 10));
 
   const upcomingExpiries = products
@@ -15,10 +15,80 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, not
     .filter((p) => p.daysLeft > 0 && p.daysLeft <= 10)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  const fastMoving = [...products].sort((a, b) => (b.sold || 0) - (a.sold || 0)).slice(0, 4);
+  const fastMoving = products
+    .filter((p) => (p.sold || 0) > 0)
+    .sort((a, b) => (b.sold || 0) - (a.sold || 0))
+    .slice(0, 4);
+
+  // Generate 3 dynamic recommendations for the "Smart Stock" panel
+  const recommendations = React.useMemo(() => {
+    const list = [];
+
+    // 1. Fast-Moving Recommendation
+    const topFast = fastMoving[0];
+    if (topFast) {
+      list.push({
+        id: "rec-fast",
+        title: `Fast-Moving: ${topFast.name}`,
+        badge: "Optimize",
+        badgeBg: "bg-emerald-50 text-emerald-700 border-emerald-100",
+        text: `Sales velocity has surged. We've sold ${topFast.sold} units recently. Consider placing a restock order soon to avoid a stockout!`,
+      });
+    } else {
+      list.push({
+        id: "rec-fast-fallback",
+        title: "Fast-Moving: Organic Milk",
+        badge: "Optimize",
+        badgeBg: "bg-emerald-50 text-emerald-700 border-emerald-100",
+        text: "Velocity increased by 40%. Restock by Wednesday to avoid stockout.",
+      });
+    }
+
+    // 2. Low Stock / Restock Recommendation
+    const topLow = lowStockProducts[0];
+    if (topLow) {
+      list.push({
+        id: "rec-low",
+        title: `Low Stock: ${topLow.name}`,
+        badge: "Restock",
+        badgeBg: "bg-rose-50 text-rose-700 border-rose-100",
+        text: `Only ${topLow.stock} units left in stock (reorder level: ${topLow.reorderLevel || 10}). Place a replenishment order immediately.`,
+      });
+    } else {
+      list.push({
+        id: "rec-bulk-fallback",
+        title: "Bulk Order: Paper Towels",
+        badge: "Savings",
+        badgeBg: "bg-sky-50 text-sky-700 border-sky-100",
+        text: "Vendor discount active. Save ₹45 by ordering 12 units now.",
+      });
+    }
+
+    // 3. Expiry / Promo Recommendation
+    const topExp = upcomingExpiries[0];
+    if (topExp) {
+      list.push({
+        id: "rec-expiry",
+        title: `Promo Alert: ${topExp.name}`,
+        badge: "Promo",
+        badgeBg: "bg-amber-50 text-amber-700 border-amber-100",
+        text: `Expiry approaching in ${topExp.daysLeft} days. We recommend running a buy-1-get-1-free or 15% discount campaign to clear this stock quickly.`,
+      });
+    } else {
+      list.push({
+        id: "rec-slow-fallback",
+        title: "Slow Item: Greek Yogurt",
+        badge: "Promo",
+        badgeBg: "bg-amber-50 text-amber-700 border-amber-100",
+        text: "Expiry approaching in 5 days. Run a buy 1 get 1 offer to clear stock.",
+      });
+    }
+
+    return list;
+  }, [fastMoving, lowStockProducts, upcomingExpiries]);
 
   const topMetrics = [
-    { label: "Daily Sales Summary", value: `₹${salesRevenue.toLocaleString()}`, note: "+12.4% vs yesterday", icon: "💳" },
+    { label: "Daily Sales Summary", value: `₹${salesRevenue.toLocaleString()}`, note: salesRevenueNote, icon: "💳" },
     { label: "Inventory Tracking", value: products.length.toLocaleString(), note: "Live SKU count", icon: "📦" },
     { label: "Low Stock Alerts", value: lowStockProducts.length.toString(), note: "Action required", icon: "⚠️" },
     { label: "Expiry Notifications", value: upcomingExpiries.length.toString(), note: "Expiring soon", icon: "⏳" },
@@ -88,29 +158,17 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, not
           </div>
 
           <div className="mt-5 space-y-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-black text-slate-900">Fast-Moving: Organic Milk</div>
-                <span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black uppercase text-emerald-700">Optimize</span>
+            {recommendations.map((rec) => (
+              <div key={rec.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-black text-slate-900">{rec.title}</div>
+                  <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase border ${rec.badgeBg}`}>
+                    {rec.badge}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-slate-600 leading-relaxed">{rec.text}</p>
               </div>
-              <p className="mt-2 text-xs text-slate-600 leading-relaxed">Velocity increased by 40%. Restock by Wednesday to avoid stockout.</p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-black text-slate-900">Bulk Order: Paper Towels</div>
-                <span className="rounded-full bg-sky-100 px-2 py-1 text-[9px] font-black uppercase text-sky-700">Savings</span>
-              </div>
-              <p className="mt-2 text-xs text-slate-600 leading-relaxed">Vendor discount active. Save ₹45 by ordering 12 units now.</p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-black text-slate-900">Slow Item: Greek Yogurt</div>
-                <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black uppercase text-amber-700">Promo</span>
-              </div>
-              <p className="mt-2 text-xs text-slate-600 leading-relaxed">Expiry approaching in 5 days. Run a buy 1 get 1 offer to clear stock.</p>
-            </div>
+            ))}
           </div>
 
           <button className="mt-4 w-full rounded-2xl border border-slate-200 bg-white py-3 text-xs font-black uppercase tracking-[0.24em] text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors">
@@ -129,19 +187,25 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, not
           </div>
 
           <div className="space-y-3">
-            {fastMoving.map((p) => {
-              const percent = Math.min(100, Math.round(((p.sold || 0) / 500) * 100));
-              return (
-                <div key={p.id} className="grid grid-cols-[1.5fr_0.6fr_0.6fr_0.3fr] gap-3 items-center rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-xs">
-                  <div className="font-bold text-slate-900">{p.name}</div>
-                  <div className="font-semibold text-slate-600 text-right">{p.sold || 0} sold</div>
-                  <div className="font-semibold text-slate-600 text-right">{p.stock} left</div>
-                  <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${percent}%`, background: tierAccent }} />
+            {fastMoving.length === 0 ? (
+              <div className="py-6 text-center bg-slate-50/50 border border-dashed border-slate-200 rounded-2xl p-6 text-xs text-slate-450 font-bold leading-normal">
+                No items have been sold yet. Complete transactions in **Billing POS** to track sales velocity!
+              </div>
+            ) : (
+              fastMoving.map((p) => {
+                const percent = Math.min(100, Math.round(((p.sold || 0) / 500) * 100));
+                return (
+                  <div key={p.id} className="grid grid-cols-[1.5fr_0.6fr_0.6fr_0.3fr] gap-3 items-center rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-xs">
+                    <div className="font-bold text-slate-900">{p.name}</div>
+                    <div className="font-semibold text-slate-600 text-right">{p.sold || 0} sold</div>
+                    <div className="font-semibold text-slate-600 text-right">{p.stock} left</div>
+                    <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${percent}%`, background: tierAccent }} />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </section>
 

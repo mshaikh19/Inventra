@@ -9,12 +9,52 @@ export const INVENTORY_PRODUCT_SEED = [
   { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 55, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15, barcode: "8901234567895" },
 ];
 
-export function loadInventoryProducts(fallback = INVENTORY_PRODUCT_SEED) {
-  return loadScopedInventoryProducts(fallback, null);
+export const GST_CATEGORY_RATES = {
+  Books: 0,
+  Dairy: 5,
+  Grocery: 5,
+  Pharmacy: 5,
+  Bakery: 18,
+  Snacks: 18,
+  Beverages: 18,
+  Produce: 0,
+  "Meat & Seafood": 5,
+  "Frozen Foods": 18,
+  Pantry: 5,
+  Medicine: 5,
+  Wellness: 18,
+  "Personal Care": 18,
+  "First Aid": 12,
+  "Baby Care": 12,
+  Tops: 18,
+  Bottoms: 18,
+  Outerwear: 18,
+  Footwear: 18,
+  Accessories: 18,
+  "Home & Living": 18,
+  Stationery: 12,
+  "Tools & Hardware": 18,
+  Toys: 12,
+  Other: 18,
+  Apparel: 18,
+  Electronics: 18,
+  Luxury: 40,
+  Uncategorized: 18,
+};
+
+export function getCategoryGstRate(category) {
+  return GST_CATEGORY_RATES[String(category || "").trim()] ?? GST_CATEGORY_RATES.Uncategorized;
 }
 
+// DEPRECATED: Do NOT use loadInventoryProducts() or saveInventoryProducts()
+// Always use saveScopedInventoryProducts(products, branchName) with explicit branch name
+
 function getInventoryStorageKey(branchName) {
-  if (!branchName) return INVENTORY_PRODUCTS_STORAGE_KEY;
+  // branchName is required - always pass explicit branch name to prevent product leakage
+  if (!branchName) {
+    console.error("❌ CRITICAL: getInventoryStorageKey called without branchName! Products WILL leak across branches.");
+    return INVENTORY_PRODUCTS_STORAGE_KEY;
+  }
   const slug = String(branchName)
     .toLowerCase()
     .trim()
@@ -36,10 +76,6 @@ export function loadScopedInventoryProducts(fallback = INVENTORY_PRODUCT_SEED, b
   }
 }
 
-export function saveInventoryProducts(products) {
-  saveScopedInventoryProducts(products, null);
-}
-
 export function saveScopedInventoryProducts(products, branchName = null) {
   if (typeof window === "undefined") return;
   try {
@@ -52,13 +88,26 @@ export function saveScopedInventoryProducts(products, branchName = null) {
 export function normalizeInventoryItem(item, index = 0) {
   const fallbackId = item?._id || item?.product_id || item?.sku || item?.barcode || `inventory-${index + 1}`;
   const barcode = String(item?.barcode ?? item?.sku ?? fallbackId).trim();
+  const sellingPrice = Number(item?.selling_price ?? item?.price ?? 0) || 0;
+  const mrp = Number(item?.mrp ?? item?.maximum_retail_price ?? item?.retail_price ?? sellingPrice) || sellingPrice;
+  const category = String(item?.category || "Uncategorized").trim();
+  const gstRate = Number(item?.gst_rate ?? item?.gst_percentage ?? getCategoryGstRate(category)) || 0;
+  const discountPercent = Number(item?.discount_percent ?? item?.discountPercentage ?? item?.default_discount_percent ?? 0) || 0;
 
   return {
     id: fallbackId,
     name: String(item?.product_name || item?.name || `Product ${index + 1}`).trim(),
-    category: String(item?.category || "Uncategorized").trim(),
+    category,
     stock: Number(item?.quantity ?? item?.stock ?? 0) || 0,
-    price: Number(item?.selling_price ?? item?.price ?? 0) || 0,
+    price: sellingPrice,
+    sellingPrice,
+    mrp,
+    gstPercentage: gstRate,
+    gstRate,
+    hsnCode: item?.hsn_code || "",
+    discountPercent,
+    discountAmount: Number(item?.discount_amount ?? item?.discountAmount ?? 0) || 0,
+    sellOnMrp: discountPercent <= 0,
     sold: Number(item?.total_sales ?? item?.sold ?? 0) || 0,
     expiryDate: String(item?.expiry_date || item?.expiryDate || "").trim(),
     reorderLevel: Number(item?.minimum_stock ?? item?.reorderLevel ?? 0) || 0,

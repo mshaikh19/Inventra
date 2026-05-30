@@ -1,4 +1,6 @@
 import React from "react";
+import PureBarcodeScanner from "../components/pureBarcodeScanner";
+import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import {
   getDashboardTierFromUser,
   getTierBadgeLabel,
@@ -14,6 +16,7 @@ import {
   updateBranchInventoryItem,
 } from "../utils/branches";
 import {
+  getCategoryGstRate,
   hydrateInventoryProducts,
   loadScopedInventoryProducts,
   normalizeInventoryProducts,
@@ -40,6 +43,170 @@ const summarizeInventoryItems = (items = []) => {
   return { stock, lowItems };
 };
 
+const normalizeBarcode = (value) => String(value ?? "").replace(/\s+/g, "").trim();
+
+const playScanSound = (isSuccess) => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+
+    if (isSuccess) {
+      // Success Beep: nice 1000Hz pure sine wave for 100ms
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1000, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } else {
+      // Error Buzz: low-pitch dual-tone square wave at 120Hz for 250ms
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(120, ctx.currentTime);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    }
+  } catch (e) {
+    console.warn("Web Audio API not supported or blocked: ", e);
+  }
+};
+
+const getBusinessCategories = (userSession) => {
+  const bizType = String(
+    userSession?.user?.businessType || 
+    userSession?.user?.businessMetrics?.bizType || 
+    userSession?.user?.businessName || 
+    "grocery"
+  ).toLowerCase();
+
+  if (bizType.includes("pharmacy") || bizType.includes("medicine") || bizType.includes("health")) {
+    return {
+      type: "pharmacy",
+      categories: ["Medicine", "Wellness", "Personal Care", "First Aid", "Baby Care", "Other"],
+      default: "Medicine"
+    };
+  }
+  if (bizType.includes("apparel") || bizType.includes("fashion") || bizType.includes("clothing") || bizType.includes("boutique")) {
+    return {
+      type: "apparel",
+      categories: ["Tops", "Bottoms", "Outerwear", "Footwear", "Accessories", "Other"],
+      default: "Tops"
+    };
+  }
+  if (bizType.includes("grocery") || bizType.includes("supermarket") || bizType.includes("mart") || bizType.includes("food") || bizType.includes("dairy") || bizType.includes("store") || bizType.includes("intake") || bizType.includes("inventra")) {
+    return {
+      type: "grocery",
+      categories: ["Dairy", "Bakery", "Snacks", "Beverages", "Produce", "Meat & Seafood", "Frozen Foods", "Pantry", "Other"],
+      default: "Dairy"
+    };
+  }
+  // Default to General Retail / Other
+  return {
+    type: "retail",
+    categories: ["Electronics", "Home & Living", "Stationery", "Tools & Hardware", "Apparel", "Toys", "Other"],
+    default: "Electronics"
+  };
+};
+
+const classifyProductCategoryByName = (name, allowedCategories) => {
+  if (!name || typeof name !== "string") return "";
+  
+  const cleanName = name.toLowerCase().trim();
+  if (cleanName.length === 0) return "";
+
+  // Grocery keywords
+  const groceryRules = [
+    { cat: "Dairy", keywords: ["milk", "cheese", "yogurt", "butter", "ghee", "cream", "paneer", "curd", "lassi", "soya milk", "almond milk", "dairy", "yakult", "margarine", "buttermilk", "whipped cream", "mozzarella", "cheddar", "gouda", "parmesan", "tofu", "condensed milk", "cottage cheese", "ricotta", "custard"] },
+    { cat: "Bakery", keywords: ["bread", "bun", "croissant", "bagel", "toast", "rusk", "biscuit", "cookie", "cake", "muffin", "pastry", "loaf", "doughnut", "bakery", "baguette", "tortilla", "pita", "naan", "cracker", "sourdough", "pancake", "waffle", "puff", "tarts", "danish", "garlic bread"] },
+    { cat: "Snacks", keywords: ["chip", "crisp", "popcorn", "nacho", "pretzel", "chocolate", "candy", "sweet", "nuts", "almond", "cashew", "pistachio", "wafer", "snack", "fryum", "namkeen", "peanut", "marshmallow", "gummy", "jelly", "chocolate bar", "kurkure", "lays", "doritos", "pringles", "cheetos", "puffcorn", "raisin", "granola"] },
+    { cat: "Beverages", keywords: ["drink", "soda", "coke", "pepsi", "sprite", "fanta", "juice", "water", "tea", "coffee", "cola", "beverage", "beer", "wine", "spirit", "shake", "smoothie", "mocktail", "red bull", "energy drink", "monster", "espresso", "latte", "cappuccino", "green tea", "iced tea", "soda water", "tonic water", "bourbon", "whiskey", "vodka", "rum", "tequila", "liquor"] },
+    { cat: "Produce", keywords: ["apple", "banana", "orange", "grape", "tomato", "potato", "onion", "garlic", "lemon", "lime", "fruit", "vegetable", "berry", "spinach", "lettuce", "carrot", "ginger", "chili", "chilly", "mushroom", "mango", "strawberry", "blueberry", "watermelon", "broccoli", "cabbage", "cauliflower", "cucumber", "cilantro", "mint", "avocado", "pear", "peach", "pineapple", "potato", "onion", "garlic", "beans", "okra", "eggplant", "pumpkin"] },
+    { cat: "Meat & Seafood", keywords: ["chicken", "beef", "pork", "mutton", "fish", "shrimp", "prawn", "crab", "meat", "salmon", "tuna", "egg", "seafood", "turkey", "bacon", "ham", "sausage", "pepperoni", "lobster", "oyster", "lamb", "steak", "salami", "meatball"] },
+    { cat: "Frozen Foods", keywords: ["frozen", "ice cream", "nuggets", "waffle", "gelato", "sorbet", "frozen pizza", "frozen fries", "frozen veggies", "frozen meal", "ice pack", "frozen hashbrowns", "frozen peas", "frozen snack"] },
+    { cat: "Pantry", keywords: ["flour", "rice", "wheat", "oil", "salt", "sugar", "spice", "class", "sauce", "ketchup", "pasta", "noodle", "cereal", "oats", "pulses", "lentil", "honey", "jam", "vinegar", "mayo", "mustard", "soy sauce", "olive oil", "canola oil", "baking powder", "baking soda", "yeast", "cornstarch", "pepper", "turmeric", "cardamom", "cinnamon", "cloves", "cumin", "masala", "pickle"] }
+  ];
+
+  // Pharmacy keywords
+  const pharmacyRules = [
+    { cat: "Medicine", keywords: ["tablet", "capsule", "syrup", "pill", "paracetamol", "aspirin", "ibuprofen", "antibiotic", "ointment", "cream", "gel", "injection", "vaccine", "medicine", "cough", "cold", "drops", "inhaler", "spray", "patch", "antacid", "laxative", "painkiller", "insulin", "antiseptic cream", "lozenges"] },
+    { cat: "Wellness", keywords: ["vitamin", "multivitamin", "supplement", "protein powder", "omega", "calcium", "zinc", "herbal", "wellness", "detox", "tea", "essential oil", "probiotics", "collagen", "biotin", "iron", "magnesium", "fish oil", "protein bar", "mass gainer", "whey", "creatine", "antioxidant", "ginseng"] },
+    { cat: "Personal Care", keywords: ["soap", "shampoo", "conditioner", "body wash", "toothpaste", "toothbrush", "mouthwash", "deodorant", "perfume", "lotion", "moisturizer", "facewash", "sunscreen", "razor", "shaving", "face wash", "hand wash", "hair oil", "hair gel", "lip balm", "talcum", "trimmer", "comb", "body spray", "sanitary pad", "tampons", "face mask"] },
+    { cat: "First Aid", keywords: ["bandage", "bandaid", "tape", "antiseptic", "dettol", "savlon", "cotton", "gauze", "scissor", "thermometer", "mask", "gloves", "sanitizer", "alcohol swab", "hot water bag", "ice pack", "knee cap", "crepe bandage", "tweezers", "burn relief"] },
+    { cat: "Baby Care", keywords: ["diaper", "baby wipe", "baby powder", "baby lotion", "baby shampoo", "cerelac", "formula", "pacifier", "baby bottle", "baby oil", "baby wash", "rash cream", "baby food", "teether", "baby cot"] }
+  ];
+
+  // Apparel keywords
+  const apparelRules = [
+    { cat: "Tops", keywords: ["shirt", "t-shirt", "tee", "blouse", "top", "hoodie", "sweatshirt", "sweater", "cardigan", "polos", "tank top", "crop top", "tunic", "jersey", "vest", "kimono"] },
+    { cat: "Bottoms", keywords: ["jean", "pant", "trouser", "shorts", "skirt", "leggings", "joggers", "sweatpants", "slacks", "cargo", "chinos", "pajama", "sweat shorts", "tights"] },
+    { cat: "Outerwear", keywords: ["jacket", "coat", "blazer", "raincoat", "windbreaker", "parka", "vest", "trench coat", "denim jacket", "leather jacket", "puffer", "hoodie", "cloak", "overcoat"] },
+    { cat: "Footwear", keywords: ["shoe", "sneaker", "boot", "sandal", "slipper", "loafers", "heels", "flats", "socks", "trainers", "running shoes", "boots", "crocs", "flip flops", "socks", "oxfords", "wedges", "clogs"] },
+    { cat: "Accessories", keywords: ["bag", "backpack", "belt", "hat", "cap", "scarf", "gloves", "wallet", "watch", "sunglasses", "jewelry", "necklace", "ring", "earrings", "bracelet", "tie", "bowtie", "umbrella", "hairband", "purse", "handbag", "keychain", "cufflinks"] }
+  ];
+
+  // Retail / Other keywords
+  const retailRules = [
+    { cat: "Electronics", keywords: ["phone", "laptop", "tablet", "charger", "cable", "headphone", "earphone", "mouse", "keyboard", "monitor", "speaker", "camera", "tv", "battery", "plug", "smart watch", "airpods", "router", "power bank", "adapter", "flash drive", "hard drive", "microphone", "console", "gamepad", "projector"] },
+    { cat: "Home & Living", keywords: ["bed", "sheet", "pillow", "blanket", "towel", "curtain", "lamp", "bulb", "chair", "table", "mug", "plate", "spoon", "fork", "knife", "pan", "pot", "vase", "candle", "pillowcase", "cushion", "hanger", "rug", "doormat", "trash can", "mop", "broom", "bucket", "container", "clock", "mirror", "cookware", "bedding", "towel set"] },
+    { cat: "Stationery", keywords: ["pen", "pencil", "notebook", "paper", "eraser", "ruler", "glue", "scissors", "marker", "highlighter", "binder", "stapler", "folder", "diary", "sketchbook", "tape", "envelope", "calculator", "file", "sticky notes", "card", "brush", "canvas", "paint", "notepad", "sticky pad"] },
+    { cat: "Tools & Hardware", keywords: ["screw", "nail", "hammer", "screwdriver", "wrench", "tape", "drill", "saw", "pliers", "wire", "paint", "brush", "lock", "key", "bolt", "nut", "measuring tape", "leveler", "toolbox", "flashlight", "glue gun", "safety glasses", "hacksaw", "staple gun"] },
+    { cat: "Toys", keywords: ["toy", "game", "doll", "action figure", "puzzle", "lego", "blocks", "car", "teddy", "board game", "card game", "playing cards", "chess", "slime", "soft toy", "stuffed animal", "gun", "nerf", "balloon", "plush", "rubik", "boardgame"] }
+  ];
+
+  const allRules = [...groceryRules, ...pharmacyRules, ...apparelRules, ...retailRules];
+
+  for (const rule of allRules) {
+    if (allowedCategories.includes(rule.cat)) {
+      if (rule.keywords.some(kw => cleanName.includes(kw))) {
+        return rule.cat;
+      }
+    }
+  }
+
+  for (const cat of allowedCategories) {
+    if (cat.toLowerCase() !== "other") {
+      if (cleanName.includes(cat.toLowerCase()) || cat.toLowerCase().includes(cleanName)) {
+        return cat;
+      }
+    }
+  }
+
+  return "";
+};
+
+const mapGlobalCategory = (categoriesHierarchy, allowedCategories) => {
+  if (!Array.isArray(categoriesHierarchy)) return allowedCategories.includes("Other") ? "Other" : allowedCategories[0];
+  
+  const tags = categoriesHierarchy.map((c) => String(c).toLowerCase().trim());
+  
+  for (const tag of tags) {
+    const matched = classifyProductCategoryByName(tag, allowedCategories);
+    if (matched) return matched;
+  }
+  
+  return allowedCategories.includes("Other") ? "Other" : allowedCategories[0];
+};
+
+const recommendProductCategoryAndGst = (name, allowedCategories, fallbackCategory) => {
+  const matchedCategory = classifyProductCategoryByName(name, allowedCategories);
+  const category = matchedCategory || fallbackCategory || allowedCategories[0] || "Other";
+  return {
+    category,
+    gstRate: getCategoryGstRate(category),
+    matched: Boolean(matchedCategory),
+  };
+};
+
 export default function InventoryOperations({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
   const [branchNames, setBranchNames] = React.useState(() =>
@@ -51,7 +218,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     "Inventory starts empty for new branches.",
   );
   const [inventoryError, setInventoryError] = React.useState("");
-  const skipNextInventorySaveRef = React.useRef(false);
   const tierAccent =
     normalizedTier === "medium"
       ? "#D97706"
@@ -76,40 +242,328 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     return null;
   })();
 
+  const bizConfig = React.useMemo(() => {
+    return getBusinessCategories(userSession);
+  }, [userSession]);
+
   const [selectedBranch, setSelectedBranch] = React.useState(() => {
     if (typeof window === "undefined") return branchNames[0];
     const saved = sessionStorage.getItem("inventra_inventory_branch");
     return branchNames.includes(saved) ? saved : branchNames[0];
   });
-  const [products, setProducts] = React.useState(() =>
-    loadScopedInventoryProducts([], selectedBranch),
-  );
+  const [products, setProducts] = React.useState([]);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("all");
   const [editingId, setEditingId] = React.useState(null);
   const [editForm, setEditForm] = React.useState({
     quantity: 0,
     selling_price: 0,
+    mrp: 0,
+    gst_rate: 18,
+    discount_percent: 0,
     minimum_stock: 0,
   });
-  const [showAddModal, setShowAddModal] = React.useState(false);
-  const [showScannerModal, setShowScannerModal] = React.useState(false);
+  const [showAddModal, setShowAddModal] = React.useState(() => {
+    if (typeof window === "undefined" || !selectedBranch) return false;
+    return sessionStorage.getItem(`inventra_inventory_showAddModal__${selectedBranch}`) === "true";
+  });
+  const [showScannerModal, setShowScannerModal] = React.useState(() => {
+    if (typeof window === "undefined" || !selectedBranch) return false;
+    return sessionStorage.getItem(`inventra_inventory_showScannerModal__${selectedBranch}`) === "true";
+  });
   const [scannerInput, setScannerInput] = React.useState("");
   const [scannerFeedback, setScannerFeedback] = React.useState(null);
-  const [newProduct, setNewProduct] = React.useState({
-    product_name: "",
-    category: "Dairy",
-    quantity: 0,
-    purchase_price: 0,
-    selling_price: 0,
-    minimum_stock: 0,
-    maximum_stock: 0,
-    unit: "Units",
-    barcode: "",
-    sku: "",
-    expiry_date: "",
+  const [newProduct, setNewProduct] = React.useState(() => {
+    const defaultProduct = {
+      product_name: "",
+      category: bizConfig.default,
+      quantity: 0,
+      purchase_price: 0,
+      selling_price: 0,
+      mrp: 0,
+      gst_rate: getCategoryGstRate(bizConfig.default),
+      discount_percent: 0,
+      minimum_stock: 0,
+      unit: "Units",
+      barcode: "",
+      sku: "",
+      expiry_date: "",
+    };
+    if (typeof window === "undefined" || !selectedBranch) return defaultProduct;
+    try {
+      const stored = sessionStorage.getItem(`inventra_inventory_newProduct__${selectedBranch}`);
+      return stored ? JSON.parse(stored) : defaultProduct;
+    } catch {
+      return defaultProduct;
+    }
   });
   const scannerInputRef = React.useRef(null);
+
+  const [isLookupLoading, setIsLookupLoading] = React.useState(false);
+  const [lookupStatus, setLookupStatus] = React.useState(() => {
+    if (typeof window === "undefined" || !selectedBranch) return "";
+    return sessionStorage.getItem(`inventra_inventory_lookupStatus__${selectedBranch}`) || "";
+  });
+
+  const [scannerCameraStatus, setScannerCameraStatus] = React.useState("idle");
+  const [scannerCameraMessage, setScannerCameraMessage] = React.useState("");
+  const [videoDevices, setVideoDevices] = React.useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = React.useState("");
+
+
+
+  const stopScannerCamera = React.useCallback(() => {
+    setScannerCameraStatus("idle");
+    setScannerCameraMessage("");
+  }, []);
+
+  // Debounce timer for barcode lookup - prevents excessive API calls
+  const barcodeLookupTimeoutRef = React.useRef(null);
+
+  const triggerSmartBarcodeLookup = React.useCallback(async (barcodeVal) => {
+    const scannedBarcode = normalizeBarcode(barcodeVal);
+    if (!scannedBarcode || scannedBarcode.length < 8) return;
+
+    setLookupStatus("Searching…");
+    setIsLookupLoading(true);
+
+    try {
+      // FAST PATH: Try local cache first (skip network if possible)
+      let foundProduct = null;
+      let foundBranchName = "";
+
+      // Check only the 2 most recent branches (not all branches)
+      const recentBranches = branchNames.slice(0, 2).filter(b => b !== selectedBranch);
+      for (const branch of recentBranches) {
+        try {
+          // Use 2 second timeout for branch search (faster)
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2000);
+          
+          const payload = await getBranchInventory(branch);
+          clearTimeout(timeout);
+          
+          const otherProducts = hydrateInventoryProducts(payload, []);
+          const match = otherProducts.find((p) => normalizeBarcode(p.barcode) === scannedBarcode);
+          if (match) {
+            foundProduct = match;
+            foundBranchName = branch;
+            break;
+          }
+        } catch (err) {
+          // Skip this branch and try next one
+        }
+      }
+
+      if (foundProduct) {
+        setNewProduct((prev) => ({
+          ...prev,
+          product_name: foundProduct.name || prev.product_name,
+          category: foundProduct.category || prev.category,
+          selling_price: foundProduct.price ?? prev.selling_price,
+          mrp: foundProduct.mrp ?? foundProduct.price ?? prev.mrp,
+          gst_rate: foundProduct.gstRate ?? foundProduct.gstPercentage ?? getCategoryGstRate(foundProduct.category || prev.category),
+          discount_percent: foundProduct.discountPercent ?? prev.discount_percent,
+          minimum_stock: foundProduct.reorderLevel ?? prev.minimum_stock,
+          purchase_price: foundProduct.purchasePrice ?? Math.round(foundProduct.price * 0.7) ?? prev.purchase_price,
+          unit: foundProduct.unit || "Units",
+          sku: foundProduct.sku || prev.sku,
+        }));
+        setLookupStatus(`✨ Found: ${foundBranchName}`);
+        setIsLookupLoading(false);
+        return;
+      }
+
+      // SLOW PATH: Global Open Food Facts API (only if local search fails)
+      setLookupStatus("Checking global catalog…")
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // Reduced from 6s to 3s
+
+      try {
+        const res = await fetch(`https://world.openfoodfacts.org/api/v2/search?code=${scannedBarcode}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) throw new Error("Service unavailable");
+
+        const data = await res.json();
+        if (data.products && data.products.length > 0) {
+          const prod = data.products[0];
+          const brand = prod.brands ? String(prod.brands).split(",")[0].trim() : "";
+          const rawName = prod.product_name || prod.product_name_en || "";
+          const name = brand ? `${brand} ${rawName}` : rawName;
+          
+          const category = mapGlobalCategory(prod.categories_hierarchy || prod.categories_tags, bizConfig.categories);
+          const gstRate = getCategoryGstRate(category);
+          const qtyStr = prod.quantity ? String(prod.quantity).trim() : "Units";
+
+          setNewProduct((prev) => ({
+            ...prev,
+            product_name: name.slice(0, 100) || prev.product_name,
+            category: category || prev.category,
+            gst_rate: gstRate,
+            unit: qtyStr || prev.unit,
+          }));
+          setLookupStatus(`✨ Global: ${name.slice(0, 40)}`);
+        } else {
+          setLookupStatus("Not in catalogs - fill details");
+        }
+      } catch (err) {
+        if (err.name === "AbortError") {
+          setLookupStatus("Manual entry ready");
+        } else {
+          setLookupStatus("Offline - manual entry");
+        }
+      }
+    } finally {
+      setIsLookupLoading(false);
+    }
+  }, [branchNames, selectedBranch]);
+
+  // Debounce the barcode lookup input (500ms delay)
+  const debouncedBarcodeLookup = React.useCallback((barcodeVal) => {
+    if (barcodeLookupTimeoutRef.current) {
+      clearTimeout(barcodeLookupTimeoutRef.current);
+    }
+    const normalized = normalizeBarcode(barcodeVal);
+    if (normalized.length >= 8) {
+      barcodeLookupTimeoutRef.current = setTimeout(() => {
+        triggerSmartBarcodeLookup(normalized);
+      }, 500);
+    } else {
+      setLookupStatus("");
+    }
+  }, [triggerSmartBarcodeLookup]);
+
+  const handleScanBarcode = React.useCallback((barcodeValue) => {
+    const scannedBarcode = normalizeBarcode(barcodeValue);
+    if (!scannedBarcode) return false;
+    setScannerInput("");
+
+    const product = products.find((item) => normalizeBarcode(item.barcode) === scannedBarcode);
+    if (product) {
+      setSearchTerm(product.name);
+      playScanSound(true);
+      setScannerFeedback({
+        status: "success",
+        message: `Found ${product.name} in inventory.`,
+      });
+      return true;
+    } else {
+      playScanSound(false);
+      setScannerFeedback({
+        status: "error",
+        message: `Barcode "${scannedBarcode}" is not registered. Opening intake form…`,
+      });
+
+      // Turn off scanner stream and close scanner view
+      stopScannerCamera();
+      setShowScannerModal(false);
+
+      // Pre-populate barcode on the new product and launch intake form
+      setNewProduct((prev) => ({
+        ...prev,
+        barcode: scannedBarcode,
+      }));
+      setShowAddModal(true);
+
+      // Auto-trigger lookup for scanned code
+      void triggerSmartBarcodeLookup(scannedBarcode);
+
+      return false;
+    }
+  }, [products, stopScannerCamera, triggerSmartBarcodeLookup]);
+
+  const handleImageCapture = React.useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScannerCameraStatus("starting");
+    setScannerCameraMessage("Processing captured photo...");
+
+    try {
+      const imageUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          // Downscale the image to a max dimension of 900px to speed up ZXing processing by 95%!
+          const MAX_DIM = 900;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Could not get 2D canvas context.");
+
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Decode directly from the optimized canvas with high-precision hints!
+          const reader = new BrowserMultiFormatReader();
+          const hints = new Map();
+          hints.set(DecodeHintType.TRY_HARDER, true);
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+            BarcodeFormat.CODE_128,
+            BarcodeFormat.CODE_39,
+            BarcodeFormat.ITF,
+            BarcodeFormat.QR_CODE
+          ]);
+          reader.hints = hints;
+          const result = await reader.decodeFromCanvas(canvas);
+          URL.revokeObjectURL(imageUrl);
+
+          if (result) {
+            const text = result.text || (typeof result.getText === "function" ? result.getText() : "");
+            if (text) {
+              handleScanBarcode(text);
+            } else {
+              throw new Error("No clear barcode text detected in photo.");
+            }
+          } else {
+            throw new Error("Could not find a valid barcode structure.");
+          }
+        } catch (err) {
+          console.warn("ZXing image decode failed:", err);
+          URL.revokeObjectURL(imageUrl);
+          setScannerCameraStatus("error");
+          setScannerCameraMessage("Failed to read barcode from photo. Make sure it is close-up, sharp, and well-lit.");
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(imageUrl);
+        setScannerCameraStatus("error");
+        setScannerCameraMessage("Failed to load captured image file.");
+      };
+      img.src = imageUrl;
+    } catch (err) {
+      console.warn("Image capture processing failed:", err);
+      setScannerCameraStatus("error");
+      setScannerCameraMessage("Error opening camera capture file.");
+    }
+  }, [handleScanBarcode]);
+
+  React.useEffect(() => {
+    if (!showScannerModal) {
+      setVideoDevices([]);
+      setSelectedDeviceId("");
+    }
+  }, [showScannerModal]);
 
   const loadBranchInventory = React.useCallback(
     async (branchName) => {
@@ -119,9 +573,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       try {
         const payload = await getBranchInventory(branchName);
         const nextProducts = hydrateInventoryProducts(payload, []);
-        skipNextInventorySaveRef.current = true;
         setProducts(nextProducts);
-        saveScopedInventoryProducts(nextProducts, branchName);
         setBranchSummariesMap((current) => ({
           ...current,
           [branchName]: summarizeInventoryItems(nextProducts),
@@ -133,7 +585,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         );
       } catch (error) {
         const cachedProducts = loadScopedInventoryProducts([], branchName);
-        skipNextInventorySaveRef.current = true;
         setProducts(cachedProducts);
         setInventoryError(
           error?.message || "Unable to load branch inventory from the server.",
@@ -170,32 +621,21 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
           names.length > 0 ? names : getBranchNetwork(normalizedTier);
         setBranchNames(fallbackNames);
 
-        const nextBranch = fallbackNames.includes(selectedBranch)
-          ? selectedBranch
-          : fallbackNames[0] || selectedBranch;
+        // Determine the initial branch to load
+        const saved = sessionStorage.getItem("inventra_inventory_branch");
+        const nextBranch = fallbackNames.includes(saved)
+          ? saved
+          : fallbackNames.includes(selectedBranch)
+            ? selectedBranch
+            : fallbackNames[0] || selectedBranch;
+
         if (nextBranch !== selectedBranch) {
           setSelectedBranch(nextBranch);
         }
 
-        await loadBranchInventory(nextBranch);
+        // Load the initial branch inventory immediately
+        void loadBranchInventory(nextBranch);
 
-        const summaries = await Promise.all(
-          branches.map(async (branch) => {
-            try {
-              const payload = await getBranchInventory(branch.branch_name);
-              return [
-                branch.branch_name,
-                summarizeInventoryItems(hydrateInventoryProducts(payload, [])),
-              ];
-            } catch {
-              return [branch.branch_name, { stock: 0, lowItems: 0 }];
-            }
-          }),
-        );
-
-        if (!cancelled) {
-          setBranchSummariesMap(Object.fromEntries(summaries));
-        }
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load branches from DB:", error);
@@ -209,50 +649,54 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     return () => {
       cancelled = true;
     };
-  }, [loadBranchInventory, normalizedTier, selectedBranch]);
+  }, [normalizedTier]);
 
   React.useEffect(() => {
     if (!selectedBranch) return;
     sessionStorage.setItem("inventra_inventory_branch", selectedBranch);
-  }, [selectedBranch]);
-
-  const playScanSound = (isSuccess) => {
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
-
-      if (isSuccess) {
-        // Success Beep: nice 1000Hz pure sine wave for 100ms
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(1000, ctx.currentTime);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.1);
-      } else {
-        // Error Buzz: low-pitch dual-tone square wave at 120Hz for 250ms
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(120, ctx.currentTime);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.25);
-      }
-    } catch (e) {
-      console.warn("Web Audio API not supported or blocked: ", e);
-    }
-  };
+    // Load inventory for the newly selected branch
+    void loadBranchInventory(selectedBranch);
+  }, [selectedBranch, loadBranchInventory]);
 
   const userDisplayName = getUserDisplayName(userSession?.user, "Manager");
+
+  const isPerishableBusiness = React.useMemo(() => {
+    const bizType = String(
+      userSession?.user?.businessType || 
+      userSession?.user?.businessMetrics?.bizType || 
+      userSession?.user?.businessName || 
+      "grocery"
+    ).toLowerCase();
+    
+    return (
+      bizType.includes("grocery") ||
+      bizType.includes("pharmacy") ||
+      bizType.includes("food") ||
+      bizType.includes("dairy") ||
+      bizType.includes("supermarket") ||
+      bizType.includes("mart") ||
+      bizType.includes("store") ||
+      bizType.includes("intake") ||
+      bizType.includes("inventra") // Default true for demo/sandbox
+    );
+  }, [userSession]);
+
+  const shouldShowExpiryForProduct = React.useCallback((product) => {
+    const hasExpiry = product.expiryDate && product.expiryDate !== "N/A" && String(product.expiryDate).trim() !== "";
+    if (hasExpiry) return true;
+
+    if (!isPerishableBusiness) return false;
+
+    const perishableCategories = ["dairy", "bakery", "snacks", "beverages", "medicine", "pharmacy", "food"];
+    const category = String(product.category || "").toLowerCase();
+    return perishableCategories.some(c => category.includes(c));
+  }, [isPerishableBusiness]);
+
+  const shouldShowExpiryInput = React.useMemo(() => {
+    if (!isPerishableBusiness) return false;
+    const perishableCategories = ["dairy", "bakery", "snacks", "beverages", "medicine", "pharmacy", "food"];
+    return perishableCategories.some(c => String(newProduct.category || "").toLowerCase().includes(c));
+  }, [isPerishableBusiness, newProduct.category]);
 
   React.useEffect(() => {
     const handleKeyDown = (event) => {
@@ -266,6 +710,58 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   }, []);
 
   React.useEffect(() => {
+    let buffer = "";
+    let lastKeyTime = 0;
+
+    const handleGlobalKeyDown = (e) => {
+      // Ignore if user is typing normally inside focused manual text inputs
+      if (document.activeElement?.tagName === "INPUT" && document.activeElement !== scannerInputRef.current) {
+        const delta = Date.now() - lastKeyTime;
+        if (delta > 40) {
+          buffer = "";
+          return;
+        }
+      }
+
+      const currentTime = Date.now();
+      const isNumber = /^[0-9]$/.test(e.key);
+
+      if (isNumber) {
+        const timeDiff = currentTime - lastKeyTime;
+        if (buffer.length === 0 || timeDiff < 40) {
+          buffer += e.key;
+          lastKeyTime = currentTime;
+          if (timeDiff < 40 && buffer.length > 1) {
+            e.preventDefault();
+          }
+        } else {
+          buffer = e.key;
+          lastKeyTime = currentTime;
+        }
+        return;
+      }
+
+      if (e.key === "Enter" && buffer.length >= 8) {
+        const timeDiff = currentTime - lastKeyTime;
+        if (timeDiff < 45) {
+          e.preventDefault();
+          e.stopPropagation();
+          const finalBarcode = buffer;
+          buffer = "";
+          handleScanBarcode(finalBarcode);
+        }
+      }
+
+      if (!isNumber && e.key !== "Enter") {
+        buffer = "";
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  }, [handleScanBarcode]);
+
+  React.useEffect(() => {
     if (!showScannerModal) return undefined;
     const timer = window.setTimeout(() => scannerInputRef.current?.focus(), 80);
     return () => window.clearTimeout(timer);
@@ -276,6 +772,18 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     const timer = window.setTimeout(() => setScannerFeedback(null), 2500);
     return () => window.clearTimeout(timer);
   }, [scannerFeedback]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !selectedBranch) return;
+    try {
+      sessionStorage.setItem(`inventra_inventory_showAddModal__${selectedBranch}`, String(showAddModal));
+      sessionStorage.setItem(`inventra_inventory_showScannerModal__${selectedBranch}`, String(showScannerModal));
+      sessionStorage.setItem(`inventra_inventory_newProduct__${selectedBranch}`, JSON.stringify(newProduct));
+      sessionStorage.setItem(`inventra_inventory_lookupStatus__${selectedBranch}`, lookupStatus);
+    } catch (e) {
+      // ignore
+    }
+  }, [showAddModal, showScannerModal, newProduct, lookupStatus, selectedBranch]);
 
   const productsWithBranchStock = React.useMemo(() => {
     return products.map((product) => {
@@ -341,15 +849,49 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     setSelectedBranch(branchName);
     setEditingId(null);
     void loadBranchInventory(branchName);
+
+    // Restore state of the newly selected branch from session storage!
+    try {
+      const storedAddModal = sessionStorage.getItem(`inventra_inventory_showAddModal__${branchName}`) === "true";
+      const storedScannerModal = sessionStorage.getItem(`inventra_inventory_showScannerModal__${branchName}`) === "true";
+      const storedLookupStatus = sessionStorage.getItem(`inventra_inventory_lookupStatus__${branchName}`) || "";
+      
+      const defaultProduct = {
+        product_name: "",
+        category: bizConfig.default,
+        quantity: 0,
+        purchase_price: 0,
+        selling_price: 0,
+        mrp: 0,
+        gst_rate: getCategoryGstRate(bizConfig.default),
+        discount_percent: 0,
+        minimum_stock: 0,
+        unit: "Units",
+        barcode: "",
+        sku: "",
+        expiry_date: "",
+      };
+      const storedProductStr = sessionStorage.getItem(`inventra_inventory_newProduct__${branchName}`);
+      const storedProduct = storedProductStr ? JSON.parse(storedProductStr) : defaultProduct;
+
+      setShowAddModal(storedAddModal);
+      setShowScannerModal(storedScannerModal);
+      setLookupStatus(storedLookupStatus);
+      setNewProduct(storedProduct);
+    } catch (e) {
+      // ignore
+    }
   };
 
   React.useEffect(() => {
     if (!selectedBranch) return;
-    if (skipNextInventorySaveRef.current) {
-      skipNextInventorySaveRef.current = false;
-      return;
-    }
-    saveScopedInventoryProducts(products, selectedBranch);
+    
+    // Debounce saves to localStorage - wait 500ms after last change before saving
+    const timer = setTimeout(() => {
+      saveScopedInventoryProducts(products, selectedBranch);
+    }, 500);
+    
+    return () => clearTimeout(timer);
   }, [products, selectedBranch]);
 
   const handleStartEdit = (product) => {
@@ -357,6 +899,9 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     setEditForm({
       quantity: product.branchStock,
       selling_price: product.price,
+      mrp: product.mrp ?? product.price,
+      gst_rate: product.gstRate ?? product.gstPercentage ?? getCategoryGstRate(product.category),
+      discount_percent: product.discountPercent ?? 0,
       minimum_stock: product.reorderLevel || 10,
     });
   };
@@ -373,9 +918,14 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       barcode: currentProduct.barcode || undefined,
       quantity: Number(editForm.quantity),
       selling_price: Number(editForm.selling_price),
+      mrp: Number(editForm.mrp || editForm.selling_price || 0),
+      gst_rate: Number(editForm.gst_rate || 0),
+      gst_percentage: Number(editForm.gst_rate || 0),
+      discount_percent: Number(editForm.discount_percent || 0),
+      sell_on_mrp: Number(editForm.discount_percent || 0) <= 0,
       minimum_stock: Number(editForm.minimum_stock),
       sku: currentProduct.sku || undefined,
-      expiry_date: currentProduct.expiryDate || undefined,
+      expiry_date: (currentProduct.expiryDate && currentProduct.expiryDate !== "N/A" && String(currentProduct.expiryDate).trim() !== "") ? currentProduct.expiryDate : null,
     };
 
     try {
@@ -389,7 +939,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         [],
       );
       setProducts(nextProducts);
-      saveScopedInventoryProducts(nextProducts, selectedBranch);
       setBranchSummariesMap((current) => ({
         ...current,
         [selectedBranch]: summarizeInventoryItems(nextProducts),
@@ -409,12 +958,16 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       quantity: Number(newProduct.quantity || 0),
       purchase_price: Number(newProduct.purchase_price || 0),
       selling_price: Number(newProduct.selling_price || 0),
+      mrp: Number(newProduct.mrp || newProduct.selling_price || 0),
+      gst_rate: Number(newProduct.gst_rate || 0),
+      gst_percentage: Number(newProduct.gst_rate || 0),
+      discount_percent: Number(newProduct.discount_percent || 0),
+      sell_on_mrp: Number(newProduct.discount_percent || 0) <= 0,
       minimum_stock: Number(newProduct.minimum_stock || 0),
-      maximum_stock: Number(newProduct.maximum_stock || 0),
       unit: String(newProduct.unit || "Units").trim(),
       barcode: String(newProduct.barcode || "").trim() || undefined,
       sku: String(newProduct.sku || "").trim() || undefined,
-      expiry_date: newProduct.expiry_date || undefined,
+      expiry_date: (newProduct.expiry_date && String(newProduct.expiry_date).trim() !== "") ? newProduct.expiry_date : null,
     };
 
     try {
@@ -424,24 +977,26 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         [],
       );
       setProducts(nextProducts);
-      saveScopedInventoryProducts(nextProducts, selectedBranch);
       setBranchSummariesMap((current) => ({
         ...current,
         [selectedBranch]: summarizeInventoryItems(nextProducts),
       }));
       setNewProduct({
         product_name: "",
-        category: "Dairy",
+        category: bizConfig.default,
         quantity: 0,
         purchase_price: 0,
         selling_price: 0,
+        mrp: 0,
+        gst_rate: getCategoryGstRate(bizConfig.default),
+        discount_percent: 0,
         minimum_stock: 0,
-        maximum_stock: 0,
         unit: "Units",
         barcode: "",
         sku: "",
         expiry_date: "",
       });
+      setLookupStatus("");
       setShowAddModal(false);
       setInventoryNotice(`Added ${payload.product_name} to ${selectedBranch}.`);
     } catch (error) {
@@ -461,7 +1016,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         [],
       );
       setProducts(nextProducts);
-      saveScopedInventoryProducts(nextProducts, selectedBranch);
       setBranchSummariesMap((current) => ({
         ...current,
         [selectedBranch]: summarizeInventoryItems(nextProducts),
@@ -473,27 +1027,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     } catch (error) {
       setInventoryError(error?.message || "Unable to delete inventory item.");
     }
-  };
-
-  const handleScanBarcode = (barcodeValue) => {
-    const trimmed = barcodeValue.trim();
-    if (!trimmed) return;
-    const product = products.find((item) => item.barcode === trimmed);
-    if (product) {
-      setSearchTerm(product.name);
-      playScanSound(true);
-      setScannerFeedback({
-        status: "success",
-        message: `Found ${product.name} in inventory.`,
-      });
-    } else {
-      playScanSound(false);
-      setScannerFeedback({
-        status: "error",
-        message: `Barcode "${trimmed}" is not registered.`,
-      });
-    }
-    setScannerInput("");
   };
 
   return (
@@ -547,7 +1080,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       </header>
 
       <main className="px-5 lg:px-8 xl:pl-85 py-4">
-        <aside className="xl:fixed xl:left-0 xl:top-14.25 xl:h-[calc(100vh-57px)] xl:w-79 xl:flex xl:flex-col xl:overflow-hidden xl:border-r xl:border-slate-200 xl:bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_48%,#f8fafc_100%)] xl:px-4 xl:py-4 xl:shadow-[0_1px_3px_rgba(0,0,0,0.05)] mb-5 xl:mb-0">
+        <aside className="xl:fixed xl:left-0 xl:top-14.25 xl:h-[calc(100vh-57px)] xl:w-79 xl:flex xl:flex-col xl:overflow-hidden xl:border-r xl:border-slate-200 xl:bg-white xl:px-4 xl:py-4 xl:shadow-[0_1px_3px_rgba(0,0,0,0.05)] mb-5 xl:mb-0">
           <div className="rounded-[28px] border border-slate-100 bg-white px-5 py-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -619,7 +1152,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         <section className="space-y-5">
           <div className="relative overflow-hidden rounded-[28px] border border-emerald-100 bg-white p-5 md:p-6 shadow-[0_14px_44px_rgba(15,23,42,0.06)]">
             <div className="absolute right-10 top-0 h-1.5 w-24 rounded-b-full bg-emerald-500" />
-            <div className="absolute -right-16 -top-24 h-60 w-60 rounded-full bg-emerald-100/70 blur-3xl" />
             <div className="relative flex flex-col lg:flex-row lg:items-end justify-between gap-5">
               <div>
                 <span className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">
@@ -705,149 +1237,145 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
               </select>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400 font-black">
-                  <tr>
-                    <th className="px-4 py-3">Product</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Barcode</th>
-                    <th className="px-4 py-3 text-right">Price</th>
-                    <th className="px-4 py-3 text-center">Branch Stock</th>
-                    <th className="px-4 py-3 text-center">Threshold</th>
-                    <th className="px-4 py-3 text-center">Status</th>
-                    <th className="px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map((product) => {
-                    const isEditing = editingId === product.id;
-                    return (
-                      <tr key={product.id} className="hover:bg-slate-50/80">
-                        <td className="px-4 py-4">
-                          <span className="block font-black text-slate-950">
-                            {product.name}
-                          </span>
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            Expires {product.expiryDate || "N/A"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {filteredProducts.map((product) => {
+                const isEditing = editingId === product.id;
+                const gstRate = product.gstRate ?? product.gstPercentage ?? getCategoryGstRate(product.category);
+                const statusClass =
+                  product.status === "Critical"
+                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                    : product.status === "Low Stock"
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : product.status === "Overstock"
+                        ? "bg-orange-50 border-orange-200 text-orange-700"
+                        : "bg-emerald-50 border-emerald-200 text-emerald-700";
+
+                return (
+                  <div key={product.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.035)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-black text-slate-950 leading-tight">{product.name}</h3>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
                             {product.category}
                           </span>
-                        </td>
-                        <td className="px-4 py-4 font-mono text-xs font-bold text-slate-500">
-                          {product.barcode || "N/A"}
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          {isEditing ? (
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] font-bold text-slate-400">{product.barcode || "No barcode"}</div>
+                        {shouldShowExpiryForProduct(product) && (
+                          <div className="mt-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            Expires {product.expiryDate || "N/A"}
+                          </div>
+                        )}
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${statusClass}`}>
+                        {product.status}
+                      </span>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[
+                          ["Selling Price", "selling_price", "number"],
+                          ["MRP", "mrp", "number"],
+                          ["GST %", "gst_rate", "number"],
+                          ["Discount %", "discount_percent", "number"],
+                          ["Quantity", "quantity", "number"],
+                          ["Reorder Min", "minimum_stock", "number"],
+                        ].map(([label, field, type]) => (
+                          <label key={field} className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                            {label}
                             <input
-                              value={editForm.selling_price}
-                              type="number"
+                              type={type}
+                              min={field === "discount_percent" || field === "gst_rate" ? "0" : undefined}
+                              max={field === "discount_percent" || field === "gst_rate" ? "100" : undefined}
+                              value={editForm[field]}
                               onChange={(event) =>
                                 setEditForm({
                                   ...editForm,
-                                  selling_price: event.target.value,
+                                  [field]: event.target.value,
                                 })
                               }
-                              className="w-20 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-xs font-black outline-none"
+                              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-black text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
                             />
-                          ) : (
-                            <span className="font-black">₹{product.price}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          {isEditing ? (
-                            <input
-                              value={editForm.quantity}
-                              type="number"
-                              onChange={(event) =>
-                                setEditForm({
-                                  ...editForm,
-                                  quantity: event.target.value,
-                                })
-                              }
-                              className="mx-auto block w-20 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-center text-xs font-black outline-none"
-                            />
-                          ) : (
-                            <span className="font-black">
-                              {product.branchStock} units
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          {isEditing ? (
-                            <input
-                              value={editForm.minimum_stock}
-                              type="number"
-                              onChange={(event) =>
-                                setEditForm({
-                                  ...editForm,
-                                  minimum_stock: event.target.value,
-                                })
-                              }
-                              className="mx-auto block w-16 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-center text-xs font-black outline-none"
-                            />
-                          ) : (
-                            <span className="font-bold text-slate-500">
-                              {product.reorderLevel || 10}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${
-                              product.status === "Critical"
-                                ? "bg-rose-50 border-rose-200 text-rose-700"
-                                : product.status === "Low Stock"
-                                  ? "bg-amber-50 border-amber-200 text-amber-700"
-                                  : product.status === "Overstock"
-                                    ? "bg-orange-50 border-orange-200 text-orange-700"
-                                    : "bg-emerald-50 border-emerald-200 text-emerald-700"
-                            }`}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Pricing</div>
+                          <div className="mt-1 font-black text-slate-950">Sell ₹{product.price}</div>
+                          <div className="text-[10px] font-bold text-slate-500">MRP ₹{product.mrp ?? product.price}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Tax</div>
+                          <div className="mt-1 font-black text-slate-950">GST {gstRate}%</div>
+                          <div className="text-[10px] font-bold text-slate-500">Default {getCategoryGstRate(product.category)}%</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Sale Policy</div>
+                          <div className="mt-1 font-black text-slate-950">
+                            {Number(product.discountPercent || 0) > 0 ? "Discounted sale" : "MRP sale"}
+                          </div>
+                          <div className="text-[10px] font-bold text-emerald-600">
+                            {Number(product.discountPercent || 0) > 0 ? `${product.discountPercent}% discount` : "No discount"}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Stock</div>
+                          <div className="mt-1 font-black text-slate-950">{product.branchStock} units</div>
+                          <div className="text-[10px] font-bold text-slate-500">Min {product.reorderLevel || 10}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 sm:col-span-2">
+                          <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Inventory Value</div>
+                          <div className="mt-1 font-black text-slate-950">₹{(product.branchStock * product.price).toLocaleString()}</div>
+                          <div className="text-[10px] font-bold text-slate-500">{product.branchStock} x ₹{product.price}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex justify-end gap-2">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => handleSaveEdit(product.id)}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white"
                           >
-                            {product.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          {isEditing ? (
-                            <div className="flex justify-end gap-2">
-                              <button
-                                onClick={() => handleSaveEdit(product.id)}
-                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingId(null)}
-                                className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end gap-2">
-                              <button
-                                onClick={() => handleStartEdit(product)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteProduct(product)}
-                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleStartEdit(product)}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(product)}
+                            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredProducts.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-bold text-slate-500">
+                  No inventory items match this search.
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -855,7 +1383,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+          <div className="w-full max-w-5xl max-h-[88vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">
@@ -864,22 +1392,42 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                 <h3 className="text-xl font-black text-slate-950 mt-1">
                   Add New Product
                 </h3>
-                <p className="text-xs font-semibold text-slate-500 mt-2">
+                <p className="text-xs font-semibold text-slate-500 mt-1">
                   Register product details, stock threshold, expiry, and barcode
                   for scanner workflows.
                 </p>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  setLookupStatus("");
+                }}
                 className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
               >
                 Close
               </button>
             </div>
 
+            {lookupStatus && (
+              <div className={`mt-4 rounded-2xl border px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all animate-fade-in flex items-center gap-2 ${
+                lookupStatus.startsWith("✨")
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-slate-50 border-slate-200 text-slate-600"
+              }`}>
+                {isLookupLoading ? (
+                  <span className="w-2.5 h-2.5 rounded-full border-2 border-slate-500 border-t-transparent animate-spin shrink-0" />
+                ) : lookupStatus.startsWith("✨") ? (
+                  <span className="shrink-0">✦</span>
+                ) : (
+                  <span className="shrink-0">🛈</span>
+                )}
+                <span className="truncate leading-none">{lookupStatus}</span>
+              </div>
+            )}
+
             <form
               onSubmit={handleAddProduct}
-              className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4"
+              className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"
             >
               <label className="block md:col-span-2">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
@@ -888,14 +1436,21 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                 <input
                   required
                   value={newProduct.product_name}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      product_name: event.target.value,
-                    })
-                  }
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    const recommendation = recommendProductCategoryAndGst(name, bizConfig.categories, newProduct.category);
+                    setNewProduct((prev) => ({
+                      ...prev,
+                      product_name: name,
+                      category: recommendation.category,
+                      gst_rate: recommendation.gstRate,
+                    }));
+                    if (recommendation.matched) {
+                      setLookupStatus(`AI suggested ${recommendation.category} category with ${recommendation.gstRate}% GST`);
+                    }
+                  }}
                   placeholder="e.g. Soy Milk 1L"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-emerald-300 focus:bg-white"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-emerald-300 focus:bg-white"
                 />
               </label>
               <label className="block">
@@ -908,11 +1463,12 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                     setNewProduct({
                       ...newProduct,
                       category: event.target.value,
+                      gst_rate: getCategoryGstRate(event.target.value),
                     })
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none"
                 >
-                  {["Dairy", "Bakery", "Snacks", "Beverages", "Other"].map(
+                  {bizConfig.categories.map(
                     (category) => (
                       <option key={category} value={category}>
                         {category}
@@ -920,22 +1476,44 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                     ),
                   )}
                 </select>
+                <span className="mt-1 block text-[9px] font-bold text-emerald-600">
+                  Suggested GST: {getCategoryGstRate(newProduct.category)}%
+                </span>
               </label>
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                   Barcode
                 </span>
-                <input
-                  value={newProduct.barcode}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      barcode: event.target.value,
-                    })
-                  }
-                  placeholder="Scan or enter barcode"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-mono font-bold outline-none focus:border-emerald-300 focus:bg-white"
-                />
+                <div className="relative mt-1 flex gap-2">
+                  <input
+                    value={newProduct.barcode}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      setNewProduct((prev) => ({ ...prev, barcode: val }));
+                      debouncedBarcodeLookup(val);
+                    }}
+                    placeholder="Scan or enter barcode"
+                    className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-mono font-bold outline-none focus:border-emerald-300 focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => triggerSmartBarcodeLookup(newProduct.barcode)}
+                    disabled={!newProduct.barcode || newProduct.barcode.trim().length < 8 || isLookupLoading}
+                    className="px-3.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:border-emerald-300 hover:text-emerald-700 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95"
+                    title="Smart Autofill Lookup"
+                  >
+                    {isLookupLoading ? (
+                      <svg className="w-4 h-4 animate-spin text-emerald-600" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 21l8.904-4.474m-8.904-.622L16.09 9.813M9 21.002h.002L18 12.09M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.379-3.379a.9.9 0 1 1-1.273-1.273.9.9 0 0 1 1.273 1.273Z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </label>
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
@@ -968,7 +1546,62 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                       selling_price: event.target.value,
                     })
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  MRP
+                </span>
+                <input
+                  type="number"
+                  value={newProduct.mrp}
+                  onChange={(event) =>
+                    setNewProduct({
+                      ...newProduct,
+                      mrp: event.target.value,
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  GST %
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={newProduct.gst_rate}
+                  onChange={(event) =>
+                    setNewProduct({
+                      ...newProduct,
+                      gst_rate: event.target.value,
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                />
+                <span className="mt-1 block text-[9px] font-bold text-slate-400">
+                  Category default: {getCategoryGstRate(newProduct.category)}%
+                </span>
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Default Discount %
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={newProduct.discount_percent}
+                  onChange={(event) =>
+                    setNewProduct({
+                      ...newProduct,
+                      discount_percent: event.target.value,
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
                 />
               </label>
               <label className="block">
@@ -985,7 +1618,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                       minimum_stock: event.target.value,
                     })
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
                 />
               </label>
               <label className="block">
@@ -1001,25 +1634,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                       purchase_price: event.target.value,
                     })
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
                 />
               </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Maximum Qty
-                </span>
-                <input
-                  type="number"
-                  value={newProduct.maximum_stock}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      maximum_stock: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
-                />
-              </label>
+
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                   Unit
@@ -1030,28 +1648,30 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                     setNewProduct({ ...newProduct, unit: event.target.value })
                   }
                   placeholder="Units / Packs / Bottles"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
                 />
               </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Expiry Date
-                </span>
-                <input
-                  type="date"
-                  value={newProduct.expiry_date}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      expiry_date: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none"
-                />
-              </label>
+              {shouldShowExpiryInput && (
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Expiry Date
+                  </span>
+                  <input
+                    type="date"
+                    value={newProduct.expiry_date}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        expiry_date: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none"
+                  />
+                </label>
+              )}
               <button
                 type="submit"
-                className="md:col-span-2 rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                className="md:col-span-3 rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
               >
                 Create Product
               </button>
@@ -1072,13 +1692,14 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                     INVENTORY BARCODE SCANNER
                   </h3>
                   <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                    Simulate scans or use hardware wedge
+                    Scan with camera or use hardware wedge
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => {
+                  stopScannerCamera();
                   setShowScannerModal(false);
                   setScannerFeedback(null);
                 }}
@@ -1100,61 +1721,81 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
               </button>
             </div>
 
-            {/* Scanning Viewport */}
-            <div className="relative aspect-video max-w-sm w-full mx-auto rounded-2xl bg-slate-955 border border-slate-800 overflow-hidden flex items-center justify-center scanner-grid-pattern">
+            {/* Camera Select Dropdown */}
+            {videoDevices.length > 1 && (
+              <div className="flex items-center justify-between bg-slate-950/40 border border-slate-800 p-2.5 rounded-2xl gap-3">
+                <span className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Select Camera</span>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => setSelectedDeviceId(e.target.value)}
+                  className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-200 outline-none cursor-pointer focus:border-rose-500 max-w-[200px] truncate"
+                >
+                  {videoDevices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Camera ${videoDevices.indexOf(device) + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="relative aspect-video max-w-sm w-full mx-auto rounded-2xl bg-slate-955 border border-slate-800 overflow-hidden flex items-center justify-center">
+              {showScannerModal && (
+                <PureBarcodeScanner
+                  selectedDeviceId={selectedDeviceId}
+                  onDevicesFound={(devices, activeId) => {
+                    setVideoDevices(devices);
+                    if (activeId && !selectedDeviceId) {
+                      setSelectedDeviceId(activeId);
+                    }
+                  }}
+                  onScanSuccess={(text) => {
+                    if (text) {
+                      handleScanBarcode(text);
+                    }
+                  }}
+                  onScanError={(err) => {
+                    const errMsg = err.message || "";
+                    if (
+                      errMsg.includes("Permission") ||
+                      errMsg.includes("NotAllowedError") ||
+                      errMsg.includes("Requested device not found")
+                    ) {
+                      setScannerCameraStatus("error");
+                      setScannerCameraMessage("Camera access denied or device unavailable.");
+                    }
+                  }}
+                  setScannerCameraStatus={setScannerCameraStatus}
+                  setScannerCameraMessage={setScannerCameraMessage}
+                />
+              )}
+
+              <div className="absolute inset-0 bg-slate-950/40 z-20" />
+
               {/* Sweeping Laser Line */}
-              <div className="scan-laser-line" />
+              <div className="scan-laser-line z-20" />
 
               {/* Corner Targets */}
-              <div className="absolute top-4 left-4 w-4 h-4 border-t-2 border-l-2 border-rose-500 rounded-tl" />
-              <div className="absolute top-4 right-4 w-4 h-4 border-t-2 border-r-2 border-rose-500 rounded-tr" />
-              <div className="absolute bottom-4 left-4 w-4 h-4 border-b-2 border-l-2 border-rose-500 rounded-bl" />
-              <div className="absolute bottom-4 right-4 w-4 h-4 border-b-2 border-r-2 border-rose-500 rounded-br" />
+              <div className="absolute top-4 left-4 w-4 h-4 border-t-2 border-l-2 border-rose-500 rounded-tl z-20" />
+              <div className="absolute top-4 right-4 w-4 h-4 border-t-2 border-r-2 border-rose-500 rounded-tr z-20" />
+              <div className="absolute bottom-4 left-4 w-4 h-4 border-b-2 border-l-2 border-rose-500 rounded-bl z-20" />
+              <div className="absolute bottom-4 right-4 w-4 h-4 border-b-2 border-r-2 border-rose-500 rounded-br z-20" />
 
               {/* Central text indicator */}
-              <div className="text-center z-20 pointer-events-none select-none">
+              <div className="text-center z-30 pointer-events-none select-none px-4">
                 <div className="text-[9px] font-black uppercase text-rose-500 tracking-[0.25em] animate-pulse-soft">
-                  CAMERA PREVIEW ACTIVE
+                  {scannerCameraStatus === "error" ? "CAMERA UNAVAILABLE" : "LIVE CAMERA SCAN ACTIVE"}
                 </div>
-                <div className="text-[8px] font-bold text-slate-500 tracking-wider mt-1">
-                  READY FOR EAN-13 TRANSMISSION
+                <div className="text-[8px] font-bold text-slate-300 tracking-wider mt-1">
+                  {scannerCameraStatus === "error"
+                    ? "Use manual barcode entry below"
+                    : scannerCameraMessage || "READY TO READ EAN / UPC / CODE128"}
                 </div>
-              </div>
-            </div>
-
-            {/* Quick Simulation Options */}
-            <div>
-              <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400 mb-2 select-none">
-                Click to Simulate Product Scan
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                {products.map((p) => {
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleScanBarcode(p.barcode)}
-                      className="flex items-center justify-between text-left p-2 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/85 hover:border-slate-700 transition-all text-xs font-semibold text-slate-300 cursor-pointer"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-bold text-white text-[11px] truncate">
-                          {p.name}
-                        </div>
-                        <div className="text-[9px] text-slate-500 font-mono tracking-wider mt-0.5">
-                          {p.barcode}
-                        </div>
-                      </div>
-                      <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded shrink-0 uppercase tracking-widest ml-1 select-none">
-                        Scan
-                      </span>
-                    </button>
-                  );
-                })}
               </div>
             </div>
 
             {/* Manual scan form */}
-            <div className="border-t border-slate-800 pt-3">
+            <div className="border-t border-slate-800 pt-3 flex flex-col gap-2">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1168,7 +1809,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                   placeholder="Enter barcode or wedge scan here..."
                   value={scannerInput}
                   onChange={(e) => setScannerInput(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs font-bold text-white outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30"
+                  className="flex-1 rounded-xl border border-slate-800 bg-slate-955 px-3.5 py-2 text-xs font-bold text-white outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30"
                 />
                 <button
                   type="submit"
@@ -1177,6 +1818,22 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                   Scan Code
                 </button>
               </form>
+              <div className="flex gap-2">
+                <label className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-dashed border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-rose-400 hover:text-rose-300 transition-all cursor-pointer select-none">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                  </svg>
+                  Capture Autofocus Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleImageCapture}
+                  />
+                </label>
+              </div>
             </div>
 
             {/* Scan Feedback notification */}

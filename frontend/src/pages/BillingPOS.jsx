@@ -1,6 +1,6 @@
 import React from "react";
-import BillingSystem from "../components/BillingSystem";
-import BranchDropdown from "../components/BranchDropdown";
+import BillingSystem from "../components/billingSystem";
+import BranchDropdown from "../components/branchDropdown";
 import {
   getDashboardTierFromUser,
   getTierBadgeLabel,
@@ -8,9 +8,8 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
-import { getBranchNetwork, getBranchInventory, getUserBranches } from "../utils/branches";
+import { getBranchNetwork, getBranchInventory, getUserBranches, recordBranchSale } from "../utils/branches";
 import {
-  INVENTORY_PRODUCT_SEED,
   hydrateInventoryProducts,
   loadScopedInventoryProducts,
   saveScopedInventoryProducts,
@@ -43,6 +42,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   }, []);
 
   const userDisplayName  = getUserDisplayName(userSession?.user, "Cashier");
+  const businessName = userSession?.user?.businessName || userSession?.user?.company || "Inventra Retail";
   const tierBadgeLabel   = getTierBadgeLabel(normalizedTier);
 
   const tierAccent     = normalizedTier === "medium" ? "#D97706" : normalizedTier === "large" ? "#059669" : "#0284C7";
@@ -68,10 +68,15 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   );
   const selectedBranchKey = selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId || "default";
   const selectedBranchLabel = selectedBranch?.branch_name || selectedBranch?.branch_id || "Main Store";
-  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, selectedBranchKey));
+  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts([], selectedBranchKey));
 
   React.useEffect(() => {
-    saveScopedInventoryProducts(products, selectedBranchKey);
+    // Debounce saves to localStorage - wait 500ms after last change before saving
+    const timer = setTimeout(() => {
+      saveScopedInventoryProducts(products, selectedBranchKey);
+    }, 500);
+    
+    return () => clearTimeout(timer);
   }, [products, selectedBranchKey]);
 
   React.useEffect(() => {
@@ -118,8 +123,9 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
       if (!selectedBranch) return;
 
       const branchKey = selectedBranch.branch_id || selectedBranch.branch_name;
-      const cachedProducts = loadScopedInventoryProducts(INVENTORY_PRODUCT_SEED, branchKey);
-      setProducts(cachedProducts);
+      
+      // Clear old products first so the screen shows loading state correctly
+      setProducts([]);
       setIsInventorySyncing(true);
       setInventoryStatus(`Loading ${selectedBranchLabel} inventory from database…`);
 
@@ -127,12 +133,16 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         const payload = await getBranchInventory(branchKey);
         if (cancelled) return;
 
-        const nextProducts = hydrateInventoryProducts(payload, cachedProducts);
+        const nextProducts = hydrateInventoryProducts(payload, []);
         setProducts(nextProducts);
-        saveScopedInventoryProducts(nextProducts, branchKey);
         setInventoryStatus(`Synced ${nextProducts.length} products from database.`);
+        saveScopedInventoryProducts(nextProducts, branchKey);
       } catch (error) {
         if (cancelled) return;
+        
+        // Load local storage cached products as dynamic fallback if network fails
+        const cachedProducts = loadScopedInventoryProducts([], branchKey);
+        setProducts(cachedProducts);
         setInventoryStatus(error?.message ? `${error.message} — using cached inventory.` : "Using cached inventory.");
       } finally {
         if (!cancelled) {
@@ -159,24 +169,61 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
     }
   };
 
-  const handleRecordSale = (cartItems, totalPaid) => {
-    setProducts((curr) =>
-      curr.map((product) => {
-        const cartItem = cartItems.find((i) => i.id === product.id);
-        if (!cartItem) return product;
-        return { ...product, stock: Math.max(0, product.stock - cartItem.quantity), sold: (product.sold || 0) + cartItem.quantity };
-      })
-    );
-    void totalPaid;
+  const handleRecordSale = async (receiptData, onSuccess, onError) => {
+    const branchKey = selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchLabel;
+
+    const salePayload = {
+      invoice_number: receiptData.invoiceNumber,
+      payment_mode: receiptData.paymentMode,
+      amount_paid: receiptData.amountPaid,
+      grand_total: receiptData.grandTotal,
+      change_due: receiptData.changeDue,
+      customer_name: receiptData.customerName,
+      customer_state: receiptData.customerState,
+      cashier: userDisplayName,
+      items: receiptData.items.map((item) => ({
+        item_id: item.id,
+        product_name: item.name,
+        quantity: item.quantity,
+        selling_price: item.unitPrice ?? item.price,
+        mrp: item.mrp,
+        sell_on_mrp: Boolean(item.sellOnMrp),
+        discount_percent: item.discountPercent || 0,
+        discount_amount: item.lineDiscountAmount || 0,
+        taxable_amount: item.lineTaxableAmount || 0,
+        gst_rate: item.gstRate ?? item.gstPercentage ?? 0,
+        cgst_amount: item.cgstAmount || 0,
+        sgst_amount: item.sgstAmount || 0,
+        igst_amount: item.igstAmount || 0,
+        tax_amount: item.lineTaxAmount || 0,
+        line_total: item.lineTotal || 0,
+      })),
+    };
+
+    try {
+      const result = await recordBranchSale(branchKey, salePayload);
+      // Refresh product list from updated inventory returned by the server
+      if (result.updated_items && result.updated_items.length > 0) {
+        const nextProducts = hydrateInventoryProducts({ items: result.updated_items }, []);
+        setProducts(nextProducts);
+        saveScopedInventoryProducts(nextProducts, branchKey);
+        if (selectedBranch?.branch_name) {
+          saveScopedInventoryProducts(nextProducts, selectedBranch.branch_name);
+        }
+      }
+      onSuccess?.();
+    } catch (err) {
+      onError?.(err.message || "Failed to record sale");
+    }
   };
 
   return (
     /* Full-screen dark terminal shell */
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: "#0C1120" }}>
+    <div className="min-h-dvh flex flex-col overflow-x-hidden overflow-y-auto" style={{ background: "#0C1120" }}>
 
       {/* ── Dark POS header bar ─────────────────────────────────────────── */}
-      <header className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.06)", background: "#0F172A" }}>
-        <div className="flex items-center gap-4">
+      <header className="flex-shrink-0 flex flex-col gap-3 px-4 sm:px-6 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.06)", background: "#0F172A" }}>
+        <div className="flex items-center justify-between gap-3 min-w-0">
           <button
             type="button"
             onClick={handleBack}
@@ -190,7 +237,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
 
           <div className="w-px h-5" style={{ background: "rgba(255,255,255,0.08)" }} />
 
-          <div className="flex items-center gap-2.5">
+          <div className="hidden sm:flex items-center gap-2.5 min-w-0">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: tierAccent + "22", border: `1px solid ${tierAccent}30` }}>
               <svg className="w-3.5 h-3.5" fill="none" stroke={tierAccent} strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3h-.75m0 0v16.5A2.25 2.25 0 0 0 5.25 21.75h13.5A2.25 2.25 0 0 0 21 19.5V3m-17.25 0h17.25M3 9h18M9 3v18m6-18v18" />
@@ -202,15 +249,13 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
             </div>
           </div>
 
-          <div className="hidden lg:block w-px h-5" style={{ background: "rgba(255,255,255,0.08)" }} />
-
-          <span className="hidden lg:inline text-[10px] font-semibold text-slate-400 tracking-wider">
-            Search, filter, or tap items to add instantly
-          </span>
+          <div className="hidden lg:flex items-center gap-3 text-[10px] font-semibold text-slate-400 tracking-wider">
+            <span>Search, filter, or tap items to add instantly</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden md:block">
+        <div className="flex flex-col gap-2 sm:hidden w-full">
+          <div className="block w-full">
             <BranchDropdown
               branches={branchOptions}
               selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
@@ -220,16 +265,43 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
               statusText={inventoryStatus}
             />
           </div>
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{userDisplayName}</div>
-          <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.08)" }} />
-          <span
-            className="rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white"
-            style={{ background: tierAccent }}
-          >
-            {tierBadgeLabel}
-          </span>
-          <div className="text-[10px] font-bold text-slate-500">
-            {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{userDisplayName}</div>
+            <span
+              className="rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white"
+              style={{ background: tierAccent }}
+            >
+              {tierBadgeLabel}
+            </span>
+            <div className="text-[10px] font-bold text-slate-500">
+              {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2 sm:gap-3 flex-wrap justify-between w-full">
+          <div className="block w-full sm:w-auto flex-1 min-w-0">
+            <BranchDropdown
+              branches={branchOptions}
+              selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
+              onSelect={handleBranchChange}
+              loading={isBranchLoading}
+              syncing={isInventorySyncing}
+              statusText={inventoryStatus}
+            />
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{userDisplayName}</div>
+            <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.08)" }} />
+            <span
+              className="rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white"
+              style={{ background: tierAccent }}
+            >
+              {tierBadgeLabel}
+            </span>
+            <div className="text-[10px] font-bold text-slate-500">
+              {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+            </div>
           </div>
         </div>
       </header>
@@ -241,6 +313,12 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
           onRecordSale={handleRecordSale}
           tierAccent={tierAccent}
           tierAccentSoft={tierAccentSoft}
+          isLoading={isInventorySyncing}
+          setActiveTab={setActiveTab}
+          tier={normalizedTier}
+          selectedBranchLabel={selectedBranchLabel}
+          userDisplayName={userDisplayName}
+          businessName={businessName}
         />
       </main>
     </div>

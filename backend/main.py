@@ -9,6 +9,8 @@ from app.routes import auth
 from app.routes import classify
 from app.routes import dashboard
 from app.routes import branches
+from app.routes import payment
+from app.routes import notifications
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -20,12 +22,20 @@ PROJECT = os.getenv("PROJECT_NAME")
 async def appLifespan(app: FastAPI):
     # Startup connection
     await connectDatabase()
-    # Initialize ML classifier (loads model or trains seed data)
-    try:
-        classifier.initialize()
-    except Exception:
-        # Don't block app startup for ML initialization failures
-        pass
+    
+    # Initialize ML classifier asynchronously (don't block startup)
+    import asyncio
+    async def init_classifier():
+        try:
+            # Run classifier.initialize() in a thread to prevent blocking
+            loop = asyncio.get_event_loop()
+            loop.run_in_executor(None, classifier.initialize)
+        except Exception as e:
+            print(f"[WARNING] ML classifier initialization failed: {e}")
+    
+    # Schedule classifier init but don't wait for it
+    asyncio.create_task(init_classifier())
+    
     yield
     # Shutdown connection
     await closeConnection()
@@ -60,6 +70,8 @@ app.include_router(auth.router,      prefix="/api/v1/auth",      tags=["Authenti
 app.include_router(classify.router,   prefix="/api/v1",           tags=["Classifier"])
 app.include_router(dashboard.router,  prefix="/api/v1/dashboard", tags=["Dashboards"])
 app.include_router(branches.router,   prefix="/api/v1/branches",  tags=["Branches"])
+app.include_router(payment.router,    prefix="/api/v1",           tags=["Payments"])
+app.include_router(notifications.router, prefix="/api/v1",       tags=["Notifications"])
 
 @app.get("/")
 async def getRoot():

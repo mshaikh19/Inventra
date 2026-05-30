@@ -9,14 +9,16 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
 } from "../utils/dashboard";
-import { addBranchToNetwork, getBranchNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch } from "../utils/branches";
+import { addBranchToNetwork, getBranchNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch, getBranchInventory } from "../utils/branches";
 import { toast } from "react-toastify";
-import InventoryTable from "../components/InventoryTable";
-import CSVUpload from "../components/CSVUpload";
-import SmallDashboard from "../components/SmallDashboard";
-import MediumDashboard from "../components/MediumDashboard";
-import LargeDashboard from "../components/LargeDashboard";
-import { INVENTORY_PRODUCT_SEED, loadInventoryProducts, saveInventoryProducts } from "../utils/inventory";
+import InventoryTable from "../components/inventoryTable";
+import CSVUpload from "../components/csvUpload";
+import SmallDashboard from "../components/smallDashboard";
+import MediumDashboard from "../components/mediumDashboard";
+import LargeDashboard from "../components/largeDashboard";
+import NotificationDropdown from "../components/notificationDropdown";
+import { useNotifications } from "../contexts/notificationContext";
+import { INVENTORY_PRODUCT_SEED, loadScopedInventoryProducts, saveScopedInventoryProducts, normalizeInventoryProducts } from "../utils/inventory";
 
 const DASHBOARD_CONFIG = {
   small: {
@@ -368,10 +370,12 @@ function StepConnector({ done }) {
 }
 
 export default function Dashboard({ tier = "small", setActiveTab }) {
+  const { notifications } = useNotifications();
   const normalizedTier = normalizeBusinessTier(tier);
   const config = DASHBOARD_CONFIG[normalizedTier];
   const tierDisplayName = getTierDisplayName(normalizedTier);
   const tierBadgeLabel = getTierBadgeLabel(normalizedTier);
+  const tierFeatures = TIER_FEATURES[normalizedTier] || TIER_FEATURES.small;
 
   const [activeSection, setActiveSection] = useState(() => {
     if (typeof window !== "undefined") {
@@ -387,7 +391,6 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     }
   }, [activeSection]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [showAlertMenu, setShowAlertMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showAddBranchModal, setShowAddBranchModal] = useState(false);
   
@@ -480,23 +483,80 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   // Large tier heatmap active branch state
   const [activeBranch, setActiveBranch] = useState("Mumbai");
 
-  // Global Products State seeded with high-fidelity items
-  const [products, setProducts] = useState(() => loadInventoryProducts(INVENTORY_PRODUCT_SEED));
-
-  useEffect(() => {
-    saveInventoryProducts(products);
-  }, [products]);
+  // Dashboard uses sample data for display only - not real inventory
+  const [products, setProducts] = useState(INVENTORY_PRODUCT_SEED);
 
   // Consolidated Sales Metrics States
   const [salesCount, setSalesCount] = useState(14);
-  const [salesRevenue, setSalesRevenue] = useState(42800);
+  const [salesRevenue, setSalesRevenue] = useState(1420); // mock daily sales fallback is 1420
+  const [salesRevenueNote, setSalesRevenueNote] = useState("+12.4% vs yesterday");
 
-  // Alert Notifications States
-  const [notifications, setNotifications] = useState([
-    { id: 1, text: "Dairy Milk 1L is expiring in 24 hours!", type: "expiry" },
-    { id: 2, text: "Fresh Bread and Potato Chips stocks fell under reorder thresholds.", type: "low_stock" },
-    { id: 3, text: "Diwali peak trigger: beverages and snacks demand expected to surge 1.8x.", type: "festival" },
-  ]);
+  // Fetch real payment statistics from backend dynamically on mount
+  useEffect(() => {
+    const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+    if (token) {
+      fetch("http://127.0.0.1:8000/api/v1/payments/stats", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      })
+      .then(res => {
+        if (!res.ok) throw new Error("Offline or bad response");
+        return res.json();
+      })
+      .then(data => {
+        if (data && typeof data.sales_count === "number") {
+          // Only override if data exists (non-zero), otherwise fallback is kept
+          if (data.sales_count > 0) {
+            setSalesCount(data.sales_count);
+            // Dynamic check: daily sales is mapped to Daily Sales Summary card
+            if (data.daily_sales > 0) {
+              setSalesRevenue(data.daily_sales);
+              setSalesRevenueNote(data.comparison_note || "0% vs yesterday");
+            } else {
+              setSalesRevenue(0);
+              setSalesRevenueNote("0% vs yesterday");
+            }
+          }
+        }
+      })
+      .catch(err => {
+        console.warn("Failed to fetch payment stats, keeping simulated fallback:", err);
+      });
+    }
+  }, []);
+
+  // Load real dynamic products from cache or DB if branch exists
+  useEffect(() => {
+    if (branchesList && branchesList.length > 0) {
+      const activeBranch = branchesList[0];
+      const activeBranchName = activeBranch.branch_name;
+      const branchId = activeBranch._id || activeBranch.branch_id;
+      
+      // Load from local storage cache first for responsive UI rendering
+      const cached = loadScopedInventoryProducts(null, activeBranchName);
+      if (cached && cached.length > 0) {
+        setProducts(cached);
+      }
+      
+      // Always fetch dynamic live values from DB in the background to ensure data freshness
+      getBranchInventory(branchId)
+        .then((invData) => {
+          const items = invData.items || invData.inventory?.items || [];
+          if (items.length > 0) {
+            const normalized = normalizeInventoryProducts(items);
+            if (normalized && normalized.length > 0) {
+              setProducts(normalized);
+              saveScopedInventoryProducts(normalized, activeBranchName);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to load branch inventory for dashboard overview:", err);
+        });
+    }
+  }, [branchesList]);
 
   const userSession = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -533,43 +593,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         firstName: userProfile.firstName || "",
         lastName: userProfile.lastName || "",
         businessName: userProfile.businessName || userProfile.company || "",
-        email: userProfile.email || "",
       });
     }
   }, [userProfile]);
 
-  const userDisplayName = getUserDisplayName(userProfile || userSession?.user, "Manager");
-
-  const openEditProfile = () => {
-    setProfileDraft({
-      firstName: (userProfile?.firstName || userSession?.user?.firstName || ""),
-      lastName: (userProfile?.lastName || userSession?.user?.lastName || ""),
-      businessName: (userProfile?.businessName || userSession?.user?.businessName || userSession?.user?.company || ""),
-      email: (userProfile?.email || userSession?.user?.email || ""),
-    });
-    setEditingProfile(true);
-  };
-
-  const handleSaveProfile = (ev) => {
-    ev.preventDefault();
-    const updated = {
-      ...(userProfile || {}),
-      firstName: String(profileDraft.firstName || "").trim(),
-      lastName: String(profileDraft.lastName || "").trim(),
-      businessName: String(profileDraft.businessName || "").trim(),
-      email: String(profileDraft.email || "").trim(),
-      role: "OWNER",
-    };
-    try {
-      localStorage.setItem("inventra_user", JSON.stringify(updated));
-    } catch (e) {
-      // ignore storage errors
-    }
-    setUserProfile(updated);
-    setEditingProfile(false);
-  };
-
-  const tierFeatures = TIER_FEATURES[normalizedTier];
+  const userDisplayName = getUserDisplayName(userProfile || userSession?.user);
 
   const handleLogout = () => {
     for (const storage of [localStorage, sessionStorage]) {
@@ -577,70 +605,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       storage.removeItem("inventra_user");
     }
     if (typeof window !== "undefined") {
-      window.history.replaceState({}, "", "/");
       sessionStorage.removeItem("inventra_dashboard_section");
+      window.history.replaceState({}, "", "/");
     }
     setActiveTab("home");
   };
-
-  const handleRecordSale = (cartItems, totalPaid) => {
-    // 1. Deduct stock from global products
-    setProducts((currentProducts) =>
-      currentProducts.map((p) => {
-        const cartItem = cartItems.find((item) => item.id === p.id);
-        if (cartItem) {
-          return { 
-            ...p, 
-            stock: Math.max(0, p.stock - cartItem.quantity),
-            sold: (p.sold || 0) + cartItem.quantity
-          };
-        }
-        return p;
-      })
-    );
-
-    // 2. Increment sales indicators
-    setSalesCount((prev) => prev + 1);
-    setSalesRevenue((prev) => prev + Math.round(totalPaid));
-  };
-
-  // Dynamically update low stock/expiry alerts when stock updates
-  useEffect(() => {
-    const activeAlerts = [];
-    
-    // Low stock scanner
-    const lowStockItems = products.filter(p => p.stock <= (p.reorderLevel || 10));
-    if (lowStockItems.length > 0) {
-      activeAlerts.push({
-        id: 2,
-        text: `Low stock alert: ${lowStockItems.map(p => p.name).join(", ")} are under threshold buffer limits!`,
-        type: "low_stock"
-      });
-    }
-
-    // Expiry scanner
-    const soonExpiring = products.filter(p => {
-      if (!p.expiryDate) return false;
-      const diff = new Date(p.expiryDate) - new Date("2026-05-22");
-      return diff > 0 && diff <= 5 * 24 * 60 * 60 * 1000;
-    });
-    if (soonExpiring.length > 0) {
-      activeAlerts.push({
-        id: 1,
-        text: `Urgent expiry warning: ${soonExpiring.map(p => p.name).join(", ")} approaching expiration parameters!`,
-        type: "expiry"
-      });
-    }
-
-    // Festival standard warning
-    activeAlerts.push({
-      id: 3,
-      text: "ML demand forecast model calibration: upcoming holiday peak expected to surge soft items 1.8x.",
-      type: "festival"
-    });
-
-    setNotifications(activeAlerts);
-  }, [products]);
 
   const handleCSVUploadComplete = () => {
     // Simulate updating stock values and adding 10 transactions upon CSV parse completion
@@ -655,66 +624,23 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     setSalesRevenue((prev) => prev + 14500);
   };
 
-  const handleClearAlert = (id) => {
-    setNotifications(prev => prev.filter(x => x.id !== id));
-  };
-
-  const validateModalStep = (s) => {
-    const e = {};
-    if (s === 1) {
-      if (!modalForm.branch_name.trim()) e.branch_name = "Branch name is required";
-      if (!modalForm.branch_code.trim()) e.branch_code = "Branch code is required";
-    }
-    if (s === 2) {
-      if (!modalForm.address.trim()) e.address = "Address is required";
-      if (!modalForm.city.trim()) e.city = "City is required";
-      if (!modalForm.state) e.state = "State is required";
-      if (!modalForm.country) e.country = "Country is required";
-      if (!modalForm.pincode.trim()) e.pincode = "Pincode is required";
-      else if (!/^\d{4,10}$/.test(modalForm.pincode)) e.pincode = "Enter a valid pincode";
-    }
-    if (s === 3) {
-      if (!modalForm.phone_number.trim()) e.phone = "Phone number is required";
-      else if (!/^\+?[\d\s\-]{7,15}$/.test((modalForm.phone_country_code + modalForm.phone_number).replace(/\s+/g, ""))) e.phone = "Enter a valid phone number";
-      if (!modalForm.manager_name.trim()) e.manager_name = "Manager name is required";
-    }
-    return e;
-  };
-
-  const goNextModalStep = () => {
-    const e = validateModalStep(modalStep);
-    if (Object.keys(e).length) { setModalErrors(e); return; }
-    setModalErrors({});
-    setModalStep((s) => Math.min(4, s + 1));
-  };
-
-  const goBackModalStep = () => setModalStep((s) => Math.max(1, s - 1));
-
-  const setModalFormField = (k, v) => {
-    setModalForm((p) => ({ ...p, [k]: v }));
-    setModalErrors((p) => { const n = { ...p }; delete n[k]; return n; });
-  };
-
-  const handleAddBranch = async () => {
-    const e = validateModalStep(modalStep);
-    if (Object.keys(e).length) { setModalErrors(e); return; }
-    
+  const handleSaveBranch = async () => {
     const payload = {
-      branch_name:    modalForm.branch_name.trim(),
-      branch_code:    modalForm.branch_code.trim().toUpperCase(),
-      branch_type:    modalForm.branch_type,
-      address:        modalForm.address.trim(),
-      city:           modalForm.city.trim(),
-      state:          modalForm.state,
-      country:        modalForm.country,
-      pincode:        modalForm.pincode.trim(),
-      phone:          (modalForm.phone_country_code + " " + modalForm.phone_number.trim()).trim(),
-      manager_name:   modalForm.manager_name.trim(),
+      branch_name: modalForm.branch_name.trim(),
+      branch_code: modalForm.branch_code.trim(),
+      branch_type: modalForm.branch_type,
+      address: modalForm.address.trim(),
+      city: modalForm.city.trim(),
+      state: modalForm.state,
+      country: modalForm.country,
+      pincode: modalForm.pincode.trim(),
+      phone: (modalForm.phone_country_code + " " + modalForm.phone_number.trim()).trim(),
+      manager_name: modalForm.manager_name.trim(),
       employee_count: Number(modalForm.employee_count) || 1,
-      working_hours:  modalForm.working_hours,
-      opening_date:   modalForm.opening_date || null,
-      gstin:          modalForm.gstin.trim() || null,
-      status:         "Active",
+      working_hours: modalForm.working_hours,
+      opening_date: modalForm.opening_date || null,
+      gstin: modalForm.gstin.trim() || null,
+      status: "Active",
     };
 
     setLoading(true);
@@ -1392,47 +1318,12 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Notifications Alerts Center */}
-          <div className="relative">
-            <button
-              onClick={() => setShowAlertMenu(!showAlertMenu)}
-              className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-650 hover:text-slate-900 transition-all relative cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
-              </svg>
-              {notifications.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-rose-600 text-[10px] font-black text-white flex items-center justify-center border-2 border-white animate-pulse">
-                  {notifications.length}
-                </span>
-              )}
-            </button>
-
-            {showAlertMenu && (
-              <div className="absolute right-0 mt-3 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 text-left z-50">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 border-b border-slate-100 pb-2 mb-3">
-                  AI Real-Time Alerts
-                </h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {notifications.length === 0 ? (
-                    <p className="text-xs text-slate-400 py-4 text-center">No active alerts currently.</p>
-                  ) : (
-                    notifications.map((n) => (
-                      <div key={n.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 flex justify-between items-start gap-2">
-                        <p className="text-[11px] text-slate-700 font-semibold leading-relaxed">{n.text}</p>
-                        <button
-                          onClick={() => handleClearAlert(n.id)}
-                          className="text-[10px] font-black text-slate-400 hover:text-slate-800 shrink-0 cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <NotificationDropdown
+            buttonClassName="h-10 w-10 border-slate-200 bg-white hover:border-slate-300"
+            panelClassName="mt-3"
+            title="AI Real-Time Alerts"
+            emptyMessage="No active alerts currently."
+          />
 
           {/* Profile Quick Pill */}
           <button
@@ -1663,6 +1554,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   products={products}
                   salesCount={salesCount}
                   salesRevenue={salesRevenue}
+                  salesRevenueNote={salesRevenueNote}
                   notifications={notifications}
                   tierAccent={config.accent}
                   tierAccentSoft={config.accentSoft}
