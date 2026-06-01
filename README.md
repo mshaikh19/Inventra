@@ -1,32 +1,41 @@
-# INVENTRA — Adaptive AI-Powered Retail Intelligence Platform
+# Inventra
 
-Inventra is an adaptive, AI-powered retail intelligence platform. By automatically classifying business complexity, Inventra dynamically adjusts its interface to deliver tailored billing engines, real-time inventory tracking, and intelligent, holiday-aware ML demand forecasting.
+Inventra is a full‑stack, AI-driven retail intelligence prototype. It provides adaptive dashboards, multi-branch inventory management, a POS billing flow with invoice generation, inventory-driven notifications, and a compact ML service that classifies businesses into `small`, `medium`, or `large` tiers.
 
-## Core Features
+Core capabilities
+- Adaptive dashboard profiles per business tier
+- Branch and inventory management with per-branch inventories
+- POS checkout, invoice generation, and refunds
+- Inventory-driven notifications (low-stock, expiry)
+- Business-tier ML classifier with seed data and retraining support
 
-- **Adaptive Dashboard**: Dynamically renders interfaces and analytics layouts based on business size (Small, Medium, Enterprise).
-- **Smart Inventory & GST Billing**: Real-time multi-branch inventory logistics paired with automated GST (CGST/SGST/IGST) calculations.
-- **AI Forecasting & Retraining**: Holiday-aware ML demand forecasting with a self-learning retraining pipeline based on continuous sales updates.
-- **User Management & CSV Import**: JWT authentication, custom role guards, and Pandas-powered historical sales spreadsheet imports.
+Tech stack
+- Backend: FastAPI
+- Frontend: React + Vite, Tailwind CSS
+- ML: scikit-learn, pandas, numpy
 
-## Tech Stack
 
-- **Backend**: FastAPI (Python), MongoDB
-- **Frontend**: React (Vite), Tailwind CSS
-- **AI/ML & Data**: Scikit-Learn, Pandas, NumPy
+Prerequisites
+- Python 3.10+ and a virtual environment
+- Node.js + npm (for frontend)
+- MongoDB (local or Atlas)
 
-## Getting Started
+Quick start (development)
 
-### 1. Backend (FastAPI)
+1) Backend
+
 ```bash
 cd backend
 pip install -r requirements.txt
-
+python uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2. Frontend (React)
+2) Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
+

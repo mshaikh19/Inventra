@@ -222,7 +222,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
     <div className="min-h-dvh flex flex-col overflow-x-hidden overflow-y-auto" style={{ background: "#0C1120" }}>
 
       {/* ── Dark POS header bar ─────────────────────────────────────────── */}
-      <header className="flex-shrink-0 flex flex-col gap-3 px-4 sm:px-6 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.06)", background: "#0F172A" }}>
+      <header className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 px-4 sm:px-6 py-2 border-b" style={{ borderColor: "rgba(255,255,255,0.06)", background: "#0F172A" }}>
         <div className="flex items-center justify-between gap-3 min-w-0">
           <button
             type="button"
@@ -237,21 +237,20 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
 
           <div className="w-px h-5" style={{ background: "rgba(255,255,255,0.08)" }} />
 
-          <div className="hidden sm:flex items-center gap-2.5 min-w-0">
+          <div className="hidden sm:flex items-center gap-3 min-w-[260px] md:min-w-[320px] lg:min-w-[360px]">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: tierAccent + "22", border: `1px solid ${tierAccent}30` }}>
               <svg className="w-3.5 h-3.5" fill="none" stroke={tierAccent} strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3h-.75m0 0v16.5A2.25 2.25 0 0 0 5.25 21.75h13.5A2.25 2.25 0 0 0 21 19.5V3m-17.25 0h17.25M3 9h18M9 3v18m6-18v18" />
               </svg>
             </div>
-            <div>
+            <div className="flex flex-col">
               <div className="text-[8px] font-black uppercase tracking-[0.22em] text-slate-500 leading-none">POS Terminal</div>
-              <div className="text-sm font-black text-white leading-none mt-0.5">Product Counter</div>
+              <div className="text-sm font-black text-white leading-none mt-0.5">Sales Counter</div>
+              <div className="hidden lg:block text-[12px] text-slate-400 mt-1 whitespace-nowrap">Search, filter, or tap items to add instantly</div>
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-3 text-[10px] font-semibold text-slate-400 tracking-wider">
-            <span>Search, filter, or tap items to add instantly</span>
-          </div>
+          {/* helper text moved below Sales Counter title to avoid wrapping */}
         </div>
 
         <div className="flex flex-col gap-2 sm:hidden w-full">
@@ -279,18 +278,19 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
           </div>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 sm:gap-3 flex-wrap justify-between w-full">
-          <div className="block w-full sm:w-auto flex-1 min-w-0">
-            <BranchDropdown
-              branches={branchOptions}
-              selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
-              onSelect={handleBranchChange}
-              loading={isBranchLoading}
-              syncing={isInventorySyncing}
-              statusText={inventoryStatus}
-            />
-          </div>
+        <div className="hidden sm:flex items-center gap-2 sm:gap-3 flex-wrap justify-between w-full lg:gap-6 lg:px-6">
+          <div className="block w-full sm:w-auto flex-1 min-w-0" />
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
+            <div className="w-[220px] md:w-64 lg:w-72 mr-2 lg:mr-4">
+              <BranchDropdown
+                branches={branchOptions}
+                selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
+                onSelect={handleBranchChange}
+                loading={isBranchLoading}
+                syncing={isInventorySyncing}
+                statusText={inventoryStatus}
+              />
+            </div>
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{userDisplayName}</div>
             <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.08)" }} />
             <span

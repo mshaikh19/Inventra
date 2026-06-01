@@ -28,6 +28,18 @@ def serialize_notification(doc: dict) -> dict:
     item["updated_at"] = _serialize_datetime(item.get("updated_at"))
     if item.get("business_id") is not None:
         item["business_id"] = str(item["business_id"])
+    # Ensure ObjectId fields are returned as strings to satisfy Pydantic models
+    if item.get("user_id") is not None:
+        try:
+            # convert bson ObjectId to string, leave as-is if already string
+            item["user_id"] = str(item["user_id"])
+        except Exception:
+            pass
+    if item.get("branch_id") is not None:
+        try:
+            item["branch_id"] = str(item["branch_id"])
+        except Exception:
+            pass
     return item
 
 

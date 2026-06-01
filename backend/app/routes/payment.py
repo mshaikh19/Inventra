@@ -202,8 +202,8 @@ async def verify_payment(
         
         if not payment_details:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not fetch payment details"
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Payment could not be confirmed from the gateway. Please try again."
             )
         
         # Update transaction in database

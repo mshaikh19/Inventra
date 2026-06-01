@@ -1620,7 +1620,8 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
           setSaleError("");
         }}
         onPaymentFailure={(errorMsg) => {
-          setSaleError(errorMsg || "Payment failed. Please try again.");
+          const message = String(errorMsg || "").replace(/payment could not be completed\.?\s*please try again\.?/i, "Payment failed. Please try again.");
+          setSaleError(message || "Payment failed. Please try again.");
         }}
         onCancel={() => {
           setIsPaymentModalOpen(false);

@@ -23,6 +23,23 @@ const PaymentModal = ({
   paymentMode,
   tierAccent = "#0284C7",
 }) => {
+  const normalizePaymentError = (message) => {
+    const text = String(message || "").trim();
+    if (!text) {
+      return "Payment could not be completed right now. Please try again.";
+    }
+    if (/could not fetch payment details|payment could not be confirmed from the gateway|payment verification failed|verification failed/i.test(text)) {
+      return "Payment could not be completed. Please try again.";
+    }
+    if (/session expired|invalid or expired token/i.test(text)) {
+      return "Your session expired. Please log in again and retry the payment.";
+    }
+    if (/failed to initiate payment/i.test(text)) {
+      return "Payment could not be started right now. Please try again.";
+    }
+    return text;
+  };
+
   const [step, setStep] = useState("collect"); // 'collect' | 'processing' | 'error'
   const [customerPhone, setCustomerPhone] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -148,7 +165,7 @@ const PaymentModal = ({
             throw new Error(verifyRes.data.message || "Payment verification failed.");
           }
         } catch (err) {
-          const msg = err.response?.data?.detail || err.message || "Verification failed.";
+          const msg = normalizePaymentError(err.response?.data?.detail || err.message || "Verification failed.");
           setPaymentError(msg);
           setStep("error");
           onPaymentFailure?.(msg);
@@ -157,7 +174,7 @@ const PaymentModal = ({
 
       setStep("razorpay"); // hide loading overlay
     } catch (err) {
-      const msg = err.response?.data?.detail || err.message || "Payment initiation failed.";
+      const msg = normalizePaymentError(err.response?.data?.detail || err.message || "Payment initiation failed.");
       setPaymentError(msg);
       setStep("error");
       onPaymentFailure?.(msg);
@@ -306,16 +323,18 @@ const PaymentModal = ({
   if (step === "error") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 flex flex-col gap-5">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <div className="w-14 h-14 rounded-full bg-red-50 border border-red-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-[calc(100%-2rem)] mx-4 p-5 sm:p-6 flex flex-col gap-4">
+          <div className="flex flex-col items-center gap-3 text-center sm:px-2">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-red-50 border border-red-100 flex items-center justify-center">
+              <svg className="w-6 h-6 sm:w-7 sm:h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
               </svg>
             </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">Payment Failed</h3>
-              <p className="text-xs text-red-600 font-semibold mt-1 max-w-[220px] mx-auto leading-relaxed">
+            <div className="space-y-2 max-w-sm">
+              <h3 className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-[0.12em] leading-tight break-words">
+                Payment Could Not Be Completed
+              </h3>
+              <p className="text-[13px] sm:text-sm text-red-600 font-semibold leading-6 max-w-sm mx-auto break-words">
                 {paymentError}
               </p>
             </div>
