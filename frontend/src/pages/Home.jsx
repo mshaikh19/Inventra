@@ -1,7 +1,7 @@
 import React from 'react';
-import Hero from '../components/hero';
-import Features from '../components/features';
-import Footer from '../components/footer';
+import Hero from '../components/Hero';
+import Features from '../components/Features';
+import Footer from '../components/Footer';
 
 export default function Home({ setActiveTab }) {
   const partners = [
@@ -66,7 +66,7 @@ export default function Home({ setActiveTab }) {
             Measurable outcomes that directly impact your store's bottom line — from day one.
           </p>
         </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-7xl mx-auto">
           {/* Stat Card 1 */}
           <div onClick={() => setActiveTab('signup')} className="flex flex-col items-start text-left gap-4 bg-[#F8FAFC] border border-slate-100 rounded-2xl p-9 hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(0,0,0,0.03)] cursor-pointer group">
             <div className="text-[40px] font-black text-[#0EA5E9] tracking-tight">

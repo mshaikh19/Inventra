@@ -30,6 +30,10 @@ async def get_current_user_id(authorization: Optional[str] = Header(None)) -> st
 
 
 async def get_business_id(user_id: str, db) -> str:
+    if ObjectId.is_valid(user_id):
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if user and "businessId" in user and user["businessId"]:
+            return str(user["businessId"])
     business = await db.businesses.find_one({"ownerUserId": user_id})
     if not business:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No business found for this user")
@@ -67,25 +71,8 @@ async def list_notifications(authorization: Optional[str] = Header(None), unread
     notifications = await db.notifications.find(query).sort("created_at", -1).limit(100).to_list(length=100)
     serialized = [serialize_notification(item) for item in notifications]
 
-    # If there are no notifications, return a friendly system message so clients can show a helpful UI.
     if len(serialized) == 0:
-        now = datetime.utcnow()
-        synthetic = {
-            "_id": "no-notifications",
-            "key": "no-notifications",
-            "type": "system",
-            "title": "No notifications",
-            "text": "You're all caught up — no new alerts.",
-            "business_id": str(business_id),
-            "branch_id": None,
-            "user_id": str(user_id),
-            "source": "system",
-            "is_read": True,
-            "meta": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        return [serialize_notification(synthetic)]
+        return []
 
     return serialized
 

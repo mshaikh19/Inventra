@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function MediumDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft }) {
+export default function MediumDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft, salesHistory }) {
   const [selectedRange, setSelectedRange] = useState("30d");
   const [approvedPOs, setApprovedPOs] = useState([]);
   const [poApprovalsLoading, setPoApprovalsLoading] = useState(false);
@@ -14,13 +14,54 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
     { name: "Snacks Group India", category: "Snacks & Munchies", fillRate: "89.4%", leadTime: "4.5 Days", score: 79 },
   ]);
 
-  // Employee action logs
-  const logs = [
-    { time: "12:44 PM", user: "Manager Sameer", action: "Updated stock for Bread", target: "+50 units" },
-    { time: "11:15 AM", user: "Cashier Priya", action: "Generated Invoice #INV-1002", target: "₹2,480" },
-    { time: "09:30 AM", user: "Manager Sameer", action: "Triggered ML Demand Calibrator", target: "Success" },
-    { time: "Yesterday", user: "System Scheduler", action: "Consolidated Daily Tax Ledger", target: "Synced" },
-  ];
+  const activeCategories = React.useMemo(() => {
+    return Array.from(new Set(products.map(p => p.category)));
+  }, [products]);
+
+  const activeSuppliers = React.useMemo(() => {
+    if (products.length === 0) return [];
+    return suppliers.filter(s => {
+      const sCat = s.category.toLowerCase();
+      return activeCategories.some(cat => {
+        const c = cat.toLowerCase();
+        return sCat.includes(c) || c.includes(sCat);
+      }) || s.category === "Other";
+    });
+  }, [suppliers, activeCategories, products]);
+
+  // Dynamic Employee action logs based on actual products & sales
+  const logs = React.useMemo(() => {
+    const list = [];
+    const soldProducts = products.filter(p => (p.sold || 0) > 0).sort((a, b) => b.sold - a.sold);
+    if (soldProducts.length > 0) {
+      soldProducts.slice(0, 2).forEach((p, idx) => {
+        list.push({
+          time: idx === 0 ? "10 mins ago" : "1 hour ago",
+          user: "Cashier Priya",
+          action: `Generated Invoice for ${p.name}`,
+          target: `₹${(p.sold * p.price).toLocaleString()}`
+        });
+      });
+    }
+    const lowStock = products.filter(p => p.stock <= (p.reorderLevel || 10));
+    if (lowStock.length > 0) {
+      list.push({
+        time: "Just now",
+        user: "Manager Sameer",
+        action: `Flagged low stock: ${lowStock[0].name}`,
+        target: `${lowStock[0].stock} left`
+      });
+    }
+    if (products.length > 0) {
+      list.push({
+        time: "Today",
+        user: "System Scheduler",
+        action: "Consolidated Daily Tax Ledger",
+        target: "Synced"
+      });
+    }
+    return list;
+  }, [products]);
 
   // Dynamic PO Recommendations for products that are low stock
   const poRecommendations = products
@@ -74,11 +115,19 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
     const height = 150;
     const padding = 20;
 
+    const hasSales = salesHistory && salesHistory.length > 0 && salesHistory.some(h => h.revenue > 0);
+
     // Data points representing forecasting forecast bounds
-    const dates = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const baseLine = [120, 145, 130, 185, 220, 290, 310];
-    const upperLine = [140, 170, 155, 215, 255, 335, 355];
-    const lowerLine = [100, 120, 105, 155, 185, 245, 265];
+    const dates = salesHistory && salesHistory.length > 0 
+      ? salesHistory.map(h => h.day)
+      : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    const baseLine = salesHistory && salesHistory.length > 0
+      ? salesHistory.map(h => h.revenue)
+      : [0, 0, 0, 0, 0, 0, 0];
+
+    const upperLine = baseLine.map(v => Math.round(v * 1.15) || 10);
+    const lowerLine = baseLine.map(v => Math.max(0, Math.round(v * 0.85)));
 
     const maxVal = Math.max(...upperLine);
     const minVal = Math.min(...lowerLine);
@@ -103,7 +152,7 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
     const baseD = `M ${baseCoords.join(" L ")}`;
 
     return (
-      <div className="w-full overflow-x-auto">
+      <div className="relative overflow-hidden w-full">
         <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible select-none">
           {/* Grids */}
           {Array.from({ length: 4 }).map((_, i) => {
@@ -129,6 +178,16 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
             </text>
           ))}
         </svg>
+
+        {!hasSales ? (
+          <div className="absolute inset-0 bg-white/70 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-6 z-10 border border-slate-100/50">
+            <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📈</div>
+            <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cannot Forecast Now</span>
+            <p className="text-xs font-semibold text-slate-500 mt-2 max-w-sm leading-relaxed">
+              Holiday-aware forecasting curves and confidence bands will activate once transactions are recorded in Billing POS.
+            </p>
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -141,13 +200,43 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
     const strokeWidth = 14;
     const circumference = 2 * Math.PI * radius;
     
-    // Segment percentages: Dairy 40%, Beverages 30%, Snacks 20%, Bakery 10%
-    const categories = [
-      { label: "Dairy", val: 40, color: "#10B981" },
-      { label: "Beverages", val: 30, color: "#0EA5E9" },
-      { label: "Snacks", val: 20, color: "#D97706" },
-      { label: "Bakery", val: 10, color: "#EC4899" },
-    ];
+    // Calculate category-wise sales dynamically
+    const categories = (() => {
+      const categorySales = {};
+      let totalSold = 0;
+      products.forEach(p => {
+        const cat = p.category || "Other";
+        const sold = p.sold || 0;
+        categorySales[cat] = (categorySales[cat] || 0) + sold;
+        totalSold += sold;
+      });
+      
+      if (totalSold === 0) return [];
+      
+      const sortedCats = Object.keys(categorySales)
+        .map(cat => ({
+          label: cat,
+          val: Math.round((categorySales[cat] / totalSold) * 100),
+          raw: categorySales[cat]
+        }))
+        .filter(c => c.raw > 0)
+        .sort((a, b) => b.raw - a.raw);
+        
+      const colors = ["#10B981", "#0EA5E9", "#D97706", "#EC4899", "#8B5CF6", "#64748B"];
+      return sortedCats.slice(0, 4).map((c, i) => ({
+        ...c,
+        color: colors[i % colors.length]
+      }));
+    })();
+
+    if (categories.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 text-center text-xs font-semibold text-slate-400">
+          <span className="text-xl mb-1">📊</span>
+          <span>No category sales recorded yet.</span>
+        </div>
+      );
+    }
 
     let currentOffset = 0;
 
@@ -320,23 +409,29 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
           </div>
 
           <div className="space-y-3">
-            {suppliers.map((s, idx) => (
-              <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-                <div>
-                  <span className="text-xs font-bold text-slate-800 block">{s.name}</span>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase">{s.category} • Lead: {s.leadTime}</span>
-                </div>
-                <div className="text-right flex items-center gap-3">
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block">Fill Rate</span>
-                    <span className="text-xs font-black text-slate-800">{s.fillRate}</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.score >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-250'}`}>
-                    {s.score}
-                  </span>
-                </div>
+            {activeSuppliers.length === 0 ? (
+              <div className="py-8 text-center text-xs font-semibold text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4">
+                No active categories. Add products to view supplier performance.
               </div>
-            ))}
+            ) : (
+              activeSuppliers.map((s, idx) => (
+                <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">{s.name}</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">{s.category} • Lead: {s.leadTime}</span>
+                  </div>
+                  <div className="text-right flex items-center gap-3">
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold block">Fill Rate</span>
+                      <span className="text-xs font-black text-slate-800">{s.fillRate}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.score >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-250'}`}>
+                      {s.score}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -348,17 +443,23 @@ export default function MediumDashboard({ products, onUpdateProducts, tierAccent
           </div>
 
           <div className="divide-y divide-slate-100">
-            {logs.map((l, idx) => (
-              <div key={idx} className="py-2.5 flex justify-between items-center first:pt-0 last:pb-0 text-xs font-semibold">
-                <div>
-                  <div className="text-slate-850 font-bold">{l.action}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{l.user} • {l.time}</div>
-                </div>
-                <span className="px-2 py-1 rounded bg-slate-50 border border-slate-200 font-black text-[10px] text-slate-500">
-                  {l.target}
-                </span>
+            {logs.length === 0 ? (
+              <div className="py-8 text-center text-xs font-semibold text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4">
+                No recent activity. Actions will be logged here as they occur.
               </div>
-            ))}
+            ) : (
+              logs.map((l, idx) => (
+                <div key={idx} className="py-2.5 flex justify-between items-center first:pt-0 last:pb-0 text-xs font-semibold">
+                  <div>
+                    <div className="text-slate-800 font-bold">{l.action}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{l.user} • {l.time}</div>
+                  </div>
+                  <span className="px-2 py-1 rounded bg-slate-50 border border-slate-200 font-black text-[10px] text-slate-500">
+                    {l.target}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

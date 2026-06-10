@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import PureBarcodeScanner from "./pureBarcodeScanner";
 import PaymentModal from "./paymentModal";
+import CustomDropdown from "./CustomDropdown";
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import { getCategoryGstRate } from "../utils/inventory";
 
@@ -39,37 +40,35 @@ const calculateCartLine = (item, isInterstate) => {
   };
 };
 
-const BRANCH_DETAILS = {
-  "Delhi Branch": {
-    address: "Plot 42, Block C, Sector 18, Dwarka, New Delhi - 110075",
-    phone: "+91 11 4059-8811",
-    gstin: "07AAACI1029K1Z4"
-  },
-  "Mumbai Hub": {
-    address: "Unit 102, Dynasty Business Park, Andheri Kurla Road, Mumbai - 400059",
-    phone: "+91 22 2682-1200",
-    gstin: "27AAACI1029K1Z5"
-  },
-  "Bangalore Branch": {
-    address: "80 Feet Road, Koramangala 4th Block, Bengaluru - 560034",
-    phone: "+91 80 4112-9900",
-    gstin: "29AAACI1029K1Z6"
-  },
-  "Pune Depot": {
-    address: "Plot 14, Hinjewadi Infotech Park, Phase 1, Pune - 411057",
-    phone: "+91 20 6632-4455",
-    gstin: "27AABCI1029K2Z2"
-  },
-  "Main Store": {
-    address: "Inventra Master Complex, Sector 62, Noida, UP - 201301",
-    phone: "+91 120 4059-8800",
-    gstin: "09AAACI1029K1Z3"
-  }
-};
-
 export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, userDisplayName, businessName = "Inventra Retail" }) {
   const [activeBranch, setActiveBranch] = useState(selectedBranchLabel);
-  const activeBranchDetails = BRANCH_DETAILS[selectedBranchLabel] || BRANCH_DETAILS["Main Store"];
+  
+  const activeBranchDetails = useMemo(() => {
+    if (typeof window === "undefined") return { address: "", phone: "", gstin: "" };
+    try {
+      const stored = localStorage.getItem("inventra_branches_list");
+      if (stored) {
+        const branches = JSON.parse(stored);
+        if (Array.isArray(branches)) {
+          const matched = branches.find(b => b.branch_name === selectedBranchLabel);
+          if (matched) {
+            return {
+              address: matched.address ? `${matched.address}, ${matched.city || ""}, ${matched.state || ""} - ${matched.pincode || ""}`.replace(/,\s*,/g, ",").trim() : "",
+              phone: matched.phone || "N/A",
+              gstin: matched.gstin || "N/A"
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse inventra_branches_list:", e);
+    }
+    return {
+      address: "Address not available",
+      phone: "",
+      gstin: ""
+    };
+  }, [selectedBranchLabel]);
 
   const [cart, setCart] = useState(() => {
     if (typeof window === "undefined" || !selectedBranchLabel) return [];
@@ -904,17 +903,17 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
             </div>
             <div className="flex flex-col gap-0.5 relative">
               <label className="text-[8px] font-black uppercase tracking-[0.12em] text-slate-400">Billing Type</label>
-              <select
+              <CustomDropdown
                 value={customerState}
-                onChange={(e) => setCustomerState(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-2 py-1 pr-6 text-[10px] font-black text-slate-800 outline-none focus:border-sky-300 focus:ring-1 focus:ring-sky-100 cursor-pointer h-7"
-              >
-                <option value="Local">Intrastate (CGST+SGST)</option>
-                <option value="Interstate">Interstate (IGST)</option>
-              </select>
-              <svg className="pointer-events-none absolute right-2 bottom-2 h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
-              </svg>
+                onChange={setCustomerState}
+                options={[
+                  { value: "Local", label: "Intrastate (CGST+SGST)" },
+                  { value: "Interstate", label: "Interstate (IGST)" },
+                ]}
+                theme="sky"
+                size="sm"
+                buttonClassName="rounded-lg px-2 py-1 text-[10px] font-black h-7"
+              />
             </div>
           </div>
         </div>
@@ -1462,17 +1461,19 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
             {videoDevices.length > 1 && (
               <div className="flex items-center justify-between bg-slate-950/40 border border-slate-800 p-2.5 rounded-2xl gap-3">
                 <span className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Select Camera</span>
-                <select
+                <CustomDropdown
                   value={selectedDeviceId}
-                  onChange={(e) => setSelectedDeviceId(e.target.value)}
-                  className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-200 outline-none cursor-pointer focus:border-rose-500 max-w-[200px] truncate"
-                >
-                  {videoDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${videoDevices.indexOf(device) + 1}`}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedDeviceId}
+                  options={videoDevices.map((device) => ({
+                    value: device.deviceId,
+                    label: device.label || `Camera ${videoDevices.indexOf(device) + 1}`,
+                  }))}
+                  theme="rose"
+                  size="sm"
+                  buttonClassName="rounded-lg border-slate-800 bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-200 focus:border-rose-500 max-w-[200px] truncate"
+                  className="w-auto"
+                  dark={true}
+                />
               </div>
             )}
             <div className="relative aspect-video max-w-sm w-full mx-auto rounded-2xl bg-slate-955 border border-slate-800 overflow-hidden flex items-center justify-center">
@@ -1613,6 +1614,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
         customerState={customerState}
         branchName={selectedBranchLabel}
         paymentMode={paymentMode}
+        businessName={businessName}
         tierAccent={tierAccent}
         onPaymentSuccess={(paymentData) => {
           setIsPaymentModalOpen(false);

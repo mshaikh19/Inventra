@@ -47,6 +47,7 @@ class CashfreePaymentService:
         customer_email: str,
         customer_phone: str,
         customer_name: Optional[str] = None,
+        business_name: Optional[str] = None,
         order_id: Optional[str] = None,
         items: Optional[List[OrderItem]] = None,
         metadata: Optional[Dict] = None,
@@ -76,6 +77,7 @@ class CashfreePaymentService:
                 "customer_email": customer_email,
                 "customer_phone": customer_phone,
                 "order_id": order_id,
+                "business_name": business_name or "",
             }
             if metadata:
                 notes.update(metadata)
@@ -94,6 +96,7 @@ class CashfreePaymentService:
                     "customer_name": customer_name or "Guest Customer",
                     "customer_email": customer_email or "noreply@inventra.pos"
                 },
+                "order_note": description,
                 "order_meta": {
                     "return_url": "http://localhost:5173"
                 }

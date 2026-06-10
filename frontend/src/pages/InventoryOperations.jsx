@@ -1,11 +1,15 @@
 import React from "react";
+import { toast } from "react-toastify";
 import PureBarcodeScanner from "../components/pureBarcodeScanner";
+import CustomDropdown from "../components/CustomDropdown";
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import {
   getDashboardTierFromUser,
   getTierBadgeLabel,
   getUserDisplayName,
   normalizeBusinessTier,
+  getBillingPosTab,
+  userHasOwnerAccess,
 } from "../utils/dashboard";
 import {
   createBranchInventoryItem,
@@ -22,6 +26,37 @@ import {
   normalizeInventoryProducts,
   saveScopedInventoryProducts,
 } from "../utils/inventory";
+
+const showIntakeToast = (tone, title, message) => {
+  let icon = "🛈";
+  if (tone === "success") icon = "✓";
+  if (tone === "error") icon = "⚠️";
+
+  const fullText = title ? `${title} ${message}` : message;
+
+  const content = (
+    <div className="flex items-center gap-2.5 py-1">
+      <span className="text-sm font-black shrink-0">{icon}</span>
+      <span className="text-[11px] font-black uppercase tracking-wider leading-relaxed">
+        {fullText}
+      </span>
+    </div>
+  );
+  
+  const toastOptions = {
+    className: `inventra-toast inventra-toast--${tone}`,
+    bodyClassName: "inventra-toast__body",
+    autoClose: 3000,
+  };
+
+  if (tone === "success") {
+    toast.success(content, toastOptions);
+  } else if (tone === "error") {
+    toast.error(content, toastOptions);
+  } else {
+    toast.info(content, toastOptions);
+  }
+};
 
 const getStatus = (stock, reorderLevel) => {
   if (stock <= Math.max(1, reorderLevel * 0.3)) return "Critical";
@@ -300,10 +335,8 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   const scannerInputRef = React.useRef(null);
 
   const [isLookupLoading, setIsLookupLoading] = React.useState(false);
-  const [lookupStatus, setLookupStatus] = React.useState(() => {
-    if (typeof window === "undefined" || !selectedBranch) return "";
-    return sessionStorage.getItem(`inventra_inventory_lookupStatus__${selectedBranch}`) || "";
-  });
+  const [modalError, setModalError] = React.useState("");
+
 
   const [scannerCameraStatus, setScannerCameraStatus] = React.useState("idle");
   const [scannerCameraMessage, setScannerCameraMessage] = React.useState("");
@@ -324,7 +357,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     const scannedBarcode = normalizeBarcode(barcodeVal);
     if (!scannedBarcode || scannedBarcode.length < 8) return;
 
-    setLookupStatus("Searching…");
     setIsLookupLoading(true);
 
     try {
@@ -369,13 +401,12 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
           unit: foundProduct.unit || "Units",
           sku: foundProduct.sku || prev.sku,
         }));
-        setLookupStatus(`✨ Found: ${foundBranchName}`);
+        showIntakeToast("success", "Barcode Auto-Fill", `Found details in ${foundBranchName}`);
         setIsLookupLoading(false);
         return;
       }
 
       // SLOW PATH: Global Open Food Facts API (only if local search fails)
-      setLookupStatus("Checking global catalog…")
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000); // Reduced from 6s to 3s
 
@@ -405,15 +436,15 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
             gst_rate: gstRate,
             unit: qtyStr || prev.unit,
           }));
-          setLookupStatus(`✨ Global: ${name.slice(0, 40)}`);
+          showIntakeToast("success", "Global Catalog Match", `Found ${name.slice(0, 40)}`);
         } else {
-          setLookupStatus("Not in catalogs - fill details");
+          showIntakeToast("info", "Catalog Lookup", "Not found in global catalog. Please enter manually.");
         }
       } catch (err) {
         if (err.name === "AbortError") {
-          setLookupStatus("Manual entry ready");
+          showIntakeToast("info", "Catalog Lookup", "Lookup timed out. Please enter manually.");
         } else {
-          setLookupStatus("Offline - manual entry");
+          showIntakeToast("info", "Catalog Lookup", "Offline - please enter details manually.");
         }
       }
     } finally {
@@ -421,7 +452,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     }
   }, [branchNames, selectedBranch]);
 
-  // Debounce the barcode lookup input (500ms delay)
   const debouncedBarcodeLookup = React.useCallback((barcodeVal) => {
     if (barcodeLookupTimeoutRef.current) {
       clearTimeout(barcodeLookupTimeoutRef.current);
@@ -431,8 +461,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       barcodeLookupTimeoutRef.current = setTimeout(() => {
         triggerSmartBarcodeLookup(normalized);
       }, 500);
-    } else {
-      setLookupStatus("");
     }
   }, [triggerSmartBarcodeLookup]);
 
@@ -615,19 +643,24 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         const data = await getUserBranches();
         if (cancelled || !data || !Array.isArray(data.branches)) return;
 
-        const branches = data.branches;
+        let branches = data.branches;
+        const userBranchId = userHasOwnerAccess(userSession?.user) ? null : userSession?.user?.branchId;
+        if (userBranchId) {
+          const userBranch = branches.find(b => b.branch_id === userBranchId);
+          if (userBranch) {
+            branches = [userBranch];
+          }
+        }
         const names = branches.map((branch) => branch.branch_name);
-        const fallbackNames =
-          names.length > 0 ? names : getBranchNetwork(normalizedTier);
-        setBranchNames(fallbackNames);
+        setBranchNames(names);
 
         // Determine the initial branch to load
         const saved = sessionStorage.getItem("inventra_inventory_branch");
-        const nextBranch = fallbackNames.includes(saved)
+        const nextBranch = names.includes(saved)
           ? saved
-          : fallbackNames.includes(selectedBranch)
+          : names.includes(selectedBranch)
             ? selectedBranch
-            : fallbackNames[0] || selectedBranch;
+            : names[0] || selectedBranch;
 
         if (nextBranch !== selectedBranch) {
           setSelectedBranch(nextBranch);
@@ -640,7 +673,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         if (!cancelled) {
           console.error("Failed to load branches from DB:", error);
           setInventoryError(error?.message || "Failed to load branch network.");
-          setBranchNames(getBranchNetwork(normalizedTier));
         }
       }
     };
@@ -693,10 +725,8 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   }, [isPerishableBusiness]);
 
   const shouldShowExpiryInput = React.useMemo(() => {
-    if (!isPerishableBusiness) return false;
-    const perishableCategories = ["dairy", "bakery", "snacks", "beverages", "medicine", "pharmacy", "food"];
-    return perishableCategories.some(c => String(newProduct.category || "").toLowerCase().includes(c));
-  }, [isPerishableBusiness, newProduct.category]);
+    return isPerishableBusiness;
+  }, [isPerishableBusiness]);
 
   React.useEffect(() => {
     const handleKeyDown = (event) => {
@@ -779,11 +809,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
       sessionStorage.setItem(`inventra_inventory_showAddModal__${selectedBranch}`, String(showAddModal));
       sessionStorage.setItem(`inventra_inventory_showScannerModal__${selectedBranch}`, String(showScannerModal));
       sessionStorage.setItem(`inventra_inventory_newProduct__${selectedBranch}`, JSON.stringify(newProduct));
-      sessionStorage.setItem(`inventra_inventory_lookupStatus__${selectedBranch}`, lookupStatus);
     } catch (e) {
       // ignore
     }
-  }, [showAddModal, showScannerModal, newProduct, lookupStatus, selectedBranch]);
+  }, [showAddModal, showScannerModal, newProduct, selectedBranch]);
 
   const productsWithBranchStock = React.useMemo(() => {
     return products.map((product) => {
@@ -854,7 +883,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
     try {
       const storedAddModal = sessionStorage.getItem(`inventra_inventory_showAddModal__${branchName}`) === "true";
       const storedScannerModal = sessionStorage.getItem(`inventra_inventory_showScannerModal__${branchName}`) === "true";
-      const storedLookupStatus = sessionStorage.getItem(`inventra_inventory_lookupStatus__${branchName}`) || "";
       
       const defaultProduct = {
         product_name: "",
@@ -876,7 +904,6 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
       setShowAddModal(storedAddModal);
       setShowScannerModal(storedScannerModal);
-      setLookupStatus(storedLookupStatus);
       setNewProduct(storedProduct);
     } catch (e) {
       // ignore
@@ -996,10 +1023,11 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         sku: "",
         expiry_date: "",
       });
-      setLookupStatus("");
+      setModalError("");
       setShowAddModal(false);
       setInventoryNotice(`Added ${payload.product_name} to ${selectedBranch}.`);
     } catch (error) {
+      setModalError(error?.message || "Unable to add inventory item.");
       setInventoryError(error?.message || "Unable to add inventory item.");
     }
   };
@@ -1032,11 +1060,11 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   return (
     <div className="min-h-screen bg-[#F6FAF8] text-slate-950">
       <header className="sticky top-0 z-40 border-b border-emerald-100 bg-white/90 backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-4 px-5 lg:px-8 py-2.5">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-5 lg:px-8 py-2 sm:py-2.5">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={handleBack}
-              className="flex items-center gap-2 text-slate-500 hover:text-slate-950 transition-colors"
+              className="flex items-center gap-1 sm:gap-2 text-slate-500 hover:text-slate-950 transition-colors shrink-0"
             >
               <svg
                 className="w-4 h-4"
@@ -1051,26 +1079,36 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                   d="M15 19l-7-7 7-7"
                 />
               </svg>
-              <span className="text-[10px] font-black uppercase tracking-[0.18em]">
+              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-[0.18em]">
                 Dashboard
               </span>
             </button>
             <div className="hidden sm:block w-px h-7 bg-slate-200" />
-            <div>
+            <div className="min-w-0">
               <span className="text-[8px] font-black uppercase tracking-[0.22em] text-emerald-700">
                 Inventory Operations
               </span>
-              <h3 className="text-base md:text-lg font-black leading-tight">
+              <h3 className="text-sm sm:text-base md:text-lg font-black leading-tight truncate">
                 {selectedBranch}
               </h3>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden md:inline text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              onClick={() => setActiveTab(getBillingPosTab(normalizedTier))}
+              className="flex items-center gap-1 sm:gap-2 rounded-xl bg-slate-950 px-2 sm:px-3.5 py-1.5 text-[9px] sm:text-[9.5px] font-black uppercase tracking-[0.12em] text-white hover:bg-slate-800 active:scale-95 transition-all duration-150 cursor-pointer shadow-sm"
+            >
+              <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3h-.75m0 0v16.5A2.25 2.25 0 0 0 5.25 21.75h13.5A2.25 2.25 0 0 0 21 19.5V3m-17.25 0h17.25M3 9h18M9 3v18m6-18v18" />
+              </svg>
+              <span className="hidden sm:inline">Billing POS</span>
+            </button>
+            <div className="w-px h-5 bg-slate-200 hidden md:block" />
+            <span className="hidden md:inline text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">
               {userDisplayName}
             </span>
             <span
-              className="rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white"
+              className="rounded-full px-2 sm:px-3 py-1 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.16em] text-white shrink-0"
               style={{ background: tierAccent }}
             >
               {tierBadgeLabel}
@@ -1079,7 +1117,8 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         </div>
       </header>
 
-      <main className="px-5 lg:px-8 xl:pl-85 py-4">
+      <main className={`px-5 lg:px-8 py-4 ${userHasOwnerAccess(userSession?.user) ? "xl:pl-85" : ""}`}>
+        {userHasOwnerAccess(userSession?.user) ? (
         <aside className="xl:fixed xl:left-0 xl:top-14.25 xl:h-[calc(100vh-57px)] xl:w-79 xl:flex xl:flex-col xl:overflow-hidden xl:border-r xl:border-slate-200 xl:bg-white xl:px-4 xl:py-4 xl:shadow-[0_1px_3px_rgba(0,0,0,0.05)] mb-5 xl:mb-0">
           <div className="rounded-[28px] border border-slate-100 bg-white px-5 py-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between gap-3">
@@ -1148,6 +1187,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
             })}
           </div>
         </aside>
+        ) : null}
 
         <section className="space-y-5">
           <div className="relative overflow-hidden rounded-[28px] border border-emerald-100 bg-white p-5 md:p-6 shadow-[0_14px_44px_rgba(15,23,42,0.06)]">
@@ -1179,7 +1219,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <button
-                    onClick={() => setShowAddModal(true)}
+                    onClick={() => {
+                      setModalError("");
+                      setShowAddModal(true);
+                    }}
                     className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
                   >
                     + Add Inventory
@@ -1224,17 +1267,17 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-300 focus:bg-white"
                 />
               </div>
-              <select
+              <CustomDropdown
                 value={selectedCategory}
-                onChange={(event) => setSelectedCategory(event.target.value)}
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-emerald-300"
-              >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category === "all" ? "All Categories" : category}
-                  </option>
-                ))}
-              </select>
+                onChange={setSelectedCategory}
+                options={categories.map((category) => ({
+                  value: category,
+                  label: category === "all" ? "All Categories" : category,
+                }))}
+                theme="emerald"
+                buttonClassName="font-bold"
+                className="w-full md:w-[220px]"
+              />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -1383,8 +1426,10 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-5xl max-h-[88vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
-            <div className="flex items-start justify-between gap-4">
+          <div className="w-full max-w-5xl max-h-[88vh] flex flex-col rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] overflow-hidden">
+            
+            {/* Header - Fixed */}
+            <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">
                   Inventory Intake
@@ -1400,7 +1445,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setLookupStatus("");
+                  setModalError("");
                 }}
                 className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
               >
@@ -1408,274 +1453,272 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
               </button>
             </div>
 
-            {lookupStatus && (
-              <div className={`mt-4 rounded-2xl border px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all animate-fade-in flex items-center gap-2 ${
-                lookupStatus.startsWith("✨")
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                  : "bg-slate-50 border-slate-200 text-slate-600"
-              }`}>
-                {isLookupLoading ? (
-                  <span className="w-2.5 h-2.5 rounded-full border-2 border-slate-500 border-t-transparent animate-spin shrink-0" />
-                ) : lookupStatus.startsWith("✨") ? (
-                  <span className="shrink-0">✦</span>
-                ) : (
-                  <span className="shrink-0">🛈</span>
-                )}
-                <span className="truncate leading-none">{lookupStatus}</span>
-              </div>
-            )}
-
-            <form
-              onSubmit={handleAddProduct}
-              className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"
-            >
-              <label className="block md:col-span-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Product Name
-                </span>
-                <input
-                  required
-                  value={newProduct.product_name}
-                  onChange={(event) => {
-                    const name = event.target.value;
-                    const recommendation = recommendProductCategoryAndGst(name, bizConfig.categories, newProduct.category);
-                    setNewProduct((prev) => ({
-                      ...prev,
-                      product_name: name,
-                      category: recommendation.category,
-                      gst_rate: recommendation.gstRate,
-                    }));
-                    if (recommendation.matched) {
-                      setLookupStatus(`AI suggested ${recommendation.category} category with ${recommendation.gstRate}% GST`);
-                    }
-                  }}
-                  placeholder="e.g. Soy Milk 1L"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-emerald-300 focus:bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Category
-                </span>
-                <select
-                  value={newProduct.category}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      category: event.target.value,
-                      gst_rate: getCategoryGstRate(event.target.value),
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none"
-                >
-                  {bizConfig.categories.map(
-                    (category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ),
-                  )}
-                </select>
-                <span className="mt-1 block text-[9px] font-bold text-emerald-600">
-                  Suggested GST: {getCategoryGstRate(newProduct.category)}%
-                </span>
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Barcode
-                </span>
-                <div className="relative mt-1 flex gap-2">
-                  <input
-                    value={newProduct.barcode}
-                    onChange={(event) => {
-                      const val = event.target.value;
-                      setNewProduct((prev) => ({ ...prev, barcode: val }));
-                      debouncedBarcodeLookup(val);
-                    }}
-                    placeholder="Scan or enter barcode"
-                    className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-mono font-bold outline-none focus:border-emerald-300 focus:bg-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => triggerSmartBarcodeLookup(newProduct.barcode)}
-                    disabled={!newProduct.barcode || newProduct.barcode.trim().length < 8 || isLookupLoading}
-                    className="px-3.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:border-emerald-300 hover:text-emerald-700 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95"
-                    title="Smart Autofill Lookup"
-                  >
-                    {isLookupLoading ? (
-                      <svg className="w-4 h-4 animate-spin text-emerald-600" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 21l8.904-4.474m-8.904-.622L16.09 9.813M9 21.002h.002L18 12.09M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.379-3.379a.9.9 0 1 1-1.273-1.273.9.9 0 0 1 1.273 1.273Z" />
-                      </svg>
-                    )}
-                  </button>
+            {/* Scrollable Body Container */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {modalError && (
+                <div className="mb-4 rounded-xl border px-3.5 py-2 text-[10.5px] font-bold uppercase tracking-wider transition-all animate-fade-in flex items-start gap-2.5 bg-rose-50 border-rose-200 text-rose-800">
+                  <span className="shrink-0 text-rose-600 font-black mt-0.5">⚠️</span>
+                  <span className="break-words leading-relaxed flex-1">{modalError}</span>
                 </div>
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Opening Qty
-                </span>
-                <input
-                  required
-                  type="number"
-                  value={newProduct.quantity}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      quantity: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Unit Price
-                </span>
-                <input
-                  required
-                  type="number"
-                  value={newProduct.selling_price}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      selling_price: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  MRP
-                </span>
-                <input
-                  type="number"
-                  value={newProduct.mrp}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      mrp: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  GST %
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={newProduct.gst_rate}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      gst_rate: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-                <span className="mt-1 block text-[9px] font-bold text-slate-400">
-                  Category default: {getCategoryGstRate(newProduct.category)}%
-                </span>
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Default Discount %
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={newProduct.discount_percent}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      discount_percent: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Reorder Min
-                </span>
-                <input
-                  required
-                  type="number"
-                  value={newProduct.minimum_stock}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      minimum_stock: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Purchase Price
-                </span>
-                <input
-                  type="number"
-                  value={newProduct.purchase_price}
-                  onChange={(event) =>
-                    setNewProduct({
-                      ...newProduct,
-                      purchase_price: event.target.value,
-                    })
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
+              )}
 
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Unit
-                </span>
-                <input
-                  value={newProduct.unit}
-                  onChange={(event) =>
-                    setNewProduct({ ...newProduct, unit: event.target.value })
-                  }
-                  placeholder="Units / Packs / Bottles"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
-                />
-              </label>
-              {shouldShowExpiryInput && (
-                <label className="block">
+              <form
+                id="add-product-form"
+                onSubmit={handleAddProduct}
+                className="grid grid-cols-1 md:grid-cols-3 gap-3"
+              >
+                <label className="block md:col-span-2">
                   <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Expiry Date
+                    Product Name
                   </span>
                   <input
-                    type="date"
-                    value={newProduct.expiry_date}
+                    required
+                    value={newProduct.product_name}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      const recommendation = recommendProductCategoryAndGst(name, bizConfig.categories, newProduct.category);
+                      setNewProduct((prev) => ({
+                        ...prev,
+                        product_name: name,
+                        category: recommendation.category,
+                        gst_rate: recommendation.gstRate,
+                      }));
+                      if (recommendation.matched) {
+                        showIntakeToast("info", "AI Suggested", `${recommendation.category} Category with ${recommendation.gstRate}% GST`);
+                      }
+                    }}
+                    placeholder="e.g. Soy Milk 1L"
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-emerald-300 focus:bg-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Category
+                  </span>
+                  <CustomDropdown
+                    value={newProduct.category}
+                    onChange={(val) =>
+                      setNewProduct({
+                        ...newProduct,
+                        category: val,
+                        gst_rate: getCategoryGstRate(val),
+                      })
+                    }
+                    options={bizConfig.categories.map((category) => ({
+                      value: category,
+                      label: category,
+                    }))}
+                    theme="emerald"
+                    className="mt-1"
+                    buttonClassName="font-bold"
+                  />
+                  <span className="mt-1 block text-[9px] font-bold text-emerald-600">
+                    Suggested GST: {getCategoryGstRate(newProduct.category)}%
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Barcode
+                  </span>
+                  <div className="relative mt-1 flex gap-2">
+                    <input
+                      value={newProduct.barcode}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        setNewProduct((prev) => ({ ...prev, barcode: val }));
+                        debouncedBarcodeLookup(val);
+                      }}
+                      placeholder="Scan or enter barcode"
+                      className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-mono font-bold outline-none focus:border-emerald-300 focus:bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => triggerSmartBarcodeLookup(newProduct.barcode)}
+                      disabled={!newProduct.barcode || newProduct.barcode.trim().length < 8 || isLookupLoading}
+                      className="px-3.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:border-emerald-300 hover:text-emerald-700 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95"
+                      title="Smart Autofill Lookup"
+                    >
+                      {isLookupLoading ? (
+                        <svg className="w-4 h-4 animate-spin text-emerald-600" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 21l8.904-4.474m-8.904-.622L16.09 9.813M9 21.002h.002L18 12.09M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.379-3.379a.9.9 0 1 1-1.273-1.273.9.9 0 0 1 1.273 1.273Z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Opening Qty
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    value={newProduct.quantity}
                     onChange={(event) =>
                       setNewProduct({
                         ...newProduct,
-                        expiry_date: event.target.value,
+                        quantity: event.target.value,
                       })
                     }
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none"
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none"
                   />
                 </label>
-              )}
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Unit Price
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    value={newProduct.selling_price}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        selling_price: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    MRP
+                  </span>
+                  <input
+                    type="number"
+                    value={newProduct.mrp}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        mrp: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    GST %
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={newProduct.gst_rate}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        gst_rate: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                  <span className="mt-1 block text-[9px] font-bold text-slate-400">
+                    Category default: {getCategoryGstRate(newProduct.category)}%
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Default Discount %
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={newProduct.discount_percent}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        discount_percent: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Reorder Min
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    value={newProduct.minimum_stock}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        minimum_stock: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Purchase Price
+                  </span>
+                  <input
+                    type="number"
+                    value={newProduct.purchase_price}
+                    onChange={(event) =>
+                      setNewProduct({
+                        ...newProduct,
+                        purchase_price: event.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Unit
+                  </span>
+                  <input
+                    value={newProduct.unit}
+                    onChange={(event) =>
+                      setNewProduct({ ...newProduct, unit: event.target.value })
+                    }
+                    placeholder="Units / Packs / Bottles"
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black outline-none"
+                  />
+                </label>
+                {shouldShowExpiryInput && (
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      Expiry Date
+                    </span>
+                    <input
+                      type="date"
+                      value={newProduct.expiry_date}
+                      onChange={(event) =>
+                        setNewProduct({
+                          ...newProduct,
+                          expiry_date: event.target.value,
+                        })
+                      }
+                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none"
+                    />
+                  </label>
+                )}
+              </form>
+            </div>
+
+            {/* Footer - Fixed */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex justify-end">
               <button
                 type="submit"
-                className="md:col-span-3 rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
+                form="add-product-form"
+                className="w-full md:w-auto md:px-10 rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
               >
                 Create Product
               </button>
-            </form>
+            </div>
+
           </div>
         </div>
       )}
@@ -1725,17 +1768,19 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
             {videoDevices.length > 1 && (
               <div className="flex items-center justify-between bg-slate-950/40 border border-slate-800 p-2.5 rounded-2xl gap-3">
                 <span className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Select Camera</span>
-                <select
+                <CustomDropdown
                   value={selectedDeviceId}
-                  onChange={(e) => setSelectedDeviceId(e.target.value)}
-                  className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-200 outline-none cursor-pointer focus:border-rose-500 max-w-[200px] truncate"
-                >
-                  {videoDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${videoDevices.indexOf(device) + 1}`}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedDeviceId}
+                  options={videoDevices.map((device) => ({
+                    value: device.deviceId,
+                    label: device.label || `Camera ${videoDevices.indexOf(device) + 1}`,
+                  }))}
+                  theme="rose"
+                  size="sm"
+                  buttonClassName="rounded-lg border-slate-800 bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-200 focus:border-rose-500 max-w-[200px] truncate"
+                  className="w-auto"
+                  dark={true}
+                />
               </div>
             )}
 

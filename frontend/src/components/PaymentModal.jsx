@@ -1,26 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import axios from "axios"; 
 
-/**
- * PaymentModal
- *
- * Step 1 – Collect customer phone number (no email shown)
- * Step 2 – Loading spinner while backend creates the Razorpay order
- * Step 3 – Razorpay checkout opens (phone pre-filled → skips contact screen)
- * Step 4 – Error screen with retry / cancel
- */
 const PaymentModal = ({
   isOpen,
   onCancel,
   onPaymentSuccess,
   onPaymentFailure,
-  amount,           // in RUPEES (backend × 100 → paise)
+  amount,
   invoiceNumber,
   items,
   customerName,
   customerState,
   branchName,
   paymentMode,
+  businessName = "Inventra Retail",
   tierAccent = "#0284C7",
 }) => {
   const normalizePaymentError = (message) => {
@@ -104,10 +97,12 @@ const PaymentModal = ({
           customer_name: customerName || "Guest",
           customer_email: "noreply@inventra.pos",
           customer_phone: phone,
-          description: `Invoice ${invoiceNumber}`,
+          business_name: businessName,
+          description: `${businessName} | Invoice ${invoiceNumber}`,
           payment_mode: paymentMode,       // ← Pass to root of payload for backend Pydantic schema
           notes: {
             invoice_number: invoiceNumber,
+            business_name: businessName,
             branch_name: branchName || "Main Store",
             customer_state: customerState || "Local",
             payment_mode: paymentMode,
@@ -132,6 +127,13 @@ const PaymentModal = ({
       const checkoutOptions = {
         paymentSessionId: razorpay_order_id, // we mapped payment_session_id to razorpay_order_id
         redirectTarget: "_modal",
+        ...(businessName && {
+          orderDetails: {
+            orderTitle: businessName,
+            
+            orderNote: `Invoice ${invoiceNumber}`,
+          },
+        }),
         ...(paymentMode === "Card" && { paymentMethods: ["card"] }),
         ...(paymentMode === "UPI" && { paymentMethods: ["upi"] })
       };
@@ -145,8 +147,6 @@ const PaymentModal = ({
             `${API_BASE_URL}/verify`,
             {
               razorpay_order_id: razorpay_order_id,
-              razorpay_payment_id: "cashfree_mock",
-              razorpay_signature: "cashfree_mock",
               order_id,                 // internal MongoDB ID
             },
             { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
@@ -192,10 +192,10 @@ const PaymentModal = ({
           <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-black text-slate-900 uppercase tracking-wide">
-                {paymentMode} Payment
+                {businessName}
               </h2>
               <p className="text-xs text-slate-400 font-semibold mt-0.5">
-                Powered by Cashfree
+                {paymentMode} Payment • Powered by Cashfree
               </p>
             </div>
             <button
@@ -206,15 +206,6 @@ const PaymentModal = ({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-          </div>
-
-          {/* Amount */}
-          <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount Due</p>
-            <p className="text-3xl font-black text-slate-900 mt-1">
-              ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-[10px] text-slate-400 font-semibold mt-1">Invoice: {invoiceNumber}</p>
           </div>
 
           {/* Phone input */}
@@ -261,33 +252,7 @@ const PaymentModal = ({
               Proceed to Pay ₹{amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
             </button>
 
-            <div className="relative my-2 flex py-0.5 items-center">
-              <div className="flex-grow border-t border-slate-100"></div>
-              <span className="flex-shrink mx-2 text-[8px] font-black text-slate-300 uppercase tracking-widest">or</span>
-              <div className="flex-grow border-t border-slate-100"></div>
-            </div>
 
-            <button
-              onClick={() => {
-                setStep("processing");
-                setPaymentStatus("Simulating payment success…");
-                setTimeout(() => {
-                  onPaymentSuccess?.({
-                    payment_id: `pay_sim_${Math.random().toString(36).substring(2, 11)}`,
-                    order_id: `order_sim_${Math.random().toString(36).substring(2, 11)}`,
-                    amount,
-                    currency: "INR",
-                    status: "success",
-                  });
-                }, 1000);
-              }}
-              className="w-full py-2.5 rounded-xl border border-dashed border-sky-300 bg-sky-50/50 hover:bg-sky-50 text-sky-700 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              <svg className="w-3.5 h-3.5 text-sky-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-              </svg>
-              ⚡ Simulate Success (Bypass)
-            </button>
           </div>
         </div>
       </div>

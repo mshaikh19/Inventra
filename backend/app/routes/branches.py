@@ -35,6 +35,10 @@ async def get_current_user_id(authorization: Optional[str] = Header(None)) -> st
 
 async def get_business_id(user_id: str, db) -> str:
     """Look up the business document for this user."""
+    if ObjectId.is_valid(user_id):
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if user and "businessId" in user and user["businessId"]:
+            return str(user["businessId"])
     business = await db.businesses.find_one({"ownerUserId": user_id})
     if not business:
         raise HTTPException(
@@ -60,10 +64,176 @@ def _serialize_branch(doc: dict) -> dict:
     return doc
 
 
+def _split_full_name(full_name: str) -> tuple[str, str]:
+    parts = [part for part in str(full_name or "").strip().split() if part]
+    if not parts:
+        return "Branch", "Manager"
+    if len(parts) == 1:
+        return parts[0], ""
+    return " ".join(parts[:-1]), parts[-1]
+
+
 async def _generate_branch_id(db, business_id: str) -> str:
     """Auto-generate a sequential branch ID like BR001, BR002..."""
     count = await db.branches.count_documents({"business_id": business_id})
     return f"BR{str(count + 1).zfill(3)}"
+
+
+async def _sync_branch_manager(
+    db,
+    business_id: str,
+    business_name: str,
+    branch_id: str,
+    branch_code: str,
+    manager_name: str,
+    phone: Optional[str],
+    manager_email: Optional[str] = None,
+    manager_password: Optional[str] = None
+) -> None:
+    if not manager_name:
+        return
+
+    manager_first_name, manager_last_name = _split_full_name(manager_name)
+    business_doc = await db.businesses.find_one({"_id": ObjectId(business_id)})
+    owner_user_id = str((business_doc or {}).get("ownerUserId") or "")
+
+    branch_doc = await db.branches.find_one({"branch_id": branch_id, "business_id": ObjectId(business_id)})
+    branch_type = "Store"
+    if branch_doc and branch_doc.get("branch_type"):
+        branch_type = branch_doc["branch_type"]
+        if hasattr(branch_type, "value"):
+            branch_type = branch_type.value
+
+    branch_type_lower = str(branch_type).lower()
+    if branch_type_lower == "warehouse":
+        role_name = "warehouse_manager"
+    elif branch_type_lower == "franchise":
+        role_name = "franchise_manager"
+    elif branch_type_lower == "depot":
+        role_name = "depot_manager"
+    else:
+        role_name = "manager"
+
+    # Check if a manager with the exact same name and branch already exists
+    existing = await db.users.find_one({
+        "businessId": ObjectId(business_id),
+        "branchId": branch_id,
+        "role": {"$in": ["owner", "manager", "warehouse_manager", "franchise_manager", "depot_manager", "store_manager", "user"]},
+        "firstName": manager_first_name,
+        "lastName": manager_last_name
+    })
+
+    if existing:
+        existing_id = str(existing.get("_id"))
+        existing_roles = existing.get("roles") or []
+        is_owner = (
+            existing_id == owner_user_id
+            or existing.get("role") in ("owner", "user")
+            or "owner" in existing_roles
+        )
+        if is_owner:
+            # If the owner is the manager, just update phone/active and keep owner access
+            await db.users.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "phone": phone,
+                    "isActive": True,
+                    "branchId": branch_id
+                }}
+            )
+            return
+
+        # If they already exist, we can just update their phone number, active status and role
+        await db.users.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {
+                "phone": phone,
+                "isActive": True,
+                "role": role_name,
+                "roles": [role_name, "manager"]
+            }}
+        )
+        return
+
+    # Otherwise, create a new manager user
+    if not manager_email:
+        clean_name = "".join(c for c in manager_name.lower() if c.isalnum())
+        if not clean_name:
+            clean_name = "manager"
+        base_email = f"{clean_name}@{branch_code.lower()}.inventra.com"
+
+        # Find a unique email candidate
+        email_candidate = base_email
+        counter = 1
+        while await db.users.find_one({"email": email_candidate}):
+            email_candidate = f"{clean_name}{counter}@{branch_code.lower()}.inventra.com"
+            counter += 1
+        manager_email = email_candidate
+    else:
+        # If the owner manages this branch, keep their owner account intact.
+        # They should retain owner permissions instead of becoming a branch manager.
+        existing_email = await db.users.find_one({"email": {"$regex": f"^{manager_email.strip()}$", "$options": "i"}})
+        if existing_email:
+            existing_email_id = str(existing_email.get("_id"))
+            existing_email_roles = existing_email.get("roles") or []
+            is_owner = (
+                existing_email_id == owner_user_id
+                or existing_email.get("role") in ("owner", "user")
+                or "owner" in existing_email_roles
+            )
+            is_same_branch_manager = (existing_email.get("branchId") == branch_id)
+            
+            if is_owner or is_same_branch_manager:
+                upd_fields = {
+                    "phone": phone,
+                    "isActive": True,
+                    "branchId": branch_id
+                }
+                if not is_owner:
+                    upd_fields["firstName"] = manager_first_name
+                    upd_fields["lastName"] = manager_last_name
+                await db.users.update_one(
+                    {"_id": existing_email["_id"]},
+                    {"$set": upd_fields}
+                )
+                return
+
+            # If a manager email is specified but is already registered by
+            # someone else, make it unique.
+            name_part, domain_part = manager_email.split("@", 1)
+            counter = 1
+            email_candidate = f"{name_part}+{counter}@{domain_part}"
+            while await db.users.find_one({"email": email_candidate}):
+                counter += 1
+                email_candidate = f"{name_part}+{counter}@{domain_part}"
+            manager_email = email_candidate
+
+    if not manager_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Manager password is required")
+
+    manager_doc = {
+        "email": manager_email,
+        "firstName": manager_first_name,
+        "lastName": manager_last_name,
+        "businessName": business_name,
+        "role": role_name,
+        "roles": [role_name, "manager"],
+        "businessId": ObjectId(business_id),
+        "branchId": branch_id,
+        "phone": phone,
+        "hashedPassword": security.getPasswordHash(manager_password),
+        "isActive": True,
+        "isVerified": False,
+        "createdAt": datetime.utcnow(),
+    }
+
+    await db.users.insert_one(manager_doc)
+
+    # Also update the business-wide employees count
+    await db.businesses.update_one(
+        {"_id": ObjectId(business_id)},
+        {"$inc": {"employees": 1}}
+    )
 
 
 async def _initialize_branch_inventory(db, business_id: str, branch_doc: dict) -> None:
@@ -207,6 +377,12 @@ async def create_branch(
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
 
+    business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+    business_name = (business or {}).get("name") or "Business"
+
+    manager_email = (branch.manager_email or "").strip() or None
+    manager_password = (branch.manager_password or "").strip() or None
+
     # Ensure branch_code is unique within this business
     existing = await db.branches.find_one({
         "business_id": business_id,
@@ -221,6 +397,7 @@ async def create_branch(
     branch_id = await _generate_branch_id(db, business_id)
 
     doc = branch.model_dump()
+    doc.pop("manager_password", None) # Save manager_email to branch doc, but not password
     doc["branch_id"]   = branch_id
     doc["business_id"] = business_id
     doc["branch_code"] = doc["branch_code"].upper()
@@ -234,6 +411,28 @@ async def create_branch(
 
     result = await db.branches.insert_one(doc)
     doc["_id"] = str(result.inserted_id)
+
+    try:
+        await _sync_branch_manager(
+            db,
+            business_id=business_id,
+            business_name=business_name,
+            branch_id=branch_id,
+            branch_code=doc["branch_code"],
+            manager_name=doc.get("manager_name", ""),
+            phone=doc.get("phone"),
+            manager_email=manager_email,
+            manager_password=manager_password
+        )
+    except Exception as exc:
+        await db.branches.delete_one({"_id": ObjectId(doc["_id"])})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Unable to create branch manager account",
+                "error": str(exc),
+            },
+        )
 
     await _initialize_branch_inventory(db, business_id, doc)
 
@@ -250,6 +449,16 @@ async def list_branches(authorization: Optional[str] = Header(None)):
     cursor = db.branches.find({"business_id": business_id, "status": {"$ne": "Inactive"}}).sort("branch_id", 1)
     branches = []
     async for doc in cursor:
+        if not doc.get("manager_email"):
+            existing_user = await db.users.find_one({
+                "businessId": ObjectId(business_id),
+                "branchId": doc.get("branch_id"),
+                "role": {"$in": ["owner", "manager", "warehouse_manager", "franchise_manager", "depot_manager", "store_manager", "user"]}
+            })
+            if existing_user:
+                manager_email = existing_user.get("email")
+                await db.branches.update_one({"_id": doc["_id"]}, {"$set": {"manager_email": manager_email}})
+                doc["manager_email"] = manager_email
         branches.append(_serialize_branch(doc))
 
     business = await db.businesses.find_one({"ownerUserId": user_id})
@@ -279,6 +488,17 @@ async def get_branch(branch_id: str, authorization: Optional[str] = Header(None)
 
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+
+    if not doc.get("manager_email"):
+        existing_user = await db.users.find_one({
+            "businessId": ObjectId(business_id),
+            "branchId": doc.get("branch_id"),
+            "role": {"$in": ["owner", "manager", "warehouse_manager", "franchise_manager", "depot_manager", "store_manager", "user"]}
+        })
+        if existing_user:
+            manager_email = existing_user.get("email")
+            await db.branches.update_one({"_id": doc["_id"]}, {"$set": {"manager_email": manager_email}})
+            doc["manager_email"] = manager_email
 
     return _serialize_branch(doc)
 
@@ -598,6 +818,8 @@ async def update_branch(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
 
     update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    update_data.pop("manager_password", None) # Do not save password on branch doc!
+
     # Serialize enums
     for f in ("branch_type", "status"):
         if f in update_data and hasattr(update_data[f], "value"):
@@ -610,10 +832,46 @@ async def update_branch(
         await db.branches.update_one(query, {"$set": update_data})
 
     doc = await db.branches.find_one(query)
+
+    # Sync/create manager user if manager details are present in updated branch doc
+    if doc and doc.get("manager_name"):
+        business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+        business_name = (business or {}).get("name") or "Business"
+
+        # Resolve manager email:
+        manager_email = (updates.manager_email or "").strip() or None
+        if not manager_email:
+            # Check the branch document first
+            manager_email = doc.get("manager_email")
+            # If still not found, check users collection
+            if not manager_email:
+                existing_user = await db.users.find_one({
+                    "businessId": ObjectId(business_id),
+                    "branchId": doc["branch_id"],
+                    "role": {"$in": ["owner", "manager", "warehouse_manager", "franchise_manager", "depot_manager", "store_manager", "user"]}
+                })
+                if existing_user:
+                    manager_email = existing_user.get("email")
+
+        # Save the resolved manager email back to the branch doc if it is not already set
+        if manager_email and doc.get("manager_email") != manager_email:
+            await db.branches.update_one(query, {"$set": {"manager_email": manager_email}})
+            doc["manager_email"] = manager_email
+
+        await _sync_branch_manager(
+            db,
+            business_id=business_id,
+            business_name=business_name,
+            branch_id=doc["branch_id"],
+            branch_code=doc["branch_code"],
+            manager_name=doc["manager_name"],
+            phone=doc.get("phone"),
+            manager_email=manager_email,
+            manager_password=(updates.manager_password or "").strip() or None
+        )
+
     return _serialize_branch(doc)
 
-
-# ── DEACTIVATE (soft delete) ──────────────────────────────────────────────────
 @router.delete("/{branch_id}")
 async def deactivate_branch(branch_id: str, authorization: Optional[str] = Header(None)):
     db = getDatabase()
@@ -644,3 +902,32 @@ async def deactivate_branch(branch_id: str, authorization: Optional[str] = Heade
         )
     )
     return {"message": f"Branch {branch_id} deactivated successfully."}
+
+
+class BusinessExpectationsUpdate(BaseModel):
+    expected_branches: int
+    expected_employees: int
+
+@router.put("/expectations/update")
+async def update_business_expectations(
+    payload: BusinessExpectationsUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    db = getDatabase()
+    user_id = await get_current_user_id(authorization)
+    business_id = await get_business_id(user_id, db)
+
+    if payload.expected_branches < 1:
+        raise HTTPException(status_code=400, detail="Expected branches must be at least 1")
+    if payload.expected_employees < 0:
+        raise HTTPException(status_code=400, detail="Expected employees must be at least 0")
+
+    await db.businesses.update_one(
+        {"_id": ObjectId(business_id)},
+        {"$set": {
+            "branches": payload.expected_branches,
+            "employees": payload.expected_employees
+        }}
+    )
+
+    return {"message": "Business details updated successfully."}

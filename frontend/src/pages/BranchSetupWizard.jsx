@@ -181,11 +181,20 @@ const EMPTY_FORM = {
   phone_country_code: "+91",
   phone_number:       "",
   manager_name:       "",
-  employee_count:     1,
+  manager_email:      "",
+  manager_password:   "",
+  employee_count:     0,
   working_hours:      "9AM-9PM",
   opening_date:       "",
   gstin:              "",
 };
+
+function getDraftForm(form) {
+  return {
+    ...form,
+    manager_password: "",
+  };
+}
 
 
 // Auto-generate an intelligent branch code from the name
@@ -219,6 +228,140 @@ function autoCode(name) {
   return parts.join("-").slice(0, 12);
 }
 
+const getDynamicLabels = (type) => {
+  switch (type) {
+    case "Warehouse":
+      return {
+        nameLabel: "Warehouse Name",
+        namePlaceholder: "e.g. Western Zone Storage Hub",
+        codeLabel: "Warehouse Code",
+        codePlaceholder: "e.g. WH-WEST-01",
+        addressLabel: "Warehouse Address",
+        addressPlaceholder: "Facility Area, Plot No., Sector...",
+        cityLabel: "City / Logistics Node",
+        cityPlaceholder: "e.g. Bhiwandi",
+        stateLabel: "State",
+        countryLabel: "Country",
+        pincodeLabel: "Pincode / Postal Code",
+        pincodePlaceholder: "e.g. 421302",
+        managerLabel: "Warehouse Manager Name",
+        placeholderName: "e.g. Satish Kumar",
+        phoneLabel: "Warehouse Contact Number",
+        phonePlaceholder: "e.g. 98765 43210",
+        gstLabel: "GSTIN / Storage License (Optional)",
+        gstPlaceholder: "e.g. 27AAAAA0000A1Z5 / WH-LIC-99",
+        staffLabel: "Logistics / Labor Staff Count",
+        hoursLabel: "Warehouse Shift Timings",
+        placeholderHours: "e.g. 24 Hours or 9AM-6PM",
+        openingDateLabel: "Commissioning Date",
+        titleLabel: "Warehouse",
+        addressSectionLabel: "Storage Facility Address",
+        managerSectionLabel: "Warehouse Manager & Contact",
+        gstSectionLabel: "GSTIN / Storage License",
+        teamSectionLabel: "Logistics & Labor Staff",
+        hoursSectionLabel: "Shift Timings",
+        verificationHeader: "Warehouse Verification",
+      };
+    case "Franchise":
+      return {
+        nameLabel: "Franchise Name",
+        namePlaceholder: "e.g. Inventra Franchise - CP",
+        codeLabel: "Franchise Code",
+        codePlaceholder: "e.g. FR-CP-05",
+        addressLabel: "Franchise Address",
+        addressPlaceholder: "Shop No., Mall/Market Name, Street...",
+        cityLabel: "Franchise City",
+        cityPlaceholder: "e.g. New Delhi",
+        stateLabel: "State",
+        countryLabel: "Country",
+        pincodeLabel: "Pincode",
+        pincodePlaceholder: "e.g. 110001",
+        managerLabel: "Franchise Owner / Operator Name",
+        placeholderName: "e.g. Priya Sharma",
+        phoneLabel: "Franchise Contact Number",
+        phonePlaceholder: "e.g. 98765 43210",
+        gstLabel: "GSTIN / Trade License (Optional)",
+        gstPlaceholder: "e.g. 07AAAAA0000A1Z5 / TR-FR-12",
+        staffLabel: "Franchise Staff Count",
+        hoursLabel: "Franchise Operating Hours",
+        placeholderHours: "e.g. 10AM-10PM",
+        openingDateLabel: "Franchise Launch Date",
+        titleLabel: "Franchise",
+        addressSectionLabel: "Franchise Retail Address",
+        managerSectionLabel: "Franchise Owner & Contact",
+        gstSectionLabel: "GSTIN / Trade License",
+        teamSectionLabel: "Franchise Team Size",
+        hoursSectionLabel: "Operating Hours",
+        verificationHeader: "Franchise Verification",
+      };
+    case "Depot":
+      return {
+        nameLabel: "Depot Name",
+        namePlaceholder: "e.g. Central Wholesalers Depot",
+        codeLabel: "Depot Code",
+        codePlaceholder: "e.g. DEP-CEN-03",
+        addressLabel: "Depot Address",
+        addressPlaceholder: "Industrial Area, Warehouse Complex...",
+        cityLabel: "Depot City",
+        cityPlaceholder: "e.g. Chennai",
+        stateLabel: "State",
+        countryLabel: "Country",
+        pincodeLabel: "Pincode / Zip Code",
+        pincodePlaceholder: "e.g. 600001",
+        managerLabel: "Depot Manager Name",
+        placeholderName: "e.g. Anil Deshmukh",
+        phoneLabel: "Depot Contact Number",
+        phonePlaceholder: "e.g. 98765 43210",
+        gstLabel: "GSTIN / Depot Registration (Optional)",
+        gstPlaceholder: "e.g. 33AAAAA0000A1Z5 / DEP-REG-88",
+        staffLabel: "Depot Staff Count",
+        hoursLabel: "Depot Operating Hours",
+        placeholderHours: "e.g. 8AM-8PM",
+        openingDateLabel: "Depot Opening Date",
+        titleLabel: "Depot",
+        addressSectionLabel: "Depot Facility Address",
+        managerSectionLabel: "Depot Manager & Contact",
+        gstSectionLabel: "GSTIN / Depot Registration",
+        teamSectionLabel: "Depot Operations Team",
+        hoursSectionLabel: "Operating Hours",
+        verificationHeader: "Depot Verification",
+      };
+    case "Store":
+    default:
+      return {
+        nameLabel: "Store Name",
+        namePlaceholder: "e.g. Inventra Flagship Store",
+        codeLabel: "Store Code",
+        codePlaceholder: "e.g. STR-MUM-02",
+        addressLabel: "Store Address",
+        addressPlaceholder: "Shop No., Street Address, Area...",
+        cityLabel: "City",
+        cityPlaceholder: "e.g. Mumbai",
+        stateLabel: "State",
+        countryLabel: "Country",
+        pincodeLabel: "Pincode",
+        pincodePlaceholder: "e.g. 400001",
+        managerLabel: "Branch Manager Name",
+        placeholderName: "e.g. Ritesh Deshmukh",
+        phoneLabel: "Store Contact Number",
+        phonePlaceholder: "e.g. 98765 43210",
+        gstLabel: "GSTIN (Optional)",
+        gstPlaceholder: "e.g. 27AAAAA0000A1Z5",
+        staffLabel: "Store Staff Count",
+        hoursLabel: "Store Operating Hours",
+        placeholderHours: "e.g. 9AM-9PM",
+        openingDateLabel: "Store Opening Date",
+        titleLabel: "Store",
+        addressSectionLabel: "Store Address",
+        managerSectionLabel: "Branch Manager & Contact",
+        gstSectionLabel: "GST Identification (GSTIN)",
+        teamSectionLabel: "Store Staff Members",
+        hoursSectionLabel: "Operating Hours",
+        verificationHeader: "Store Verification",
+      };
+  }
+};
+
 // Step indicator dot (Larger, elegant, perfectly contrastive on white background)
 function StepDot({ n, current, label }) {
   const done = n < current;
@@ -231,7 +374,7 @@ function StepDot({ n, current, label }) {
             ? "bg-emerald-500 text-white shadow-[0_3px_10px_rgba(16,185,129,0.2)]"
             : active
             ? "bg-slate-900 text-white ring-4 ring-slate-900/10 shadow-[0_3px_10px_rgba(15,23,42,0.1)]"
-            : "bg-slate-100 text-slate-550 border border-slate-200/80"
+            : "bg-slate-100 text-slate-400 border border-slate-200/80"
         }`}
       >
         {done ? (
@@ -258,7 +401,7 @@ function StepConnector({ done }) {
 const getBranchDraftKey = () => {
   if (typeof window === "undefined") return "inventra-branch-setup-draft";
   try {
-    const rawUser = window.localStorage.getItem("inventra_user");
+    const rawUser = window.localStorage.getItem("inventra_user") || window.sessionStorage.getItem("inventra_user");
     if (rawUser) {
       const user = JSON.parse(rawUser);
       const userId = user.id || user._id || user.email || "default";
@@ -279,6 +422,7 @@ const loadBranchDraft = () => {
     if (!rawDraft) return { step: 1, form: EMPTY_FORM };
     const parsed = JSON.parse(rawDraft);
     const formVal = { ...EMPTY_FORM, ...(parsed.form || {}) };
+    formVal.manager_password = "";
     
     // Auto-parse raw phone string back into prefix and number parts if needed
     if (formVal.phone && !formVal.phone_number) {
@@ -308,11 +452,56 @@ export default function BranchSetupWizard({ setActiveTab }) {
   const [loading, setLoading] = useState(false);
   const [createdBranch, setCreatedBranch] = useState(null);
   
+  const labels = getDynamicLabels(form.branch_type);
+  
   // Onboarding Hub visual states
   const [createdBranchesList, setCreatedBranchesList] = useState([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expectedBranches, setExpectedBranches] = useState(1);
   const [declaredEmployees, setDeclaredEmployees] = useState(0);
+
+  const [isEditingExpectations, setIsEditingExpectations] = useState(false);
+  const [tempExpectedBranches, setTempExpectedBranches] = useState(1);
+  const [tempDeclaredEmployees, setTempDeclaredEmployees] = useState(0);
+
+  useEffect(() => {
+    setTempExpectedBranches(expectedBranches);
+  }, [expectedBranches]);
+
+  useEffect(() => {
+    setTempDeclaredEmployees(declaredEmployees);
+  }, [declaredEmployees]);
+
+  const handleSaveExpectations = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+      const res = await fetch("http://127.0.0.1:8000/api/v1/branches/expectations/update", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          expected_branches: Number(tempExpectedBranches),
+          expected_employees: Number(tempDeclaredEmployees)
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to update details");
+      }
+      toast.success("Business details updated successfully!");
+      setExpectedBranches(Number(tempExpectedBranches));
+      setDeclaredEmployees(Number(tempDeclaredEmployees));
+      setIsEditingExpectations(false);
+      syncBranches();
+    } catch (err) {
+      toast.error(err.message || "Failed to save details");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const syncBranches = () => {
     getUserBranches()
@@ -325,6 +514,18 @@ export default function BranchSetupWizard({ setActiveTab }) {
         }
         if (data && typeof data.expected_employees === "number") {
           setDeclaredEmployees(data.expected_employees);
+          setForm((prev) => {
+            if (prev.employee_count === 1 || prev.employee_count === 0) {
+              const branches = data.branches || [];
+              const assigned = branches.reduce((acc, b) => acc + (Number(b.employee_count) || 0), 0);
+              const expectedB = data.expected_branches ?? 1;
+              return {
+                ...prev,
+                employee_count: Math.max(0, data.expected_employees - expectedB - assigned)
+              };
+            }
+            return prev;
+          });
         }
       })
       .catch((err) => console.error("Failed to load branches in onboarding hub:", err));
@@ -339,7 +540,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(
         getBranchDraftKey(),
-        JSON.stringify({ step, form })
+        JSON.stringify({ step, form: getDraftForm(form) })
       );
     }
   }, [step, form]);
@@ -373,7 +574,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
 
   // Get stored user data
   const storedUser = (() => {
-    try { return JSON.parse(localStorage.getItem("inventra_user") || "{}"); }
+    try {
+      const raw = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+      return JSON.parse(raw || "{}");
+    }
     catch { return {}; }
   })();
 
@@ -404,22 +608,28 @@ export default function BranchSetupWizard({ setActiveTab }) {
   // ── Validation ──────────────────────────────────────────────────────────────
   const validate = (s) => {
     const e = {};
+    const currentLabels = getDynamicLabels(form.branch_type);
     if (s === 1) {
-      if (!form.branch_name.trim()) e.branch_name = "Branch name is required";
-      if (!form.branch_code.trim()) e.branch_code = "Branch code is required";
+      if (!form.branch_name.trim()) e.branch_name = `${currentLabels.nameLabel} is required`;
+      if (!form.branch_code.trim()) e.branch_code = `${currentLabels.codeLabel} is required`;
     }
     if (s === 2) {
-      if (!form.address.trim()) e.address = "Address is required";
-      if (!form.city.trim()) e.city = "City is required";
+      if (!form.address.trim()) e.address = `${currentLabels.addressLabel} is required`;
+      if (!form.city.trim()) e.city = `${currentLabels.cityLabel} is required`;
       if (!form.state) e.state = "State is required";
       if (!form.country) e.country = "Country is required";
-      if (!form.pincode.trim()) e.pincode = "Pincode is required";
-      else if (!/^\d{4,10}$/.test(form.pincode)) e.pincode = "Enter a valid pincode";
+      if (!form.pincode.trim()) e.pincode = `${currentLabels.pincodeLabel} is required`;
+      else if (!/^\d{4,10}$/.test(form.pincode)) e.pincode = `Enter a valid ${currentLabels.pincodeLabel.toLowerCase()}`;
     }
     if (s === 3) {
-      if (!form.phone_number.trim()) e.phone = "Phone number is required";
-      else if (!/^\+?[\d\s\-]{7,15}$/.test((form.phone_country_code + form.phone_number).replace(/\s+/g, ""))) e.phone = "Enter a valid phone number";
-      if (!form.manager_name.trim()) e.manager_name = "Manager name is required";
+      if (!form.phone_number.trim()) e.phone = `${currentLabels.phoneLabel} is required`;
+      else if (!/^\+?[\d\s\-]{7,15}$/.test((form.phone_country_code + form.phone_number).replace(/\s+/g, ""))) e.phone = `Enter a valid ${currentLabels.phoneLabel.toLowerCase()}`;
+      if (!form.manager_name.trim()) e.manager_name = `${currentLabels.managerLabel} is required`;
+      if (form.manager_email && form.manager_email.trim()) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.manager_email.trim())) {
+          e.manager_email = "Enter a valid email address";
+        }
+      }
     }
     return e;
   };
@@ -477,10 +687,12 @@ export default function BranchSetupWizard({ setActiveTab }) {
         pincode:        form.pincode.trim(),
         phone:          (form.phone_country_code + " " + form.phone_number.trim()).trim(),
         manager_name:   form.manager_name.trim(),
-        employee_count: Number(form.employee_count) || 1,
+        manager_email:  form.manager_email.trim() || null,
+        manager_password: form.manager_password || null,
+        employee_count: form.employee_count !== "" && form.employee_count !== undefined ? Number(form.employee_count) : 0,
         working_hours:  form.working_hours,
         opening_date:   form.opening_date || null,
-        gstin:          form.gstin.trim() || null,
+        gstin:          form.branch_type === "Warehouse" ? null : (form.gstin.trim() || null),
         status:         "Active",
       };
       let branch;
@@ -494,7 +706,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(getBranchDraftKey());
       }
-      setForm(EMPTY_FORM);
+      setForm({
+        ...EMPTY_FORM,
+        employee_count: 0
+      });
       setStep(1);
       setShowCreateForm(false);
     } catch (err) {
@@ -542,7 +757,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
     errors[field] ? <p className="text-rose-600 text-xs font-bold mt-1.5 leading-none">{errors[field]}</p> : null;
 
   const Label = ({ children }) => (
-    <label className="text-[11px] font-black uppercase tracking-wider text-slate-450 block mb-1.5">
+    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
       {children}
     </label>
   );
@@ -594,6 +809,8 @@ export default function BranchSetupWizard({ setActiveTab }) {
         phone_country_code,
         phone_number,
         manager_name: branch.manager_name || "",
+        manager_email: "",
+        manager_password: "",
         employee_count: branch.employee_count || 1,
         working_hours: branch.working_hours || "9AM-9PM",
         opening_date: branch.opening_date || "",
@@ -619,13 +836,13 @@ export default function BranchSetupWizard({ setActiveTab }) {
     const assignedEmployees = createdBranchesList.reduce((acc, b) => acc + (Number(b.employee_count) || 0), 0);
 
     const isBranchCountComplete = createdBranchesList.length >= expectedBranches;
-    const isEmployeeCountValid = assignedEmployees === declaredEmployees;
+    const isEmployeeCountValid = assignedEmployees === Math.max(0, declaredEmployees - createdBranchesList.length);
     const isComplete = isBranchCountComplete && isEmployeeCountValid;
 
     return (
-      <div className="min-h-screen w-full bg-white flex flex-col pt-[56px] pb-4 px-4 sm:px-6 relative overflow-x-hidden">
+      <div className="min-h-screen w-full bg-white flex flex-col pt-[52px] pb-2 px-4 sm:px-6 relative overflow-x-hidden">
         {/* ── Branded White Navbar ────────────────── */}
-        <header className="fixed top-0 left-0 right-0 z-40 w-full border-b border-slate-200 bg-white/90 backdrop-blur-xl px-5 sm:px-8 py-2.5 flex justify-between items-center shadow-sm select-none">
+        <header className="fixed top-0 left-0 right-0 z-40 w-full border-b border-slate-200 bg-white/90 backdrop-blur-xl px-5 sm:px-8 py-2 flex justify-between items-center shadow-sm select-none">
           <div className="flex items-center gap-3">
             <span className="text-[14px] font-black uppercase tracking-[0.25em] text-slate-950">INVENTRA</span>
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
@@ -647,23 +864,23 @@ export default function BranchSetupWizard({ setActiveTab }) {
         </header>
 
         {/* ── Network Hub Main Workspace ── */}
-        <div className="flex-1 w-full flex flex-col justify-center items-center mt-6">
+        <div className="flex-1 w-full flex flex-col justify-center items-center mt-4">
           <div className="w-full max-w-[940px] flex flex-col px-1 sm:px-2">
             <div className="bg-white rounded-3xl shadow-xl border border-slate-200/80 flex flex-col relative overflow-hidden">
               
               {/* Decorative top colored line */}
               <div className="absolute top-0 left-0 right-0 h-1.5" style={{ backgroundColor: "#0F172A" }} />
               
-              <div className="px-6 sm:px-8 py-6 border-b border-slate-100 bg-slate-50/40">
+              <div className="px-6 sm:px-8 py-4 border-b border-slate-100 bg-slate-50/40">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
-                    <div className="flex items-center flex-wrap gap-2.5 mb-1.5">
+                    <div className="flex items-center flex-wrap gap-2.5 mb-1">
                       <h1 className="text-xl font-black text-slate-900 uppercase tracking-wide leading-tight">
                         {bizName}
                       </h1>
                       <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[8.5px] font-black uppercase tracking-[0.12em] shrink-0 whitespace-nowrap ${
                         tierName === "medium"
-                          ? "bg-amber-50 border-amber-200 text-amber-800"
+                           ? "bg-amber-50 border-amber-200 text-amber-800"
                           : tierName === "large"
                           ? "bg-emerald-50 border-emerald-200 text-emerald-800"
                           : "bg-sky-50 border-sky-200 text-sky-800"
@@ -671,9 +888,64 @@ export default function BranchSetupWizard({ setActiveTab }) {
                         {tierName.toUpperCase()} TIER
                       </span>
                     </div>
-                    <p className="text-slate-500 text-xs font-semibold leading-relaxed">
+                    <p className="text-slate-600 text-xs font-semibold leading-normal">
                       Initialize and orchestrate your business's branch networks. Scopes inventory and analytics.
                     </p>
+                    {isEditingExpectations ? (
+                      <div className="mt-3 p-3 bg-white border border-slate-200 rounded-2xl flex flex-wrap items-center gap-4 text-xs font-bold shadow-sm max-w-xl">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 text-[10px] font-black uppercase tracking-wider">Expected Branches:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={tempExpectedBranches}
+                            onChange={(e) => setTempExpectedBranches(Number(e.target.value))}
+                            className="w-16 border border-slate-200 bg-slate-50 px-2 py-1 rounded-lg text-slate-900 font-bold text-center outline-none focus:border-slate-400 focus:bg-white transition-all"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 text-[10px] font-black uppercase tracking-wider">Declared Employees:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={tempDeclaredEmployees}
+                            onChange={(e) => setTempDeclaredEmployees(Number(e.target.value))}
+                            className="w-20 border border-slate-200 bg-slate-50 px-2 py-1 rounded-lg text-slate-900 font-bold text-center outline-none focus:border-slate-400 focus:bg-white transition-all"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 sm:ml-auto">
+                          <button
+                            onClick={handleSaveExpectations}
+                            disabled={loading}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                          >
+                            {loading ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            onClick={() => setIsEditingExpectations(false)}
+                            disabled={loading}
+                            className="px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-55 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2.5 flex items-center gap-3.5 text-[11px] font-bold text-slate-500 flex-wrap">
+                        <span className="flex items-center gap-1">📍 Expected Branches: <strong className="text-slate-900">{expectedBranches}</strong></span>
+                        <span className="flex items-center gap-1">👥 Declared Employees: <strong className="text-slate-900">{declaredEmployees}</strong></span>
+                        <button
+                          onClick={() => {
+                            setTempExpectedBranches(expectedBranches);
+                            setTempDeclaredEmployees(declaredEmployees);
+                            setIsEditingExpectations(true);
+                          }}
+                          className="text-emerald-600 hover:text-emerald-700 font-black uppercase tracking-wider text-[9.5px] cursor-pointer hover:underline flex items-center gap-0.5 ml-1"
+                        >
+                          ✏️ Edit Details
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   {!isListEmpty && (
@@ -692,38 +964,46 @@ export default function BranchSetupWizard({ setActiveTab }) {
               </div>
 
               {/* Network Area */}
-              <div className="p-6 sm:p-8 flex-1">
+              <div className="p-5 sm:p-6 flex-1">
                 {isListEmpty ? (
                   /* Empty state: No Skip Allowed */
-                  <div className="py-8 text-center max-w-lg mx-auto flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 bg-slate-100 rounded-3xl flex items-center justify-center text-3xl shadow-inner border border-slate-200/60 text-slate-700">
+                  <div className="py-4 text-center max-w-lg mx-auto flex flex-col items-center gap-3.5">
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-slate-200/60 text-slate-700">
                       🏪
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <h2 className="text-lg font-black text-slate-800 uppercase tracking-wide">
                         Initialize Your Enterprise Network
                       </h2>
-                      <p className="text-slate-550 text-xs font-semibold leading-relaxed">
-                        You registered your business with <span className="font-extrabold text-slate-900">{expectedBranches} location{expectedBranches > 1 ? "s" : ""}</span>. Branches are mandatory to scope products, forecast stock, and run sales operations. Please configure all branch details to proceed.
+                      <p className="text-slate-600 text-xs font-semibold leading-relaxed">
+                        You registered your business with <span className="font-extrabold text-slate-900">{expectedBranches} location{expectedBranches > 1 ? "s" : ""}</span>. Branches are mandatory to scope products, forecast stock, and run sales operations. Please configure all branch details to proceed, or <button onClick={() => { setTempExpectedBranches(expectedBranches); setTempDeclaredEmployees(declaredEmployees); setIsEditingExpectations(true); }} className="text-slate-905 font-black underline hover:text-slate-700 cursor-pointer">edit business details</button>.
                       </p>
                     </div>
 
-                    <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left mt-2">
+                    <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-left mt-1">
                       <div className="flex gap-2">
                         <span className="text-base leading-none">💡</span>
                         <div className="space-y-0.5">
-                          <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-750">Setup Instructions</h4>
-                          <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                          <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-700">Setup Instructions</h4>
+                          <p className="text-[10px] text-slate-600 font-semibold leading-relaxed">
                             Complete the 4-step wizard for each of your branches. If you log out or sign out at any point, your draft form values will remain completely safe.
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex justify-center mt-3">
+                    <div className="flex justify-center mt-2.5">
                       <button
-                        onClick={() => setShowCreateForm(true)}
-                        className="px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl transition-all duration-200 text-xs tracking-wider cursor-pointer shadow-lg shadow-slate-950/15"
+                        onClick={() => {
+                          setStep(1);
+                          const assigned = createdBranchesList.reduce((acc, b) => acc + (Number(b.employee_count) || 0), 0);
+                          setForm({
+                            ...EMPTY_FORM,
+                            employee_count: Math.max(0, declaredEmployees - expectedBranches - assigned)
+                          });
+                          setShowCreateForm(true);
+                        }}
+                        className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl transition-all duration-200 text-xs tracking-wider cursor-pointer shadow-md shadow-slate-950/10"
                       >
                         ➕ ADD YOUR FIRST BRANCH (1 of {expectedBranches})
                       </button>
@@ -739,17 +1019,20 @@ export default function BranchSetupWizard({ setActiveTab }) {
                         <div className="space-y-0.5 text-left text-xs font-semibold leading-relaxed">
                           <h4 className="font-extrabold uppercase tracking-wider text-amber-900">Branch Configuration Incomplete</h4>
                           <p>
-                            Progress: <span className="font-black text-amber-950">{createdBranchesList.length} of {expectedBranches}</span> branches registered. Please complete setting up the remaining <span className="font-black text-amber-950">{expectedBranches - createdBranchesList.length}</span> declared branch{expectedBranches - createdBranchesList.length > 1 ? "es" : ""} to launch your workspace.
+                            Progress: <span className="font-black text-amber-950">{createdBranchesList.length} of {expectedBranches}</span> branches registered. Please complete setting up the remaining <span className="font-black text-amber-950">{expectedBranches - createdBranchesList.length}</span> declared branch{expectedBranches - createdBranchesList.length > 1 ? "es" : ""} to launch your workspace, or <button onClick={() => { setTempExpectedBranches(expectedBranches); setTempDeclaredEmployees(declaredEmployees); setIsEditingExpectations(true); }} className="text-amber-950 font-black underline hover:text-amber-800 cursor-pointer">edit expectations</button>.
                           </p>
                         </div>
                       </div>
                     ) : !isEmployeeCountValid ? (
-                      <div className="bg-amber-50 border border-amber-250 rounded-2xl p-4 flex items-start gap-3 text-amber-850 shadow-sm">
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
                         <span className="text-lg leading-none shrink-0">⚠️</span>
-                        <div className="space-y-0.5 text-left text-xs font-semibold leading-relaxed">
-                          <h4 className="font-extrabold uppercase tracking-wider text-amber-900">Employee Allocation Discrepancy</h4>
-                          <p>
-                            You declared exactly <span className="font-black text-amber-950">{declaredEmployees}</span> total employees during signup, but your registered branches currently sum to <span className="font-black text-amber-950">{assignedEmployees}</span> assigned staff members ({assignedEmployees < declaredEmployees ? `need ${declaredEmployees - assignedEmployees} more` : `exceeded by ${assignedEmployees - declaredEmployees}`}). Please delete and re-add branches to align the employee distribution.
+                        <div className="space-y-1 text-left text-xs font-semibold leading-relaxed">
+                          <h4 className="font-extrabold uppercase tracking-wider text-amber-900">Employee Count Mismatch</h4>
+                          <p className="text-amber-800">
+                            During signup you said your business has <span className="font-black text-amber-950">{declaredEmployees} employee{declaredEmployees !== 1 ? "s" : ""}</span>. Since you have <span className="font-black text-amber-950">{createdBranchesList.length} branch{createdBranchesList.length !== 1 ? "es" : ""}</span> (each having 1 manager), the remaining staff across all branches should add up to <span className="font-black text-amber-950">{Math.max(0, declaredEmployees - createdBranchesList.length)}</span>, but currently adds up to <span className="font-black text-amber-950">{assignedEmployees}</span>.
+                          </p>
+                          <p className="text-amber-700 mt-1">
+                            👉 Simply click <strong>Edit</strong> on any branch below and update its <strong>Employee Count</strong> field until the total matches <strong>{Math.max(0, declaredEmployees - createdBranchesList.length)}</strong>, or <button onClick={() => { setTempExpectedBranches(expectedBranches); setTempDeclaredEmployees(declaredEmployees); setIsEditingExpectations(true); }} className="text-amber-955 font-black underline hover:text-amber-850 cursor-pointer">edit business details</button>.
                           </p>
                         </div>
                       </div>
@@ -759,25 +1042,100 @@ export default function BranchSetupWizard({ setActiveTab }) {
                         <div className="space-y-0.5 text-left text-xs font-semibold leading-relaxed">
                           <h4 className="font-extrabold uppercase tracking-wider text-emerald-900">Network Fully Configured</h4>
                           <p>
-                            Excellent! You have successfully registered all <span className="font-black text-emerald-955">{createdBranchesList.length}</span> branches and allocated exactly <span className="font-black text-emerald-955">{assignedEmployees} of {declaredEmployees}</span> employees. Your starter workspace dashboard is fully authorized and ready to launch.
+                            Excellent! You have successfully registered all <span className="font-black text-emerald-955">{createdBranchesList.length}</span> branches (accounting for <span className="font-black text-emerald-955">{createdBranchesList.length}</span> managers) and allocated exactly <span className="font-black text-emerald-955">{assignedEmployees} of {Math.max(0, declaredEmployees - createdBranchesList.length)}</span> remaining employees. Your starter workspace dashboard is fully authorized and ready to launch.
                           </p>
                         </div>
                       </div>
                     )}
 
-                    <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-sm">
-                      <table className="min-w-[750px] w-full text-left border-collapse">
+                    {/* ── Mobile / Tablet: Card list ── */}
+                    <div className="lg:hidden flex flex-col divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
+                      {/* Card header */}
+                      <div className="bg-slate-950 px-4 py-2.5 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">Branch Identity</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">Actions</span>
+                      </div>
+
+                      {createdBranchesList.map((b) => (
+                        <div key={b.branch_id || b._id} className="bg-white px-4 py-4 space-y-3">
+                          {/* Row 1: icon + name + code + status + actions */}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-lg shadow-inner shrink-0">
+                                {b.branch_type === "Warehouse" ? "🏭" : b.branch_type === "Franchise" ? "🤝" : b.branch_type === "Depot" ? "📦" : "🏪"}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-extrabold text-slate-900 text-sm leading-tight truncate">{b.branch_name}</div>
+                                <span className="inline-flex items-center gap-1 rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-600 mt-0.5">
+                                  {b.branch_code || "CODE"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[8px] font-black uppercase text-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Active
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Row 2: details grid */}
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-slate-50/60 border border-slate-100 rounded-xl px-3 py-3 text-xs">
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Location</span>
+                              <span className="font-bold text-slate-900 block">{b.city}</span>
+                              <span className="text-slate-500 text-[10px] font-semibold">{b.state}, {b.country || "India"}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Manager</span>
+                              <span className="font-bold text-slate-900 block">{b.manager_name}</span>
+                              <span className="text-slate-500 text-[10px] font-semibold">{b.phone}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Team</span>
+                              <span className="font-bold text-slate-900">{b.employee_count} Staff{b.employee_count !== 1 ? "" : " Member"}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Shift</span>
+                              <span className="font-bold text-slate-900">{b.working_hours}</span>
+                            </div>
+                          </div>
+
+                          {/* Row 3: actions */}
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              onClick={() => handleEditBranch(b)}
+                              disabled={loading}
+                              className="flex-1 py-2 text-center text-slate-700 font-black text-[10px] uppercase tracking-wider border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBranch(b.branch_id || b._id)}
+                              disabled={loading}
+                              className="flex-1 py-2 text-center text-rose-600 font-black text-[10px] uppercase tracking-wider border border-rose-100 rounded-xl hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ── Desktop: Full table ── */}
+                    <div className="hidden lg:block overflow-x-auto border border-slate-200/80 rounded-2xl shadow-sm">
+                      <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-950 text-slate-100 border-b border-slate-800 text-[10px] font-black uppercase tracking-wider shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
                             <th className="px-5 py-3.5 text-slate-100">Branch Identity</th>
                             <th className="px-5 py-3.5 text-slate-100">Location</th>
-                            <th className="px-5 py-3.5 text-slate-100">Manager & Contact</th>
-                            <th className="px-5 py-3.5 text-slate-100">Team & Operations</th>
+                            <th className="px-5 py-3.5 text-slate-100">Manager &amp; Contact</th>
+                            <th className="px-5 py-3.5 text-slate-100">Team &amp; Operations</th>
                             <th className="px-5 py-3.5 text-center text-slate-100">Status</th>
                             <th className="px-5 py-3.5 text-right text-slate-100">Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-150 text-xs font-semibold text-slate-705">
+                        <tbody className="divide-y divide-slate-200 text-xs font-semibold text-slate-700">
                           {createdBranchesList.map((b) => (
                             <tr key={b.branch_id || b._id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-5 py-4">
@@ -787,7 +1145,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
                                   </div>
                                   <div>
                                     <div className="font-extrabold text-slate-900 text-sm leading-tight mb-0.5">{b.branch_name}</div>
-                                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650">
+                                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-slate-600">
                                       {b.branch_code || "CODE"}
                                     </span>
                                   </div>
@@ -795,18 +1153,18 @@ export default function BranchSetupWizard({ setActiveTab }) {
                               </td>
                               <td className="px-5 py-4">
                                 <div className="text-slate-900 font-bold mb-0.5">{b.city}</div>
-                                <div className="text-slate-450 text-[10px] font-bold">{b.state}, {b.country || "India"}</div>
+                                <div className="text-slate-500 text-[10px] font-bold">{b.state}, {b.country || "India"}</div>
                               </td>
                               <td className="px-5 py-4">
                                 <div className="text-slate-900 font-bold mb-0.5">{b.manager_name}</div>
-                                <div className="text-slate-455 text-[10px] font-bold">{b.phone}</div>
+                                <div className="text-slate-500 text-[10px] font-bold">{b.phone}</div>
                               </td>
                               <td className="px-5 py-4">
                                 <div className="text-slate-900 font-bold mb-0.5">{b.employee_count} Staff Member{b.employee_count !== 1 ? "s" : ""}</div>
-                                <div className="text-slate-450 text-[10px] font-bold">Shift: {b.working_hours}</div>
+                                <div className="text-slate-500 text-[10px] font-bold">Shift: {b.working_hours}</div>
                               </td>
                               <td className="px-5 py-4 text-center">
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-250 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-800">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-800">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                   ACTIVE
                                 </span>
@@ -839,12 +1197,19 @@ export default function BranchSetupWizard({ setActiveTab }) {
 
                     <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-4 border-t border-slate-100">
                       <button
-                        onClick={() => setShowCreateForm(true)}
+                        onClick={() => {
+                          const assigned = createdBranchesList.reduce((acc, b) => acc + (Number(b.employee_count) || 0), 0);
+                          setForm({
+                            ...EMPTY_FORM,
+                            employee_count: Math.max(0, declaredEmployees - expectedBranches - assigned)
+                          });
+                          setShowCreateForm(true);
+                        }}
                         disabled={isBranchCountComplete}
                         className={`w-full sm:w-auto px-6 py-3 border font-black rounded-xl transition-all duration-200 text-xs tracking-wider cursor-pointer shadow-sm ${
                           isBranchCountComplete
-                            ? "bg-slate-50 border-slate-205 text-slate-400 cursor-not-allowed opacity-50"
-                            : "bg-white border-slate-250 hover:bg-slate-50 text-slate-750"
+                            ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed opacity-50"
+                            : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
                         }`}
                       >
                         ➕ REGISTER NEXT BRANCH ({isBranchCountComplete ? createdBranchesList.length : createdBranchesList.length + 1} of {expectedBranches})
@@ -867,7 +1232,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
             </div>
             
             {/* Footer Note */}
-            <p className="text-center text-slate-400 text-[10px] font-black uppercase tracking-wider mt-4">
+            <p className="text-center text-slate-400 text-[10px] font-black uppercase tracking-wider mt-2">
               🔓 Initialize branches to activate inventory, sales triggers, and ML forecasting.
             </p>
           </div>
@@ -915,7 +1280,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
         <div className="w-full max-w-[940px] flex flex-col px-1 sm:px-2">
           <div className="bg-white rounded-3xl shadow-xl border border-slate-200/80 flex flex-col relative">
             {/* Step progress bar */}
-            <div className="px-6 py-4 border-b border-slate-150 bg-slate-50/60 rounded-t-3xl">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/60 rounded-t-3xl">
               <div className="flex items-start justify-between w-full max-w-[480px] mx-auto">
                 {STEPS.map((label, i) => (
                   <React.Fragment key={label}>
@@ -931,7 +1296,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
               {/* ── Step 1: Branch Basics ── */}
               {step === 1 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-150 pb-2 mb-1">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-1 text-slate-800">
                     <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Branch Identity</h2>
                     <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
                   </div>
@@ -939,10 +1304,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                     <div className="md:col-span-5 flex flex-col gap-4">
                       <div>
-                        <Label>Branch Name <span className="text-rose-500 font-black">*</span></Label>
+                        <Label>{labels.nameLabel} <span className="text-rose-500 font-black">*</span></Label>
                         <input
                           type="text"
-                          placeholder="e.g. Dhar Boutique"
+                          placeholder={labels.namePlaceholder}
                           value={form.branch_name}
                           onChange={(e) => {
                             set("branch_name", e.target.value);
@@ -956,10 +1321,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
                         <ErrMsg field="branch_name" />
                       </div>
                       <div>
-                        <Label>Branch Code <span className="text-rose-500 font-black">*</span></Label>
+                        <Label>{labels.codeLabel} <span className="text-rose-500 font-black">*</span></Label>
                         <input
                           type="text"
-                          placeholder="e.g. DHA-BTQ"
+                          placeholder={labels.codePlaceholder}
                           value={form.branch_code}
                           onChange={(e) => set("branch_code", e.target.value.toUpperCase())}
                           className={inp("branch_code")}
@@ -1004,7 +1369,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
               {/* ── Step 2: Location ── */}
               {step === 2 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-150 pb-2 mb-1">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-1">
                     <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Location Parameters</h2>
                     <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
                   </div>
@@ -1012,10 +1377,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
                   <div className="grid grid-cols-12 gap-4">
                     {/* Line 1: Address (Full width) */}
                     <div className="col-span-12">
-                      <Label>Address <span className="text-rose-500 font-black">*</span></Label>
+                      <Label>{labels.addressLabel} <span className="text-rose-500 font-black">*</span></Label>
                       <input
                         type="text"
-                        placeholder="Shop No., Street, Area..."
+                        placeholder={labels.addressPlaceholder}
                         value={form.address}
                         onChange={(e) => set("address", e.target.value)}
                         className={inp("address")}
@@ -1025,10 +1390,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
 
                     {/* Line 2: City & State side-by-side */}
                     <div className="col-span-12 sm:col-span-6">
-                      <Label>City <span className="text-rose-500 font-black">*</span></Label>
+                      <Label>{labels.cityLabel} <span className="text-rose-500 font-black">*</span></Label>
                       <input
                         type="text"
-                        placeholder="e.g. Mumbai"
+                        placeholder={labels.cityPlaceholder}
                         value={form.city}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -1158,8 +1523,8 @@ export default function BranchSetupWizard({ setActiveTab }) {
                       )}
                     </div>
                     <div className="col-span-12 sm:col-span-6">
-                      <Label>Pincode <span className="text-rose-500 font-black">*</span></Label>
-                      <input type="text" placeholder="e.g. 700019" value={form.pincode} onChange={(e) => set("pincode", e.target.value)} className={inp("pincode")} maxLength={10} />
+                      <Label>{labels.pincodeLabel} <span className="text-rose-500 font-black">*</span></Label>
+                      <input type="text" placeholder={labels.pincodePlaceholder} value={form.pincode} onChange={(e) => set("pincode", e.target.value)} className={inp("pincode")} maxLength={10} />
                       <ErrMsg field="pincode" />
                     </div>
                   </div>
@@ -1169,7 +1534,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
               {/* ── Step 3: Contact & Operations ── */}
               {step === 3 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-150 pb-2 mb-1">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-1">
                     <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Contact & Shifts</h2>
                     <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
                   </div>
@@ -1177,12 +1542,42 @@ export default function BranchSetupWizard({ setActiveTab }) {
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                     <div className="md:col-span-6 flex flex-col gap-3.5">
                       <div>
-                        <Label>Branch Manager Name <span className="text-rose-500 font-black">*</span></Label>
-                        <input type="text" placeholder="e.g. Ritesh Deshmukh" value={form.manager_name} onChange={(e) => set("manager_name", e.target.value)} className={inp("manager_name")} />
+                        <div className="flex justify-between items-center mb-1.5">
+                          <Label>{labels.managerLabel} <span className="text-rose-500 font-black">*</span></Label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              set("manager_name", `${storedUser.firstName || ""} ${storedUser.lastName || ""}`.trim());
+                              if (storedUser.phone) {
+                                const phoneRaw = storedUser.phone;
+                                let phone_country_code = "+91";
+                                let phone_number = phoneRaw;
+                                const m = phoneRaw.match(/^(\+\d+)\s*(.*)$/);
+                                if (m) {
+                                  phone_country_code = m[1];
+                                  phone_number = m[2] || "";
+                                }
+                                set("phone_country_code", phone_country_code);
+                                set("phone_number", phone_number);
+                                set("phone", phoneRaw);
+                              }
+                              set("manager_email", storedUser.email || "");
+                            }}
+                            className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer select-none"
+                          >
+                            Assign Myself
+                          </button>
+                        </div>
+                        <input type="text" placeholder={labels.placeholderName} value={form.manager_name} onChange={(e) => set("manager_name", e.target.value)} className={inp("manager_name")} />
                         <ErrMsg field="manager_name" />
                       </div>
+                      <div>
+                        <Label>Branch Manager Email (Optional)</Label>
+                        <input type="email" placeholder="e.g. manager@yourbusiness.com" value={form.manager_email} onChange={(e) => set("manager_email", e.target.value)} className={inp("manager_email")} />
+                        <ErrMsg field="manager_email" />
+                      </div>
                       <div className="relative custom-phone-prefix-container">
-                        <Label>Phone Number <span className="text-rose-500 font-black">*</span></Label>
+                        <Label>{labels.phoneLabel} <span className="text-rose-500 font-black">*</span></Label>
                         <div className="flex relative">
                           <div className="absolute left-0 top-0 bottom-0 flex items-center z-10">
                             <button
@@ -1227,7 +1622,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
 
                           <input
                             type="tel"
-                            placeholder="98765 43210"
+                            placeholder={labels.phonePlaceholder}
                             value={form.phone_number}
                             onChange={(e) => {
                               const val = e.target.value.replace(/[^\d\s\-]/g, ""); // allow digits, spaces, hyphens
@@ -1239,29 +1634,31 @@ export default function BranchSetupWizard({ setActiveTab }) {
                         </div>
                         <ErrMsg field="phone" />
                       </div>
-                      <div>
-                        <Label>GSTIN (Optional)</Label>
-                        <input type="text" placeholder="27AAAAA0000A1Z5" value={form.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase())} className={inp("gstin") + " font-mono uppercase tracking-wider text-sm"} maxLength={15} />
-                      </div>
+                      {form.branch_type !== "Warehouse" && (
+                        <div>
+                          <Label>{labels.gstLabel}</Label>
+                          <input type="text" placeholder={labels.gstPlaceholder} value={form.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase())} className={inp("gstin") + " font-mono uppercase tracking-wider text-sm"} maxLength={15} />
+                        </div>
+                      )}
                     </div>
 
                     <div className="md:col-span-6 flex flex-col gap-3.5">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label>Employee Count</Label>
-                          <input type="number" min={1} value={form.employee_count} onChange={(e) => set("employee_count", e.target.value)} className={inp("employee_count")} />
+                          <Label>{labels.staffLabel}</Label>
+                          <input type="number" min={0} value={form.employee_count} onChange={(e) => set("employee_count", e.target.value)} className={inp("employee_count")} />
                         </div>
                         <div>
-                          <Label>Opening Date</Label>
+                          <Label>{labels.openingDateLabel}</Label>
                           <input type="date" value={form.opening_date} onChange={(e) => set("opening_date", e.target.value)} className={inp("opening_date") + " cursor-pointer"} />
                         </div>
                       </div>
 
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <Label>Working Hours</Label>
+                          <Label>{labels.hoursLabel}</Label>
                         </div>
-                        <input type="text" placeholder="e.g. 9AM-9PM" value={form.working_hours} onChange={(e) => set("working_hours", e.target.value)} className={inp("working_hours")} />
+                        <input type="text" placeholder={labels.placeholderHours} value={form.working_hours} onChange={(e) => set("working_hours", e.target.value)} className={inp("working_hours")} />
                         <div className="flex flex-wrap gap-1 mt-1.5">
                           {WORKING_HOURS_PRESETS.map((h) => {
                             const isSelected = form.working_hours === h;
@@ -1273,7 +1670,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
                                 className={`px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wide border transition-all cursor-pointer ${
                                   isSelected
                                     ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                                    : "bg-slate-50 text-slate-655 border-slate-200 hover:bg-slate-100"
+                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                                 }`}
                               >
                                 {h}
@@ -1290,8 +1687,8 @@ export default function BranchSetupWizard({ setActiveTab }) {
               {/* ── Step 4: Review ── */}
               {step === 4 && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-150 pb-2 mb-1">
-                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Verification</h2>
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-1">
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">{labels.verificationHeader}</h2>
                     <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">Ready to launch</span>
                   </div>
 
@@ -1302,26 +1699,26 @@ export default function BranchSetupWizard({ setActiveTab }) {
                           {BRANCH_TYPES.find((t) => t.value === form.branch_type)?.icon || "🏪"}
                         </div>
                         <div>
-                          <h3 className="text-white font-black text-sm leading-none">{form.branch_name || "New Branch"}</h3>
+                          <h3 className="text-white font-black text-sm leading-none">{form.branch_name || `New ${labels.titleLabel}`}</h3>
                           <span className="text-emerald-400 text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-full inline-block mt-1">{form.branch_code || "CODE"}</span>
                         </div>
                       </div>
                       <div className="pt-1">
-                        <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Registered Address</span>
-                        <span className="text-slate-350 text-xs font-semibold leading-relaxed block">{form.address}</span>
+                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.addressSectionLabel}</span>
+                        <span className="text-slate-200 text-xs font-semibold leading-relaxed block">{form.address}</span>
                         <span className="text-white text-xs font-bold block mt-1">{form.city}, {form.state}, {form.country} – {form.pincode}</span>
                       </div>
                     </div>
 
                     <div className="space-y-3 md:border-r md:border-slate-800 md:px-4">
                       <div>
-                        <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Branch Manager</span>
+                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.managerSectionLabel}</span>
                         <span className="text-white text-sm font-bold block">{form.manager_name}</span>
                         <span className="text-slate-400 text-xs font-semibold block mt-0.5">{form.phone}</span>
                       </div>
-                      {form.gstin && (
+                      {form.branch_type !== "Warehouse" && form.gstin && (
                         <div>
-                          <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">GST Identification</span>
+                          <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.gstSectionLabel}</span>
                           <span className="text-emerald-400 font-mono text-[10px] font-black uppercase tracking-widest">{form.gstin}</span>
                         </div>
                       )}
@@ -1329,14 +1726,14 @@ export default function BranchSetupWizard({ setActiveTab }) {
 
                     <div className="space-y-3 md:pl-4">
                       <div>
-                        <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Operating Hours</span>
+                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.hoursSectionLabel}</span>
                         <span className="text-white text-sm font-bold block">{form.working_hours}</span>
                       </div>
                       <div>
-                        <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Team & Launch</span>
-                        <span className="text-white text-xs font-bold block">{form.employee_count} Active Staff Member{form.employee_count !== 1 ? "s" : ""}</span>
+                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.teamSectionLabel}</span>
+                        <span className="text-white text-xs font-bold block">{form.employee_count} Additional Staff Member{form.employee_count !== 1 ? "s" : ""}</span>
                         {form.opening_date && (
-                          <span className="text-slate-400 text-[10px] font-semibold block mt-0.5">Opening: {form.opening_date}</span>
+                          <span className="text-slate-400 text-[10px] font-semibold block mt-0.5">{labels.openingDateLabel}: {form.opening_date}</span>
                         )}
                       </div>
                     </div>
@@ -1383,7 +1780,10 @@ export default function BranchSetupWizard({ setActiveTab }) {
                     onClick={() => {
                       setShowCreateForm(false);
                       setStep(1);
-                      setForm(EMPTY_FORM);
+                      setForm({
+                        ...EMPTY_FORM,
+                        employee_count: Math.max(1, declaredEmployees - 1)
+                      });
                       setErrors({});
                     }}
                     className="px-5 py-2.5 border border-rose-200 bg-rose-55/40 hover:bg-rose-100 text-rose-700 font-extrabold rounded-xl transition-all text-xs tracking-wider cursor-pointer"

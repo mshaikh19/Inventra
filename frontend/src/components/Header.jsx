@@ -151,7 +151,7 @@ export default function Header({
 
       {/* Right controls: A beautiful, clean high-contrast CTA button instead of application links */}
       <div className="flex items-center gap-4">
-        <NotificationDropdown buttonClassName="h-10 w-10" panelClassName="mt-3" />
+        {isAuthed && <NotificationDropdown buttonClassName="h-10 w-10" panelClassName="mt-3" />}
         {!isAuthed ? (
           <button
             className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"

@@ -95,30 +95,40 @@ body {
   width: 100% !important;
   min-width: min(92vw, 540px);
   max-width: min(98vw, 980px);
-  min-height: 76px;
+  min-height: 52px; /* Sleeker, single-line toast height */
   margin: 0;
   border-radius: 1.4rem;
+  font-weight: 700;
+  font-size: 15px; /* Highly readable font size */
+  padding-left: 24px !important; /* Clear horizontal indent from rounded border */
+  padding-right: 48px !important; /* Prevent text overlap with close button */
+  display: flex !important;
+  align-items: center !important;
 }
 
 .inventra-toast--success {
-  background: linear-gradient(90deg, rgba(248, 252, 250, 0.98) 0%, rgba(240, 253, 244, 0.98) 100%);
-  border-color: rgba(187, 247, 208, 0.95);
+  background: linear-gradient(90deg, rgba(248, 252, 250, 0.98) 0%, rgba(240, 253, 244, 0.98) 100%) !important;
+  border-color: rgba(187, 247, 208, 0.95) !important;
+  color: #047857 !important; /* Clearly visible emerald green text */
 }
 
 .inventra-toast--error {
-  background: linear-gradient(90deg, rgba(255, 247, 247, 0.99) 0%, rgba(255, 237, 237, 0.99) 100%);
-  border-color: rgba(252, 165, 165, 0.98);
+  background: linear-gradient(90deg, rgba(255, 247, 247, 0.99) 0%, rgba(255, 237, 237, 0.99) 100%) !important;
+  border-color: rgba(252, 165, 165, 0.98) !important;
+  color: #b91c1c !important; /* Clearly visible red text */
 }
 
 .inventra-toast--info {
-  background: linear-gradient(90deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
-  border-color: rgba(226, 232, 240, 0.95);
+  background: linear-gradient(90deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%) !important;
+  border-color: rgba(226, 232, 240, 0.95) !important;
+  color: #1e293b !important; /* Clearly visible dark slate text */
 }
 
 .inventra-toast__body {
   margin: 0;
   padding: 0;
   width: 100%;
+  color: inherit !important;
 }
 
 /* Scoped sidebar scrollbar for a subtle, elevated look */
@@ -269,5 +279,103 @@ input:-webkit-autofill:active {
 .animate-pulse-soft {
   animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Uniform Premium Dropdowns styling */
+select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: calc(100% - 0.75em) center !important;
+  background-size: 0.9em !important;
+  padding-right: 2.2em !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background-color: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  color: #0f172a;
+}
+
+select:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+select:focus {
+  background-color: #ffffff;
+  border-color: #0ea5e9; /* Sky focus as default */
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+  outline: none;
+}
+
+select option {
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 0.5rem;
+}
+
+/* Dark mode overrides for select */
+@media (prefers-color-scheme: dark) {
+  select {
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+    background-color: #1e293b;
+    border-color: #475569;
+    color: #f8fafc;
+  }
+  
+  select:hover {
+    background-color: #334155;
+    border-color: #64748b;
+  }
+  
+  select:focus {
+    background-color: #0f172a;
+    border-color: #c084fc; /* Purple focus default in dark mode */
+    box-shadow: 0 0 0 4px rgba(192, 132, 252, 0.2);
+  }
+
+  select option {
+    background-color: #1e293b;
+    color: #f8fafc;
+  }
+}
+
+/* Force light theme for native select elements when placed inside light-background containers */
+.bg-white select,
+.bg-slate-50 select,
+.bg-slate-100 select,
+.bg-emerald-50 select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.bg-white select:hover,
+.bg-slate-50 select:hover,
+.bg-slate-100 select:hover,
+.bg-emerald-50 select:hover {
+  background-color: #f8fafc !important;
+  border-color: #94a3b8 !important;
+}
+
+.bg-white select:focus,
+.bg-slate-50 select:focus,
+.bg-slate-100 select:focus,
+.bg-emerald-50 select:focus {
+  background-color: #ffffff !important;
+  border-color: #10b981 !important; /* Emerald green focus for Inventory modal */
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15) !important;
+}
+
+.bg-white select option,
+.bg-slate-50 select option,
+.bg-slate-100 select option,
+.bg-emerald-50 select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
 
 

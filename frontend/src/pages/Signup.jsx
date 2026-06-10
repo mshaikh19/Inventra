@@ -24,21 +24,20 @@ const compactToastMessage = (value) => String(value || "Please check the email a
 const showEmailToast = (tone, title, message) => {
   const isSuccess = tone === "success";
   const content = (
-    <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
+    <div className="flex w-full items-start gap-2.5 px-3.5 py-2.5 sm:items-center sm:gap-3 sm:px-4 sm:py-3">
       <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border text-xs font-black ${
-          isSuccess
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.95rem] border text-xs font-black ${isSuccess
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
             : "border-rose-200 bg-rose-50 text-rose-700"
-        }`}
+          }`}
       >
         {isSuccess ? "✓" : "!"}
       </div>
-      <div className="min-w-0 flex-1 pr-8">
-        <div className={`font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] sm:text-[0.9rem] ${isSuccess ? "text-emerald-900" : "text-rose-700"}`}>
+      <div className="min-w-0 flex-1">
+        <div className={`font-heading text-[0.9rem] font-extrabold tracking-[-0.03em] sm:text-[0.96rem] ${isSuccess ? "text-emerald-900" : "text-rose-700"}`}>
           {title}
         </div>
-        <div className={`mt-0.5 w-full max-w-none text-[0.78rem] font-semibold leading-[0.95rem] break-words sm:text-[0.82rem] sm:leading-[1rem] ${isSuccess ? "text-emerald-950/80" : "text-rose-950/80"}`}>
+        <div className={`mt-0.5 w-full max-w-none text-[0.86rem] font-medium leading-[1.1rem] break-words sm:text-[0.9rem] sm:leading-[1.2rem] ${isSuccess ? "text-emerald-900/75" : "text-rose-700/90"}`}>
           {message}
         </div>
       </div>
@@ -68,7 +67,7 @@ const loadSignupDraft = () => {
   }
 
   try {
-    const rawDraft = window.localStorage.getItem(SIGNUP_DRAFT_KEY);
+    const rawDraft = window.sessionStorage.getItem(SIGNUP_DRAFT_KEY);
     if (!rawDraft) return { step: 1, form: EMPTY_FORM, classification: null };
 
     const parsed = JSON.parse(rawDraft);
@@ -97,6 +96,7 @@ export default function Signup({ setActiveTab }) {
   const [classifierSchema, setClassifierSchema] = React.useState(null);
   const [emailChecking, setEmailChecking] = React.useState(false);
   const [emailAvailable, setEmailAvailable] = React.useState(null);
+  const [showPassword, setShowPassword] = React.useState(false);
 
   const firstNameRef = React.useRef(null);
   const lastNameRef = React.useRef(null);
@@ -124,21 +124,6 @@ export default function Signup({ setActiveTab }) {
       document.body.style.overflow = prev;
     };
   }, []);
-
-  React.useEffect(() => {
-    if (success) return;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(
-          SIGNUP_DRAFT_KEY,
-          JSON.stringify({ step, form, classification })
-        );
-      } catch (err) {
-        // ignore storage quota errors
-      }
-    }
-  }, [step, form, classification, success]);
-
   const checkEmailAvailability = React.useCallback(
 
     async (email) => {
@@ -158,15 +143,15 @@ export default function Signup({ setActiveTab }) {
         const res = await fetch(`http://127.0.0.1:8000/api/v1/auth/check-email?email=${encodeURIComponent(email)}`);
 
         if (res.ok) {
+
           const data = await res.json();
-          if (data.exists) {
-            setEmailAvailable(false);
-            showEmailToast("error", "Email already in use", "This email is registered. Please use a different address.");
-          } else {
-            setEmailAvailable(true);
-          }
+
+          setEmailAvailable(!data.exists);
+
         } else {
+
           setEmailAvailable(null);
+
         }
 
       } catch (err) {
@@ -205,7 +190,7 @@ export default function Signup({ setActiveTab }) {
 
     });
 
-    
+
 
     // Check email availability when email changes
 
@@ -249,7 +234,11 @@ export default function Signup({ setActiveTab }) {
 
           e.email = "Enter a valid work email (e.g. you@company.com).";
 
+        // Check email availability if format is valid
 
+        else if (emailAvailable === false)
+
+          e.email = "This email is already registered. Please use a different email or sign in.";
 
       }
 
@@ -286,8 +275,13 @@ export default function Signup({ setActiveTab }) {
     }
 
     if (s === 2) {
+
       // business step validation
+
       if (!form.company) e.company = "Company name is required for onboarding.";
+
+      if (!form.businessType) e.businessType = "Business type is required.";
+
     }
 
     if (s === 3) {
@@ -469,16 +463,17 @@ export default function Signup({ setActiveTab }) {
 
 
   const goNext = () => {
+
     const v = validateStep(step);
+
     setErrors(v);
 
-    if (v || (step === 1 && emailAvailable === false)) {
-      if (step === 1 && emailAvailable === false) {
-        showEmailToast("error", "Email already in use", "This email is registered. Please use a different address.");
-      } else if (v && v.email) {
-        showEmailToast("error", "Email needs attention", compactToastMessage(v.email));
-      }
+    if (v) {
+
+      if (v.email) showEmailToast("error", "Email needs attention", compactToastMessage(v.email));
+
       return;
+
     }
 
     if (step === 3) {
@@ -707,26 +702,19 @@ export default function Signup({ setActiveTab }) {
       setSuccess(true);
 
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem(SIGNUP_DRAFT_KEY);
+
+        window.sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
+
       }
 
     } catch (err) {
-      const rawMsg = err.message || "";
-      let errMsg = rawMsg;
-      let errTitle = "Launch Failed";
 
-      if (rawMsg === "Failed to fetch") {
-        errTitle = "Connection Failed";
-        errMsg = "Unable to reach the server. Please verify your connection or check if the backend service is running.";
-        showEmailToast("error", errTitle, errMsg);
-      } else {
-        if (!errors) setErrors({ submit: rawMsg });
-        if (rawMsg.toLowerCase().includes("email")) {
-          showEmailToast("error", "Email verification failed", compactToastMessage(rawMsg));
-        } else if (rawMsg !== "Validation error") {
-          showEmailToast("error", errTitle, errMsg);
-        }
+      if (!errors) setErrors({ submit: err.message });
+
+      if (err?.message && err.message.toLowerCase().includes("email")) {
+        showEmailToast("error", "Email verification failed", compactToastMessage(err.message));
       }
+
     } finally {
 
       setLoading(false);
@@ -757,24 +745,22 @@ export default function Signup({ setActiveTab }) {
 
           json.detail?.message ||
 
-            json.detail ||
+          json.detail ||
 
-            "Unable to verify database record.",
+          "Unable to verify database record.",
 
         );
 
       setDbCheck(json);
 
     } catch (err) {
-      const rawMsg = err.message || "";
-      let errMsg = rawMsg;
-      if (rawMsg === "Failed to fetch") {
-        errMsg = "Unable to reach the server. Please verify your connection or check if the backend service is running.";
-        showEmailToast("error", "Connection Failed", errMsg);
-      } else if (rawMsg.toLowerCase().includes("email")) {
-        showEmailToast("error", "Could not verify email", compactToastMessage(rawMsg || "Unable to verify record."));
+
+      setDbCheck({ error: err.message });
+
+      if ((err.message || "").toLowerCase().includes("email")) {
+        showEmailToast("error", "Could not verify email", compactToastMessage(err.message || "Unable to verify record."));
       }
-      setDbCheck({ error: errMsg });
+
     } finally {
 
       setLoading(false);
@@ -1420,23 +1406,41 @@ export default function Signup({ setActiveTab }) {
 
                     )}
 
-                    {emailAvailable === true && !emailChecking && form.email && !errors?.email && (
+                    {emailAvailable === true && !emailChecking && form.email && (
+
                       <p className="text-emerald-600 text-[11px] font-bold mt-0 px-1 leading-tight">
+
                         ✓ Email is available
+
                       </p>
+
+                    )}
+
+                    {emailAvailable === false && !emailChecking && form.email && (
+
+                      <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+
+                        ✗ Email is already registered
+
+                      </p>
+
                     )}
 
                     {errors && errors.email && (
+
                       <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
-                        ✗ {errors.email}
+
+                        {errors.email}
+
                       </p>
+
                     )}
 
                   </div>
 
 
 
-                  <div className="flex flex-col gap-1 relative">
+                  <div className="flex flex-col gap-1">
 
                     <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
 
@@ -1444,21 +1448,57 @@ export default function Signup({ setActiveTab }) {
 
                     </label>
 
-                    <input
+                    <div className="relative">
 
-                      aria-invalid={!!(errors && errors.password)}
+                      <input
 
-                      type="password"
+                        aria-invalid={!!(errors && errors.password)}
 
-                      value={form.password}
+                        type={showPassword ? "text" : "password"}
 
-                      onChange={(e) => handleChange("password", e.target.value)}
+                        value={form.password}
 
-                      placeholder="At least 8 characters"
+                        onChange={(e) => handleChange("password", e.target.value)}
 
-                      className={inputClass}
+                        placeholder="At least 8 characters"
 
-                    />
+                        className={inputClass + " pr-10"}
+
+                      />
+
+                      <button
+
+                        type="button"
+
+                        onClick={() => setShowPassword(!showPassword)}
+
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+
+                      >
+
+                        {showPassword ? (
+
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+
+                          </svg>
+
+                        ) : (
+
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+
+                          </svg>
+
+                        )}
+
+                      </button>
+
+                    </div>
 
                     {errors && errors.password && (
 
@@ -1514,7 +1554,7 @@ export default function Signup({ setActiveTab }) {
 
                         htmlFor="agree"
 
-                        className="text-[12.5px] text-slate-650 font-bold leading-normal cursor-pointer select-none"
+                        className="text-[12.5px] text-slate-600 font-bold leading-normal cursor-pointer select-none"
 
                       >
 
@@ -1615,6 +1655,42 @@ export default function Signup({ setActiveTab }) {
                       <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
 
                         {errors.company}
+
+                      </p>
+
+                    )}
+
+                  </div>
+
+                  <div className="flex flex-col gap-1 mt-3">
+
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+
+                      What kind of business is this?
+
+                    </label>
+
+                    <BusinessTypeSelect
+
+                      value={form.businessType}
+
+                      onChange={(v) => handleChange("businessType", v)}
+
+                      className=""
+
+                    />
+
+                    <p className="text-[11px] text-slate-500 mt-1">
+
+                      Pick the closest match. It helps us set things up better.
+
+                    </p>
+
+                    {errors && errors.businessType && (
+
+                      <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+
+                        {errors.businessType}
 
                       </p>
 
@@ -1792,32 +1868,6 @@ export default function Signup({ setActiveTab }) {
 
 
 
-                  <div className="flex flex-col gap-1">
-
-                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-
-                      What kind of business is this? (optional)
-
-                    </label>
-
-                    <BusinessTypeSelect
-
-                      value={form.businessType}
-
-                      onChange={(v) => handleChange("businessType", v)}
-
-                      className=""
-
-                    />
-
-                    <p className="text-[11px] text-slate-500 mt-1">
-
-                      Pick the closest match. It helps us set things up better.
-
-                    </p>
-
-                  </div>
-
                 </>
 
               )}
@@ -1976,7 +2026,7 @@ export default function Signup({ setActiveTab }) {
 
                       type="button"
 
-                      onClick={() => handleSubmit({ preventDefault: () => {} })}
+                      onClick={() => handleSubmit({ preventDefault: () => { } })}
 
                       disabled={loading}
 

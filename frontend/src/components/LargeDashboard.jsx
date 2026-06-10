@@ -2,258 +2,154 @@ import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
+import CustomDropdown from "./CustomDropdown";
 
 import L from "leaflet";
 
 
 
-// Standard allocation ratios for branches
-
-const allocateStock = (productId, totalStock) => {
-
-  let m = 0, d = 0, b = 0, p = 0;
-
-  if (productId === 1) { // Bread (typically 8 total initially)
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.25);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
-  } else if (productId === 2) { // Milk (typically 12 total initially)
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.25);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
-  } else if (productId === 3) { // Coke (typically 85 total initially)
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.3);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
-  } else if (productId === 4) { // Chips (typically 4 total initially)
-
-    m = Math.floor(totalStock * 0.5);
-
-    b = Math.floor(totalStock * 0.25);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
-  } else if (productId === 5) { // Butter (typically 32 total initially)
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.3);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
-  } else if (productId === 6) { // Chocolate (typically 55 total initially)
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.3);
-
-    p = Math.floor(totalStock * 0.25);
-
-    d = totalStock - (m + b + p);
-
+// Dynamic stock mapping helper for branches
+const allocateStock = (p, branchesList) => {
+  const allocation = {};
+  const branches = branchesList || [];
+  branches.forEach(b => {
+    allocation[b] = 0;
+  });
+  
+  if (!p || typeof p !== "object") return allocation;
+  
+  const pBranch = p.branchName || p.branch_name;
+  if (pBranch && branches.includes(pBranch)) {
+    allocation[pBranch] = p.stock;
   } else {
-
-    // General fallback for new products added via importer
-
-    m = Math.floor(totalStock * 0.4);
-
-    b = Math.floor(totalStock * 0.3);
-
-    p = Math.floor(totalStock * 0.2);
-
-    d = totalStock - (m + b + p);
-
+    if (branches.length > 0) {
+      allocation[branches[0]] = p.stock;
+    }
   }
-
-
-
-  return {
-
-    "Mumbai Hub": Math.max(0, m),
-
-    "Delhi Branch": Math.max(0, d),
-
-    "Bangalore Branch": Math.max(0, b),
-
-    "Pune Depot": Math.max(0, p)
-
-  };
-
+  return allocation;
 };
 
 
 
-export default function LargeDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft, onOpenBranchPage, branchNetwork }) {
+export default function LargeDashboard({ products, onUpdateProducts, tierAccent, tierAccentSoft, onOpenBranchPage, branchNetwork, branchesList: branchesListFromDB = [], isOwner = true }) {
+
+  const branchesNames = branchNetwork?.length
+    ? branchNetwork
+    : (branchesListFromDB && branchesListFromDB.length > 0 ? branchesListFromDB.map(b => b.branch_name) : []);
+
+  const branchesList = branchesNames;
+
+  const branchCapacityLimits = {};
+  branchesList.forEach((b, i) => {
+    branchCapacityLimits[b.branch_name || `Branch ${i + 1}`] = 200 + (i * 50);
+  });
+
+
+
+  const getShelfForProduct = (productName) => {
+    if (!productName) return "Aisle A-1";
+    const char = productName.charAt(0).toUpperCase();
+    const sum = productName.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const aisleNum = (sum % 5) + 1;
+    const shelfNum = (sum % 4) + 1;
+    const isCold = productName.toLowerCase().includes("milk") || 
+                   productName.toLowerCase().includes("butter") || 
+                   productName.toLowerCase().includes("yogurt") ||
+                   productName.toLowerCase().includes("cheese") ||
+                   productName.toLowerCase().includes("dairy");
+    if (isCold) {
+      return `Cold Rack-${aisleNum}`;
+    }
+    return `Aisle ${char}-${shelfNum}`;
+  };
+
+
 
   // Navigation View State: null means Consolidated View, otherwise Branch Name
-
   const [selectedBranchPage, setSelectedBranchPage] = useState(null);
-
-  const [activeBranch, setActiveBranch] = useState("Mumbai Hub");
-
+  const [activeBranch, setActiveBranch] = useState(() => branchesNames[0] || "");
   const [hoveredNode, setHoveredNode] = useState(null);
 
-
-
-  const branchesList = branchNetwork?.length
-
-    ? branchNetwork
-
-    : ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot", "New York Hub", "London Branch", "Tokyo Depot", "Singapore Hub"];
-
-  const branchCapacityLimits = {
-
-    "Mumbai Hub": 300,
-
-    "Delhi Branch": 150,
-
-    "Bangalore Branch": 250,
-
-    "Pune Depot": 600,
-
-    "New York Hub": 450,
-
-    "London Branch": 280,
-
-    "Tokyo Depot": 520,
-
-    "Singapore Hub": 380
-
-  };
-
-
-
-  // Branch Shelf Coordinates Mapper for a realistic warehouse grid
-
-  const shelfCoordinates = {
-
-    1: { "Mumbai Hub": "Aisle A-3", "Delhi Branch": "Aisle A-1", "Bangalore Branch": "Aisle A-2", "Pune Depot": "Aisle A-5", "New York Hub": "Zone B-2", "London Branch": "Section C-1", "Tokyo Depot": "Area D-3", "Singapore Hub": "Bay E-2" },
-
-    2: { "Mumbai Hub": "Cold Rack-1", "Delhi Branch": "Cold Rack-1", "Bangalore Branch": "Cold Rack-3", "Pune Depot": "Cold Room-1", "New York Hub": "Cool Zone A-1", "London Branch": "Fridge B-2", "Tokyo Depot": "Cold Storage C-1", "Singapore Hub": "Chiller D-2" },
-
-    3: { "Mumbai Hub": "Aisle C-2", "Delhi Branch": "Aisle C-1", "Bangalore Branch": "Aisle C-3", "Pune Depot": "Aisle C-5", "New York Hub": "Row E-3", "London Branch": "Lane F-1", "Tokyo Depot": "Path G-2", "Singapore Hub": "Way H-3" },
-
-    4: { "Mumbai Hub": "Aisle D-1", "Delhi Branch": "Aisle D-1", "Bangalore Branch": "Aisle D-3", "Pune Depot": "Aisle D-5", "New York Hub": "Shelf I-2", "London Branch": "Rack J-1", "Tokyo Depot": "Unit K-3", "Singapore Hub": "Spot L-2" },
-
-    5: { "Mumbai Hub": "Cold Rack-2", "Delhi Branch": "Cold Rack-2", "Bangalore Branch": "Cold Rack-4", "Pune Depot": "Cold Room-2", "New York Hub": "Freeze M-1", "London Branch": "Ice N-2", "Tokyo Depot": "Polar O-3", "Singapore Hub": "Frost P-1" },
-
-    6: { "Mumbai Hub": "Aisle E-4", "Delhi Branch": "Aisle E-2", "Bangalore Branch": "Aisle E-1", "Pune Depot": "Aisle E-5", "New York Hub": "Zone Q-2", "London Branch": "Area R-1", "Tokyo Depot": "Sector S-3", "Singapore Hub": "Region T-2" },
-
-  };
-
-
-
   // Stateful Branch-Specific Inventory Allocations
-
   const [branchStocksMap, setBranchStocksMap] = useState(() => {
-
     const initialMap = {};
-
     products.forEach(p => {
-
-      initialMap[p.id] = allocateStock(p.id, p.stock);
-
+      initialMap[p.id] = allocateStock(p, branchesList);
     });
-
     return initialMap;
-
   });
 
-
-
-  const [transferForm, setTransferForm] = useState({
-
-    source: "Pune Depot",
-
-    destination: "Delhi Branch",
-
-    productId: products[0]?.id || "",
-
-    quantity: 10
-
+  const [transferForm, setTransferForm] = useState(() => {
+    const src = branchesList[0] || "";
+    const dest = branchesList[1] || branchesList[0] || "";
+    return {
+      source: src,
+      destination: dest,
+      productId: products[0]?.id || "",
+      quantity: 10
+    };
   });
-
-
 
   const [transferStatus, setTransferStatus] = useState("idle"); // idle, sending, success
   const [transferError, setTransferError] = useState("");
+  const [forecastBranch, setForecastBranch] = useState(() => branchesList[0] || "");
 
-  const [forecastBranch, setForecastBranch] = useState("Mumbai Hub");
-
-
+  // Sync transferForm source/destination when branches change
+  useEffect(() => {
+    if (branchesList.length > 0) {
+      setTransferForm(prev => {
+        const updates = {};
+        if (!prev.source || !branchesList.includes(prev.source)) {
+          updates.source = branchesList[0];
+        }
+        if (!prev.destination || !branchesList.includes(prev.destination)) {
+          updates.destination = branchesList[1] || branchesList[0];
+        }
+        if (Object.keys(updates).length > 0) {
+          return { ...prev, ...updates };
+        }
+        return prev;
+      });
+    }
+  }, [branchesList]);
 
   // Keep branchStocksMap synchronized reactively when global products total stock changes
-
   useEffect(() => {
-
     setBranchStocksMap(prev => {
-
       let changed = false;
-
       const updated = { ...prev };
-
       products.forEach(p => {
-
         const current = prev[p.id];
-
         const currentSum = current
-
-          ? (current["Mumbai Hub"] + current["Delhi Branch"] + current["Bangalore Branch"] + current["Pune Depot"])
-
+          ? branchesList.reduce((sum, b) => sum + (current[b] || 0), 0)
           : -1;
 
-
-
         if (currentSum !== p.stock) {
-
-          updated[p.id] = allocateStock(p.id, p.stock);
-
+          updated[p.id] = allocateStock(p, branchesList);
           changed = true;
-
         }
-
       });
-
       return changed ? updated : prev;
-
     });
+  }, [products, branchesList]);
 
-  }, [products]);
-
-
+  // Sync activeBranch and forecastBranch when branches list updates
+  useEffect(() => {
+    if (branchesList.length > 0) {
+      if (!activeBranch || !branchesList.includes(activeBranch)) {
+        setActiveBranch(branchesList[0]);
+      }
+      if (!forecastBranch || !branchesList.includes(forecastBranch)) {
+        setForecastBranch(branchesList[0]);
+      }
+    }
+  }, [branchesList, activeBranch, forecastBranch]);
 
   // Sync transferForm productId if products list changes or shifts
-
   useEffect(() => {
-
     if (products.length > 0 && !transferForm.productId) {
-
       setTransferForm(prev => ({ ...prev, productId: products[0].id }));
-
     }
-
   }, [products, transferForm.productId]);
 
 
@@ -266,7 +162,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
       const stock = branchStocksMap[p.id]?.[branchName] ?? 0;
 
-      const shelf = shelfCoordinates[p.id]?.[branchName] ?? "Aisle F-1";
+      const shelf = getShelfForProduct(p.name);
 
       
 
@@ -310,60 +206,66 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
 
-  // Mock data for branch sales comparison
-
-  const branchMetrics = {
-
-    "Mumbai Hub": { sales: "₹4.8L", stockLevel: "94%", health: "Optimal", alerts: 0 },
-
-    "Delhi Branch": { sales: "₹3.6L", stockLevel: "68%", health: "Watchlist", alerts: 4 },
-
-    "Bangalore Branch": { sales: "₹4.2L", stockLevel: "88%", health: "Optimal", alerts: 0 },
-
-    "Pune Depot": { sales: "₹1.9L", stockLevel: "98%", health: "Overstocked", alerts: 1 },
-
-    "New York Hub": { sales: "$8.2M", stockLevel: "91%", health: "Optimal", alerts: 0 },
-
-    "London Branch": { sales: "£5.4M", stockLevel: "76%", health: "Watchlist", alerts: 2 },
-
-    "Tokyo Depot": { sales: "¥6.8M", stockLevel: "89%", health: "Optimal", alerts: 1 },
-
-    "Singapore Hub": { sales: "S$3.9M", stockLevel: "95%", health: "Optimal", alerts: 0 },
-
-  };
-
-
+  // Compute branch metrics dynamically based on actual products and branch networks
+  const branchMetrics = React.useMemo(() => {
+    const metrics = {};
+    branchesList.forEach(branchName => {
+      // Filter products belonging to this branch
+      const branchProducts = products.filter(p => p.branchName === branchName);
+      
+      const totalSalesVal = branchProducts.reduce((sum, p) => sum + (p.price * (p.sold || 0)), 0);
+      const totalStock = branchProducts.reduce((sum, p) => sum + p.stock, 0);
+      
+      // Stock level percentage
+      const capacity = branchCapacityLimits[branchName] || 500;
+      const stockLevelPct = Math.round((totalStock / capacity) * 100);
+      
+      // Health check
+      let health = "Optimal";
+      if (totalStock === 0) {
+        health = "Onboarding";
+      } else if (branchProducts.some(p => p.stock <= (p.reorderLevel || 10))) {
+        health = "Watchlist";
+      } else if (stockLevelPct > 95) {
+        health = "Overstocked";
+      }
+      
+      // Alerts count
+      const alerts = branchProducts.filter(p => p.stock <= (p.reorderLevel || 10)).length;
+      
+      // Format sales values
+      let salesStr = "₹0";
+      if (totalSalesVal >= 10000000) salesStr = `₹${(totalSalesVal / 10000000).toFixed(1)}Cr`;
+      else if (totalSalesVal >= 100000) salesStr = `₹${(totalSalesVal / 100000).toFixed(1)}L`;
+      else salesStr = `₹${totalSalesVal.toLocaleString()}`;
+      
+      metrics[branchName] = {
+        sales: salesStr,
+        stockLevel: `${stockLevelPct}%`,
+        health,
+        alerts
+      };
+    });
+    return metrics;
+  }, [products, branchesList]);
 
   const handleStockTransfer = (e) => {
-
     e.preventDefault();
-
     if (transferForm.source === transferForm.destination) {
       setTransferError("Source and destination branches must be different.");
       setTransferStatus("error");
-
       return;
-
     }
 
-
-
     const qty = Number(transferForm.quantity);
-
-    const prodId = Number(transferForm.productId);
-
-
+    const prodId = transferForm.productId;
 
     // Verify source has enough stock
-
     const sourceStock = branchStocksMap[prodId]?.[transferForm.source] || 0;
-
     if (sourceStock < qty) {
       setTransferError(`Only ${sourceStock} units are available in ${transferForm.source}.`);
       setTransferStatus("error");
-
       return;
-
     }
 
 
@@ -484,53 +386,28 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
   const renderRegionalMap = () => {
 
-    // Branch locations with accurate geographic coordinates [latitude, longitude]
+    // Branch locations with dynamic coordinates (latitude, longitude)
+    const branchLocations = branchesListFromDB
+      .filter((branch) => {
+        const lat = Number(branch.latitude);
+        const lng = Number(branch.longitude);
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      })
+      .map((branch) => ({
+        name: branch.branch_name,
+        branch: branch.branch_name,
+        position: [Number(branch.latitude), Number(branch.longitude)],
+        ...getNodeStyle(branch.branch_name)
+      }));
 
-    const branchLocations = [
-
-      { name: "New York Hub",    branch: "New York Hub",    position: [40.7128, -74.006], ...getNodeStyle("New York Hub") },
-
-      { name: "London Branch",   branch: "London Branch",   position: [51.5074, -0.1276], ...getNodeStyle("London Branch") },
-
-      { name: "Mumbai Hub",      branch: "Mumbai Hub",      position: [19.0760, 72.8777], ...getNodeStyle("Mumbai Hub") },
-
-      { name: "Delhi Branch",   branch: "Delhi Branch",   position: [28.6139, 77.2090], ...getNodeStyle("Delhi Branch") },
-
-      { name: "Bangalore Branch", branch: "Bangalore Branch", position: [12.9716, 77.5946], ...getNodeStyle("Bangalore Branch") },
-
-      { name: "Pune Depot",      branch: "Pune Depot",      position: [18.5204, 73.8567], ...getNodeStyle("Pune Depot") },
-
-      { name: "Singapore Hub",  branch: "Singapore Hub",  position: [1.3521, 103.8198], ...getNodeStyle("Singapore Hub") },
-
-      { name: "Tokyo Depot",     branch: "Tokyo Depot",     position: [35.6895, 139.6917], ...getNodeStyle("Tokyo Depot") },
-
-    ];
-
-
-
-    // Route connections between global branches using coordinates
-
-    const routes = [
-
-      [[40.7128, -74.006], [51.5074, -0.1276]],  // New York to London
-
-      [[51.5074, -0.1276], [19.0760, 72.8777]],  // London to Mumbai
-
-      [[19.0760, 72.8777], [28.6139, 77.2090]],  // Mumbai to Delhi
-
-      [[19.0760, 72.8777], [18.5204, 73.8567]],  // Mumbai to Pune
-
-      [[19.0760, 72.8777], [12.9716, 77.5946]],  // Mumbai to Bangalore
-
-      [[12.9716, 77.5946], [1.3521, 103.8198]],  // Bangalore to Singapore
-
-      [[1.3521, 103.8198], [35.6895, 139.6917]],  // Singapore to Tokyo
-
-      [[51.5074, -0.1276], [35.6895, 139.6917]],  // London to Tokyo
-
-      [[40.7128, -74.006], [1.3521, 103.8198]],  // New York to Singapore
-
-    ];
+    // Dynamic Route connections between branches (hub-and-spoke from first branch)
+    const routes = [];
+    if (branchLocations.length > 1) {
+      const hq = branchLocations[0].position;
+      for (let i = 1; i < branchLocations.length; i++) {
+        routes.push([hq, branchLocations[i].position]);
+      }
+    }
 
 
 
@@ -708,193 +585,62 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
 
-  const forecastData = {
-
-    "Mumbai Hub": {
-
-      projectedNet: "₹18.4L",
-
-      growth: "+16.8%",
-
-      marginTarget: "28.5%",
-
-      points: [
-
-        { label: "Q1", value: 3.2, display: "₹3.2L" },
-
-        { label: "Q2", value: 4.5, display: "₹4.5L" },
-
-        { label: "Q3", value: 5.1, display: "₹5.1L" },
-
-        { label: "Q4", value: 5.6, display: "₹5.6L" }
-
-      ]
-
-    },
-
-    "Delhi Branch": {
-
-      projectedNet: "₹12.1L",
-
-      growth: "+11.2%",
-
-      marginTarget: "22.0%",
-
-      points: [
-
-        { label: "Q1", value: 2.1, display: "₹2.1L" },
-
-        { label: "Q2", value: 2.8, display: "₹2.8L" },
-
-        { label: "Q3", value: 3.4, display: "₹3.4L" },
-
-        { label: "Q4", value: 3.8, display: "₹3.8L" }
-
-      ]
-
-    },
-
-    "Bangalore Branch": {
-
-      projectedNet: "₹15.8L",
-
-      growth: "+14.5%",
-
-      marginTarget: "26.2%",
-
-      points: [
-
-        { label: "Q1", value: 2.8, display: "₹2.8L" },
-
-        { label: "Q2", value: 3.9, display: "₹3.9L" },
-
-        { label: "Q3", value: 4.3, display: "₹4.3L" },
-
-        { label: "Q4", value: 4.8, display: "₹4.8L" }
-
-      ]
-
-    },
-
-    "Pune Depot": {
-
-      projectedNet: "₹7.4L",
-
-      growth: "+8.9%",
-
-      marginTarget: "19.5%",
-
-      points: [
-
-        { label: "Q1", value: 1.4, display: "₹1.4L" },
-
-        { label: "Q2", value: 1.8, display: "₹1.8L" },
-
-        { label: "Q3", value: 2.0, display: "₹2.0L" },
-
-        { label: "Q4", value: 2.2, display: "₹2.2L" }
-
-      ]
-
-    },
-
-    "New York Hub": {
-
-      projectedNet: "$32.5M",
-
-      growth: "+18.2%",
-
-      marginTarget: "31.0%",
-
-      points: [
-
-        { label: "Q1", value: 6.8, display: "$6.8M" },
-
-        { label: "Q2", value: 8.2, display: "$8.2M" },
-
-        { label: "Q3", value: 8.9, display: "$8.9M" },
-
-        { label: "Q4", value: 8.6, display: "$8.6M" }
-
-      ]
-
-    },
-
-    "London Branch": {
-
-      projectedNet: "£21.3M",
-
-      growth: "+12.5%",
-
-      marginTarget: "24.8%",
-
-      points: [
-
-        { label: "Q1", value: 4.5, display: "£4.5M" },
-
-        { label: "Q2", value: 5.3, display: "£5.3M" },
-
-        { label: "Q3", value: 5.7, display: "£5.7M" },
-
-        { label: "Q4", value: 5.8, display: "£5.8M" }
-
-      ]
-
-    },
-
-    "Tokyo Depot": {
-
-      projectedNet: "¥28.7M",
-
-      growth: "+15.3%",
-
-      marginTarget: "27.5%",
-
-      points: [
-
-        { label: "Q1", value: 6.2, display: "¥6.2M" },
-
-        { label: "Q2", value: 7.1, display: "¥7.1M" },
-
-        { label: "Q3", value: 7.6, display: "¥7.6M" },
-
-        { label: "Q4", value: 7.8, display: "¥7.8M" }
-
-      ]
-
-    },
-
-    "Singapore Hub": {
-
-      projectedNet: "S$16.8M",
-
-      growth: "+19.7%",
-
-      marginTarget: "29.2%",
-
-      points: [
-
-        { label: "Q1", value: 3.5, display: "S$3.5M" },
-
-        { label: "Q2", value: 4.2, display: "S$4.2M" },
-
-        { label: "Q3", value: 4.5, display: "S$4.5M" },
-
-        { label: "Q4", value: 4.6, display: "S$4.6M" }
-
-      ]
-
-    }
-
-  };
-
-
+  const computedForecastData = React.useMemo(() => {
+    const forecast = {};
+    branchesList.forEach(branchName => {
+      const branchProducts = products.filter(p => p.branchName === branchName);
+      const actualSales = branchProducts.reduce((sum, p) => sum + (p.price * (p.sold || 0)), 0);
+      
+      const refVal = actualSales > 0 ? actualSales : branchProducts.reduce((sum, p) => sum + (p.price * p.stock), 0) * 0.25;
+      
+      const q1 = Math.round(refVal * 0.75);
+      const q2 = Math.round(refVal * 0.95);
+      const q3 = Math.round(refVal * 1.15);
+      const q4 = Math.round(refVal * 1.35);
+      
+      const formatVal = (val) => {
+        if (val === 0) return "₹0";
+        if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
+        if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
+        if (val >= 1000) return `₹${(val / 1000).toFixed(0)}K`;
+        return `₹${val}`;
+      };
+
+      const growthVal = actualSales > 0 ? `+${(((refVal * 1.35) / actualSales - 1) * 100).toFixed(1)}%` : "—";
+      const marginTarget = actualSales > 0 ? `${((refVal * 1.35 * 0.25 / actualSales) * 100).toFixed(1)}%` : "—";
+
+      const maxQ = Math.max(1, q4);
+      const getPointsVal = (qVal) => Math.max(0.5, Math.min(5.5, (qVal / maxQ) * 5));
+
+      forecast[branchName] = {
+        projectedNet: formatVal(q4),
+        growth: growthVal,
+        marginTarget: marginTarget,
+        actualSales: actualSales,
+        points: [
+          { label: "Q1", value: getPointsVal(q1), display: formatVal(q1) },
+          { label: "Q2", value: getPointsVal(q2), display: formatVal(q2) },
+          { label: "Q3", value: getPointsVal(q3), display: formatVal(q3) },
+          { label: "Q4", value: getPointsVal(q4), display: formatVal(q4) }
+        ]
+      };
+    });
+    return forecast;
+  }, [products, branchesList]);
 
   const renderAdvancedProfitForecast = () => {
 
-    const data = forecastData[forecastBranch] || forecastData["Mumbai Hub"];
+    const data = computedForecastData[forecastBranch];
+    if (!data) {
+      return (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+          <p className="text-sm font-semibold text-slate-400">No forecast data available yet.</p>
+        </div>
+      );
+    }
 
     const points = data.points;
+    const hasSales = data.actualSales > 0;
 
     const getY = (val) => 115 - (val / 6.0) * 85;
 
@@ -912,7 +658,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
     return (
 
-      <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between h-full">
+      <div className="relative overflow-hidden bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col justify-between h-full">
 
         <div>
 
@@ -926,25 +672,15 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
             </div>
 
-            {/* Branch Selector Dropdown */}
-
-            <select
-
+            <CustomDropdown
               value={forecastBranch}
-
-              onChange={(e) => setForecastBranch(e.target.value)}
-
-              className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] font-black outline-none cursor-pointer"
-
-            >
-
-              {branchesList.map(b => (
-
-                <option key={b} value={b}>{b}</option>
-
-              ))}
-
-            </select>
+              onChange={setForecastBranch}
+              options={branchesList.map(b => ({ value: b, label: b }))}
+              theme="emerald"
+              size="sm"
+              buttonClassName="rounded-lg font-bold text-[11px]"
+              className="w-auto min-w-[130px]"
+            />
 
           </div>
 
@@ -958,7 +694,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
               <span className="text-[9px] text-slate-400 font-bold uppercase block">Net Projected</span>
 
-              <span className="text-xs font-black text-slate-800">{data.projectedNet}</span>
+              <span className="text-xs font-black text-slate-800">{hasSales ? data.projectedNet : "—"}</span>
 
             </div>
 
@@ -966,15 +702,19 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
               <span className="text-[9px] text-slate-400 font-bold uppercase block">Growth Rate</span>
 
-              <span className="text-xs font-black text-emerald-600 flex items-center gap-0.5">
+              <span className={`text-xs font-black flex items-center gap-0.5 ${hasSales ? "text-emerald-600" : "text-slate-405"}`}>
 
-                <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                {hasSales ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
 
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
 
-                </svg>
+                    </svg>
 
-                {data.growth}
+                    {data.growth}
+                  </>
+                ) : "—"}
 
               </span>
 
@@ -984,7 +724,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
               <span className="text-[9px] text-slate-400 font-bold uppercase block">Margin Target</span>
 
-              <span className="text-xs font-black text-slate-800">{data.marginTarget}</span>
+              <span className="text-xs font-black text-slate-800">{hasSales ? data.marginTarget : "—"}</span>
 
             </div>
 
@@ -1004,7 +744,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
               <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
 
-                <stop offset="0%" stopColor="#10B981" stopOpacity="0.25" />
+                <stop offset="0%" stopColor="#10B981" stopOpacity={hasSales ? 0.25 : 0.05} />
 
                 <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
 
@@ -1032,7 +772,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
             {/* Line Path */}
 
-            <path d={pathD} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={pathD} fill="none" stroke={hasSales ? "#059669" : "#cbd5e1"} strokeWidth="2.5" strokeDasharray={hasSales ? "none" : "3 3"} strokeLinecap="round" strokeLinejoin="round" />
 
 
 
@@ -1054,15 +794,17 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                   {/* Point circle */}
 
-                  <circle cx={x} cy={y} r="4.5" fill="#059669" stroke="#FFF" strokeWidth="1.5" />
+                  <circle cx={x} cy={y} r="4.5" fill={hasSales ? "#059669" : "#cbd5e1"} stroke="#FFF" strokeWidth="1.5" />
 
                   {/* Value Text Badge */}
 
-                  <text x={x} y={y - 9} fill="#047857" fontSize="8.5" fontWeight="bold" textAnchor="middle" className="transition-all duration-300">
+                  {hasSales && (
+                    <text x={x} y={y - 9} fill="#047857" fontSize="8.5" fontWeight="bold" textAnchor="middle" className="transition-all duration-300">
 
-                    {p.display}
+                      {p.display}
 
-                  </text>
+                    </text>
+                  )}
 
                   {/* Label Text below axis */}
 
@@ -1081,6 +823,16 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
           </svg>
 
         </div>
+
+        {!hasSales ? (
+          <div className="absolute inset-0 bg-white/70 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-6 z-10 border border-slate-100/50">
+            <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📈</div>
+            <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cannot Forecast Now</span>
+            <p className="text-xs font-semibold text-slate-500 mt-2 max-w-xs leading-relaxed">
+              Advanced profit projections will activate once transactions are recorded in Billing POS.
+            </p>
+          </div>
+        ) : null}
 
       </div>
 
@@ -1115,25 +867,25 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
     // Dynamic AI operational directives based on selected branch
-
     let aiDirective = "";
-
-    if (selectedBranchPage === "Delhi Branch") {
-
-      aiDirective = "⚠️ CRITICAL WARNING: Fresh bread, organic milk, and potato chips stocks have fell under 10% safety thresholds. AI routing engine suggests immediate stock dispatch of 30 units of Coke and 15 units of Bread from Pune Depot.";
-
-    } else if (selectedBranchPage === "Pune Depot") {
-
-      aiDirective = "⚠️ OVERSTOCK ALERT: Dairy holdings are currently exceeding safety levels by 4x (98% capacity utilization). AI recommends dispatching excess Butter and Milk to Delhi Branch to prevent expiration and optimize consolidation margins.";
-
-    } else if (selectedBranchPage === "Mumbai Hub") {
-
-      aiDirective = "Operations running at peak efficiency. Local beverage supply streams are optimal. Suggest setting up proactive automated reorder cycles for next week's expected rainfall period.";
-
+    if (branchInventory.length === 0) {
+      aiDirective = "This branch has no inventory items. Populate the inventory by adding items or recording purchase orders to start tracking stock operations.";
     } else {
-
-      aiDirective = "Performance metrics calibrated. Average safety stock levels are at 24% over buffer. Category health score is high. Recommended: Maintain current standard inventory policies.";
-
+      const criticalItems = branchInventory.filter(p => p.stock === 0 || p.stock <= p.reorderLevel * 0.3);
+      const warningItems = branchInventory.filter(p => p.stock > p.reorderLevel * 0.3 && p.stock <= p.reorderLevel);
+      
+      if (criticalItems.length > 0) {
+        const itemNames = criticalItems.slice(0, 2).map(p => p.name).join(" and ");
+        const moreCount = criticalItems.length > 2 ? ` and ${criticalItems.length - 2} more` : "";
+        aiDirective = `⚠️ CRITICAL WARNING: ${itemNames}${moreCount} stock levels have fell under safety thresholds. AI routing engine suggests immediate stock dispatch or vendor purchase order to restore safety buffers.`;
+      } else if (warningItems.length > 0) {
+        const itemNames = warningItems.slice(0, 2).map(p => p.name).join(" and ");
+        aiDirective = `⚠️ Stock buffer warning: ${itemNames} is approaching safety limit. Replenishment logic is monitoring velocity.`;
+      } else if (capacityPercentage > 90) {
+        aiDirective = `⚠️ OVERSTOCK ALERT: Holdings are currently exceeding safety levels (${capacityPercentage}% capacity utilization). AI recommends dispatching excess inventory to other branches to optimize consolidation margins.`;
+      } else {
+        aiDirective = "Operations running at peak efficiency. Local supply streams are optimal. Suggest setting up proactive automated reorder cycles for the next operational period.";
+      }
     }
 
 
@@ -1420,7 +1172,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
         {/* Main Work Area Grid: Left local table, Right Transfer dispatch */}
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-6 items-start">
+        <div className={isOwner ? "grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-6 items-start" : "grid grid-cols-1 gap-6 items-start"}>
 
           {/* Local Shelf Inventory Table */}
 
@@ -1454,7 +1206,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                     <th className="py-3 px-2 text-center">Status</th>
 
-                    <th className="py-3 px-4 text-right">Action</th>
+                    {isOwner && <th className="py-3 px-4 text-right">Action</th>}
 
                   </tr>
 
@@ -1546,21 +1298,23 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
 
-                        <td className="py-3.5 px-4 text-right">
+                        {isOwner && (
+                          <td className="py-3.5 px-4 text-right">
 
-                          <button
+                            <button
 
-                            onClick={() => triggerQuickTransferFill(item.id, selectedBranchPage)}
+                              onClick={() => triggerQuickTransferFill(item.id, selectedBranchPage)}
 
-                            className="px-2.5 py-1.5 rounded-lg border border-emerald-600 text-emerald-800 font-bold text-[10px] uppercase hover:bg-emerald-50 tracking-wider transition-all cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-lg border border-emerald-600 text-emerald-800 font-bold text-[10px] uppercase hover:bg-emerald-50 tracking-wider transition-all cursor-pointer"
 
-                          >
+                            >
 
-                            Quick Refill
+                              Quick Refill
 
-                          </button>
+                            </button>
 
-                        </td>
+                          </td>
+                        )}
 
                       </tr>
 
@@ -1580,7 +1334,8 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
           {/* Quick Dispatch Desk Box */}
 
-          <div id="transfer-desk-container" className="bg-white border border-slate-200 rounded-3xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          {isOwner && (
+            <div id="transfer-desk-container" className="bg-white border border-slate-200 rounded-3xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
 
             <div className="mb-4">
 
@@ -1598,19 +1353,13 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                 <label className="text-[9px] font-black uppercase text-slate-400">Source (Supply Warehouse)</label>
 
-                <select
-
+                <CustomDropdown
                   value={transferForm.source}
-
-                  onChange={(e) => setTransferForm({ ...transferForm, source: e.target.value })}
-
-                  className="px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 outline-none cursor-pointer font-bold w-full"
-
-                >
-
-                  {branchesList.map(b => <option key={b} value={b}>{b}</option>)}
-
-                </select>
+                  onChange={(val) => setTransferForm({ ...transferForm, source: val })}
+                  options={branchesList.map(b => ({ value: b, label: b }))}
+                  theme="emerald"
+                  buttonClassName="rounded-lg font-bold"
+                />
 
               </div>
 
@@ -1642,25 +1391,16 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                   <label className="text-[9px] font-black uppercase text-slate-400">Product SKU</label>
 
-                  <select
-
+                  <CustomDropdown
                     value={transferForm.productId}
-
-                    onChange={(e) => setTransferForm({ ...transferForm, productId: e.target.value })}
-
-                    className="px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 outline-none cursor-pointer font-bold w-full"
-
-                  >
-
-                    {products.map(p => {
-
+                    onChange={(val) => setTransferForm({ ...transferForm, productId: val })}
+                    options={products.map(p => {
                       const sourceStock = branchStocksMap[p.id]?.[transferForm.source] ?? 0;
-
-                      return <option key={p.id} value={p.id}>{p.name} (Source Stock: {sourceStock})</option>;
-
+                      return { value: p.id, label: `${p.name} (Source Stock: ${sourceStock})` };
                     })}
-
-                  </select>
+                    theme="emerald"
+                    buttonClassName="rounded-lg font-bold"
+                  />
 
                 </div>
 
@@ -1749,6 +1489,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
             </form>
 
           </div>
+          )}
 
         </div>
 
@@ -1760,11 +1501,23 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
 
 
-  // ----------------------------------------------------
-
-  // CONSOLIDATED OVERVIEW VIEW (DEFAULT)
-
-  // ----------------------------------------------------
+  if (!branchesList || branchesList.length === 0) {
+    return (
+      <div className="rounded-3xl border border-sky-100 bg-sky-50/20 p-8 text-center max-w-2xl mx-auto space-y-4 my-12 animate-fadeIn">
+        <div className="text-4xl">🏢</div>
+        <h3 className="text-xl font-black text-slate-900">Configure Your Branch Network</h3>
+        <p className="text-sm text-slate-500 font-semibold leading-relaxed">
+          It looks like you haven't set up any branches yet. Inventra's premium multi-branch consolidated intelligence is active, but requires at least one registered branch.
+        </p>
+        <button
+          onClick={() => onOpenBranchPage && onOpenBranchPage()}
+          className="px-6 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl font-black uppercase tracking-wider text-xs shadow-md transition-all active:scale-[0.98] cursor-pointer"
+        >
+          Setup Branches Now
+        </button>
+      </div>
+    );
+  }
 
   return (
 
@@ -1948,11 +1701,12 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
       {/* Row 3: Operations & Actions Grid */}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6">
+      <div className={isOwner ? "grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6" : "grid grid-cols-1 lg:grid-cols-2 gap-6"}>
 
         {/* Centralized Stock Transfer Desk */}
 
-        <div id="transfer-desk-container" className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col h-[400px] overflow-hidden">
+        {isOwner && (
+          <div id="transfer-desk-container" className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] flex flex-col h-[400px] overflow-hidden">
 
           <div className="mb-4">
 
@@ -1972,19 +1726,14 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                 <label className="text-[9px] font-black uppercase text-slate-400">Source Branch (Overstock)</label>
 
-                <select
-
+                <CustomDropdown
                   value={transferForm.source}
-
-                  onChange={(e) => setTransferForm({ ...transferForm, source: e.target.value })}
-
-                  className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 outline-none cursor-pointer font-bold w-full"
-
-                >
-
-                  {branchesList.map(b => <option key={b} value={b}>{b}</option>)}
-
-                </select>
+                  onChange={(val) => setTransferForm({ ...transferForm, source: val })}
+                  options={branchesList.map(b => ({ value: b, label: b }))}
+                  theme="emerald"
+                  buttonClassName="rounded-lg font-bold"
+                  size="sm"
+                />
 
               </div>
 
@@ -1994,19 +1743,14 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                 <label className="text-[9px] font-black uppercase text-slate-400">Destination Branch</label>
 
-                <select
-
+                <CustomDropdown
                   value={transferForm.destination}
-
-                  onChange={(e) => setTransferForm({ ...transferForm, destination: e.target.value })}
-
-                  className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 outline-none cursor-pointer font-bold w-full"
-
-                >
-
-                  {branchesList.map(b => <option key={b} value={b}>{b}</option>)}
-
-                </select>
+                  onChange={(val) => setTransferForm({ ...transferForm, destination: val })}
+                  options={branchesList.map(b => ({ value: b, label: b }))}
+                  theme="emerald"
+                  buttonClassName="rounded-lg font-bold"
+                  size="sm"
+                />
 
               </div>
 
@@ -2020,25 +1764,17 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
 
                 <label className="text-[9px] font-black uppercase text-slate-400">Select Product SKU</label>
 
-                <select
-
+                <CustomDropdown
                   value={transferForm.productId}
-
-                  onChange={(e) => setTransferForm({ ...transferForm, productId: e.target.value })}
-
-                  className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 outline-none cursor-pointer font-bold w-full"
-
-                >
-
-                  {products.map(p => {
-
+                  onChange={(val) => setTransferForm({ ...transferForm, productId: val })}
+                  options={products.map(p => {
                     const sourceStock = branchStocksMap[p.id]?.[transferForm.source] ?? 0;
-
-                    return <option key={p.id} value={p.id}>{p.name} (Source Stock: {sourceStock})</option>;
-
+                    return { value: p.id, label: `${p.name} (Source Stock: ${sourceStock})` };
                   })}
-
-                </select>
+                  theme="emerald"
+                  buttonClassName="rounded-lg font-bold"
+                  size="sm"
+                />
 
               </div>
 
@@ -2117,6 +1853,7 @@ export default function LargeDashboard({ products, onUpdateProducts, tierAccent,
           </form>
 
         </div>
+        )}
 
 
 

@@ -8,17 +8,30 @@ import {
   getTierDisplayName,
   getUserDisplayName,
   normalizeBusinessTier,
+  userHasOwnerAccess,
 } from "../utils/dashboard";
-import { addBranchToNetwork, getBranchNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch, getBranchInventory } from "../utils/branches";
+import { addBranchToNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch, getBranchInventory } from "../utils/branches";
+import { getEmployees } from "../utils/employees";
 import { toast } from "react-toastify";
 import InventoryTable from "../components/inventoryTable";
 import CSVUpload from "../components/csvUpload";
 import SmallDashboard from "../components/smallDashboard";
 import MediumDashboard from "../components/mediumDashboard";
 import LargeDashboard from "../components/largeDashboard";
+import CustomDropdown from "../components/CustomDropdown";
 import NotificationDropdown from "../components/notificationDropdown";
 import { useNotifications } from "../contexts/notificationContext";
-import { INVENTORY_PRODUCT_SEED, loadScopedInventoryProducts, saveScopedInventoryProducts, normalizeInventoryProducts } from "../utils/inventory";
+import { loadScopedInventoryProducts, saveScopedInventoryProducts, normalizeInventoryProducts } from "../utils/inventory";
+
+const getRoleDisplayName = (role) => {
+  if (!role || role === "owner" || role === "user") return "SYSTEM OWNER";
+  if (role === "manager") return "BRANCH MANAGER";
+  if (role === "warehouse_manager") return "WAREHOUSE MANAGER";
+  if (role === "franchise_manager") return "FRANCHISE MANAGER";
+  if (role === "depot_manager") return "DEPOT MANAGER";
+  if (role === "store_manager") return "STORE MANAGER";
+  return String(role).toUpperCase().replace("_", " ");
+};
 
 const DASHBOARD_CONFIG = {
   small: {
@@ -274,66 +287,6 @@ function getStateForCity(city) {
   return CITY_TO_STATE_MAP[normalized] || "";
 }
 
-const BRANCH_TYPES = [
-  { value: "Store",     icon: "🏪", desc: "Retail outlet" },
-  { value: "Warehouse", icon: "🏭", desc: "Storage hub" },
-  { value: "Franchise", icon: "🤝", desc: "Licensed store" },
-  { value: "Depot",     icon: "📦", desc: "Wholesale depot" },
-];
-
-const WORKING_HOURS_PRESETS = [
-  "8AM-8PM", "9AM-9PM", "9AM-6PM", "10AM-10PM", "24 Hours",
-];
-
-const EMPTY_BRANCH_FORM = {
-  branch_name:        "",
-  branch_code:        "",
-  branch_type:        "Store",
-  address:            "",
-  city:               "",
-  state:              "",
-  pincode:            "",
-  country:            "India",
-  phone:              "",
-  phone_country_code: "+91",
-  phone_number:       "",
-  manager_name:       "",
-  employee_count:     1,
-  working_hours:      "9AM-9PM",
-  opening_date:       "",
-  gstin:              "",
-};
-
-// Auto-generate an intelligent branch code from the name
-function autoCode(name) {
-  if (!name) return "";
-  const clean = name.replace(/[^a-zA-Z0-9\s]/g, "").trim().toUpperCase();
-  const words = clean.split(/\s+/).filter(w => !["AND", "THE", "OF", "IN", "AT", "FOR", "BY", "WITH"].includes(w));
-  
-  if (words.length === 0) return "BR-01";
-  
-  const dict = {
-    "MUMBAI": "MUM", "PUNE": "PUN", "DELHI": "DEL", "BANGALORE": "BLR", "BENGALURU": "BLR",
-    "KOLKATA": "KOL", "CHENNAI": "MAA", "HYDERABAD": "HYD", "AHMEDABAD": "AMD", "JAIPUR": "JPR",
-    "FLAGSHIP": "FLG", "BOUTIQUE": "BTQ", "STORE": "STR", "WAREHOUSE": "WH", "DEPOT": "DEP",
-    "FRANCHISE": "FRN", "OUTLET": "OUT", "OFFICE": "OFF", "HEADQUARTERS": "HQ", "CENTRAL": "CTL",
-    "RETAIL": "RTL", "EXPERIENCE": "EXP", "STUDIO": "STD"
-  };
-
-  const translate = (w) => dict[w] || (w.length <= 4 ? w : w.slice(0, 3));
-
-  if (words.length === 1) {
-    const w = words[0];
-    return w.length <= 6 ? `${w}-01` : `${w.slice(0, 4)}-01`;
-  }
-  
-  const parts = words.map(translate);
-  if (parts[0].length > 5) parts[0] = parts[0].slice(0, 4);
-
-  return parts.join("-").slice(0, 12);
-}
-
-// Step indicator dot (Larger, elegant, perfectly contrastive on white background)
 function StepDot({ n, current, label }) {
   const done = n < current;
   const active = n === current;
@@ -369,13 +322,150 @@ function StepConnector({ done }) {
   );
 }
 
-export default function Dashboard({ tier = "small", setActiveTab }) {
-  const { notifications } = useNotifications();
-  const normalizedTier = normalizeBusinessTier(tier);
-  const config = DASHBOARD_CONFIG[normalizedTier];
-  const tierDisplayName = getTierDisplayName(normalizedTier);
+function getDynamicLabels(type) {
+  const defs = {
+    Store: {
+      nameLabel: "Store Name", namePlaceholder: "e.g. Downtown Store",
+      codeLabel: "Store Code", codePlaceholder: "e.g. STORE-001",
+      addressLabel: "Store Address", addressPlaceholder: "e.g. 42 MG Road",
+      cityLabel: "Store City", cityPlaceholder: "e.g. Mumbai",
+      pincodeLabel: "Store Pincode", pincodePlaceholder: "e.g. 400001",
+      managerLabel: "Store Manager", placeholderName: "e.g. Rajesh Kumar",
+      phoneLabel: "Store Phone", phonePlaceholder: "e.g. 98765 43210",
+      emailLabel: "Manager Email", emailPlaceholder: "manager@example.com",
+      gstLabel: "GSTIN", gstPlaceholder: "e.g. 27AABCU9603R1ZM",
+      staffLabel: "Staff Count", openingDateLabel: "Opening Date",
+      hoursLabel: "Working Hours", placeholderHours: "e.g. 9AM-9PM",
+      verificationHeader: "Verification Summary",
+      titleLabel: "Store", addressSectionLabel: "📍 Address",
+      managerSectionLabel: "👤 Manager", gstSectionLabel: "🧾 GSTIN",
+      hoursSectionLabel: "⏰ Hours", teamSectionLabel: "👥 Team",
+    },
+    Warehouse: {
+      nameLabel: "Warehouse Name", namePlaceholder: "e.g. Central Warehouse",
+      codeLabel: "Warehouse Code", codePlaceholder: "e.g. WH-001",
+      addressLabel: "Warehouse Address", addressPlaceholder: "e.g. Plot 5, Industrial Area",
+      cityLabel: "Warehouse City", cityPlaceholder: "e.g. Pune",
+      pincodeLabel: "Warehouse Pincode", pincodePlaceholder: "e.g. 411001",
+      managerLabel: "Warehouse Manager", placeholderName: "e.g. Suresh Patel",
+      phoneLabel: "Warehouse Phone", phonePlaceholder: "e.g. 98765 43210",
+      emailLabel: "Manager Email", emailPlaceholder: "manager@example.com",
+      gstLabel: "GSTIN", gstPlaceholder: "e.g. 27AABCU9603R1ZM",
+      staffLabel: "Staff Count", openingDateLabel: "Opening Date",
+      hoursLabel: "Operating Hours", placeholderHours: "e.g. 8AM-8PM",
+      verificationHeader: "Verification Summary",
+      titleLabel: "Warehouse", addressSectionLabel: "📍 Address",
+      managerSectionLabel: "👤 Manager", gstSectionLabel: "🧾 GSTIN",
+      hoursSectionLabel: "⏰ Hours", teamSectionLabel: "👥 Team",
+    },
+    Factory: {
+      nameLabel: "Factory Name", namePlaceholder: "e.g. Manufacturing Unit",
+      codeLabel: "Factory Code", codePlaceholder: "e.g. FAC-001",
+      addressLabel: "Factory Address", addressPlaceholder: "e.g. 12B Industrial Zone",
+      cityLabel: "Factory City", cityPlaceholder: "e.g. Chennai",
+      pincodeLabel: "Factory Pincode", pincodePlaceholder: "e.g. 600001",
+      managerLabel: "Factory Manager", placeholderName: "e.g. Priya Sharma",
+      phoneLabel: "Factory Phone", phonePlaceholder: "e.g. 98765 43210",
+      emailLabel: "Manager Email", emailPlaceholder: "manager@example.com",
+      gstLabel: "GSTIN", gstPlaceholder: "e.g. 27AABCU9603R1ZM",
+      staffLabel: "Staff Count", openingDateLabel: "Opening Date",
+      hoursLabel: "Shift Hours", placeholderHours: "e.g. 7AM-11PM",
+      verificationHeader: "Verification Summary",
+      titleLabel: "Factory", addressSectionLabel: "📍 Address",
+      managerSectionLabel: "👤 Manager", gstSectionLabel: "🧾 GSTIN",
+      hoursSectionLabel: "⏰ Hours", teamSectionLabel: "👥 Team",
+    },
+    Outlet: {
+      nameLabel: "Outlet Name", namePlaceholder: "e.g. Airport Kiosk",
+      codeLabel: "Outlet Code", codePlaceholder: "e.g. OUT-001",
+      addressLabel: "Outlet Address", addressPlaceholder: "e.g. Terminal 2",
+      cityLabel: "Outlet City", cityPlaceholder: "e.g. Delhi",
+      pincodeLabel: "Outlet Pincode", pincodePlaceholder: "e.g. 110001",
+      managerLabel: "Outlet Manager", placeholderName: "e.g. Amit Verma",
+      phoneLabel: "Outlet Phone", phonePlaceholder: "e.g. 98765 43210",
+      emailLabel: "Manager Email", emailPlaceholder: "manager@example.com",
+      gstLabel: "GSTIN", gstPlaceholder: "e.g. 27AABCU9603R1ZM",
+      staffLabel: "Staff Count", openingDateLabel: "Opening Date",
+      hoursLabel: "Working Hours", placeholderHours: "e.g. 10AM-10PM",
+      verificationHeader: "Verification Summary",
+      titleLabel: "Outlet", addressSectionLabel: "📍 Address",
+      managerSectionLabel: "👤 Manager", gstSectionLabel: "🧾 GSTIN",
+      hoursSectionLabel: "⏰ Hours", teamSectionLabel: "👥 Team",
+    },
+  };
+  return defs[type] || defs.Store;
+}
+
+function autoCode(name) {
+  if (!name || !name.trim()) return "";
+  const prefix = name.trim().split(/\s+/)[0].substring(0, 3).toUpperCase();
+  const suffix = String(Date.now()).slice(-4);
+  return `${prefix}-${suffix}`;
+}
+
+const EMPTY_BRANCH_FORM = {
+  branch_name: "",
+  branch_code: "",
+  branch_type: "Store",
+  address: "",
+  city: "",
+  state: "",
+  pincode: "",
+  country: "India",
+  phone: "",
+  phone_country_code: "+91",
+  phone_number: "",
+  manager_name:       "",
+  manager_email:      "",
+  employee_count:     1,
+  working_hours:      "9AM-9PM",
+  opening_date:       "",
+  gstin:              "",
+};
+
+export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
+  const config = DASHBOARD_CONFIG[normalizedTier] || DASHBOARD_CONFIG.small;
   const tierBadgeLabel = getTierBadgeLabel(normalizedTier);
   const tierFeatures = TIER_FEATURES[normalizedTier] || TIER_FEATURES.small;
+  const tierDisplayName = getTierDisplayName(normalizedTier);
+
+  const userSession = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    for (const storage of [localStorage, sessionStorage]) {
+      const token = storage.getItem("inventra_token");
+      const rawUser = storage.getItem("inventra_user");
+      if (token && rawUser) {
+        try {
+          return { token, user: JSON.parse(rawUser) };
+        } catch {
+          return { token, user: null };
+        }
+      }
+    }
+    return null;
+  }, []);
+
+  const isOwner = useMemo(() => {
+    return userHasOwnerAccess(userSession?.user);
+  }, [userSession]);
+
+  const userBranchId = isOwner ? null : userSession?.user?.branchId;
+
+  const visibleTabs = useMemo(() => {
+    if (isOwner) {
+      const tabs = [...WORKSPACE_TABS];
+      tabs.splice(4, 0, { key: "employees", label: "Manage Staff", icon: "👥" });
+      return tabs;
+    }
+    return [
+      { key: "overview", label: "Branch Overview", icon: "🏠" },
+      { key: "inventory", label: "Inventory Desk", icon: "📦" },
+      { key: "billing", label: "Billing POS", icon: "🧾" },
+      { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
+      { key: "employees", label: "Staff", icon: "👥" },
+      { key: "profile", label: "Profile", icon: "👤" },
+    ];
+  }, [isOwner]);
 
   const [activeSection, setActiveSection] = useState(() => {
     if (typeof window !== "undefined") {
@@ -386,17 +476,68 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   });
 
   useEffect(() => {
+    const validKeys = visibleTabs.map(t => t.key);
+    if (!validKeys.includes(activeSection)) {
+      setActiveSection(validKeys[0]);
+    }
+  }, [visibleTabs, activeSection]);
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
       sessionStorage.setItem("inventra_dashboard_section", activeSection);
     }
   }, [activeSection]);
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showAddBranchModal, setShowAddBranchModal] = useState(false);
-  
-  // Wizard States
-  const [modalStep, setModalStep] = useState(1);
-  const [modalForm, setModalForm] = useState(EMPTY_BRANCH_FORM);
+
+  const [showAddBranchModal, setShowAddBranchModal] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("inventra_show_add_branch_modal") === "true";
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("inventra_show_add_branch_modal", showAddBranchModal ? "true" : "false");
+    }
+  }, [showAddBranchModal]);
+
+  const [modalStep, setModalStep] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem("inventra_add_branch_modal_step");
+      if (saved) return parseInt(saved, 10);
+    }
+    return 1;
+  });
+
+
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("inventra_add_branch_modal_step", modalStep.toString());
+    }
+  }, [modalStep]);
+
+  const [modalForm, setModalForm] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem("inventra_add_branch_modal_form");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
+    return EMPTY_BRANCH_FORM;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("inventra_add_branch_modal_form", JSON.stringify(modalForm));
+    }
+  }, [modalForm]);
+
   const [modalErrors, setModalErrors] = useState({});
   const [modalDropdownOpen, setModalDropdownOpen] = useState(false);
   const [modalDropdownSearch, setModalDropdownSearch] = useState("");
@@ -428,14 +569,19 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     return () => document.removeEventListener("click", handleOutsideClick);
   }, [modalDropdownOpen, modalCountryDropdownOpen, modalPhonePrefixOpen]);
 
-  const [branchNetwork, setBranchNetwork] = useState(() => getBranchNetwork(normalizedTier));
+  const [branchNetwork, setBranchNetwork] = useState(() => []);
   const [branchesList, setBranchesList] = useState(() => {
     if (typeof window === "undefined") return [];
     try {
       const stored = localStorage.getItem("inventra_branches_list");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        let parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          if (!isOwner && userBranchId) {
+            parsed = parsed.filter(b => b.branch_id === userBranchId);
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       // ignore
@@ -453,11 +599,15 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     getUserBranches()
       .then((data) => {
         if (data && data.branches) {
-          const names = data.branches.map((b) => b.branch_name);
+          let branches = data.branches;
+          if (!isOwner && userBranchId) {
+            branches = branches.filter(b => b.branch_id === userBranchId);
+          }
+          const names = branches.map((b) => b.branch_name);
           setBranchNetwork(names);
-          setBranchesList(data.branches);
+          setBranchesList(branches);
           try {
-            localStorage.setItem("inventra_branches_list", JSON.stringify(data.branches));
+            localStorage.setItem("inventra_branches_list", JSON.stringify(branches));
           } catch (e) {}
         }
         setFirstLoadDone(true);
@@ -466,7 +616,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         console.error("Failed to load branches from DB:", err);
         setFirstLoadDone(true);
       });
-  }, [normalizedTier, setActiveTab]);
+  }, [normalizedTier, setActiveTab, isOwner, userBranchId]);
 
   // States for Medium and Large Analytics Page redone visually
   const [mediumRange, setMediumRange] = useState("30d");
@@ -474,22 +624,19 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   
   // Large tier NLP Chat console simulation states
   const [chatInput, setChatInput] = useState("");
-  const [chatHistory, setChatHistory] = useState([
-    { role: "user", text: "Explain our current seasonal category demand spike." },
-    { role: "assistant", text: "Our ML engine detected a 1.8x multiplier in Beverages and Snacks due to seasonal holiday behavior. Recommend increasing reorder buffers for Apex and Metro distributors by 15%." }
-  ]);
+  const [chatHistory, setChatHistory] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
 
   // Large tier heatmap active branch state
-  const [activeBranch, setActiveBranch] = useState("Mumbai");
+  const [activeBranch, setActiveBranch] = useState("");
 
-  // Dashboard uses sample data for display only - not real inventory
-  const [products, setProducts] = useState(INVENTORY_PRODUCT_SEED);
+  const [products, setProducts] = useState([]);
 
   // Consolidated Sales Metrics States
-  const [salesCount, setSalesCount] = useState(14);
-  const [salesRevenue, setSalesRevenue] = useState(1420); // mock daily sales fallback is 1420
-  const [salesRevenueNote, setSalesRevenueNote] = useState("+12.4% vs yesterday");
+  const [salesCount, setSalesCount] = useState(0);
+  const [salesRevenue, setSalesRevenue] = useState(0);
+  const [salesRevenueNote, setSalesRevenueNote] = useState("");
+  const [salesHistory, setSalesHistory] = useState([]);
 
   // Fetch real payment statistics from backend dynamically on mount
   useEffect(() => {
@@ -507,22 +654,16 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       })
       .then(data => {
         if (data && typeof data.sales_count === "number") {
-          // Only override if data exists (non-zero), otherwise fallback is kept
-          if (data.sales_count > 0) {
-            setSalesCount(data.sales_count);
-            // Dynamic check: daily sales is mapped to Daily Sales Summary card
-            if (data.daily_sales > 0) {
-              setSalesRevenue(data.daily_sales);
-              setSalesRevenueNote(data.comparison_note || "0% vs yesterday");
-            } else {
-              setSalesRevenue(0);
-              setSalesRevenueNote("0% vs yesterday");
-            }
+          setSalesCount(data.sales_count);
+          setSalesRevenue(data.daily_sales || 0);
+          setSalesRevenueNote(data.comparison_note || "0% vs yesterday");
+          if (data.last_7_days_sales) {
+            setSalesHistory(data.last_7_days_sales);
           }
         }
       })
       .catch(err => {
-        console.warn("Failed to fetch payment stats, keeping simulated fallback:", err);
+        console.error("Failed to fetch payment stats:", err);
       });
     }
   }, []);
@@ -530,49 +671,61 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   // Load real dynamic products from cache or DB if branch exists
   useEffect(() => {
     if (branchesList && branchesList.length > 0) {
-      const activeBranch = branchesList[0];
-      const activeBranchName = activeBranch.branch_name;
-      const branchId = activeBranch._id || activeBranch.branch_id;
-      
-      // Load from local storage cache first for responsive UI rendering
-      const cached = loadScopedInventoryProducts(null, activeBranchName);
-      if (cached && cached.length > 0) {
-        setProducts(cached);
-      }
-      
-      // Always fetch dynamic live values from DB in the background to ensure data freshness
-      getBranchInventory(branchId)
-        .then((invData) => {
-          const items = invData.items || invData.inventory?.items || [];
-          if (items.length > 0) {
-            const normalized = normalizeInventoryProducts(items);
-            if (normalized && normalized.length > 0) {
-              setProducts(normalized);
-              saveScopedInventoryProducts(normalized, activeBranchName);
-            }
-          }
-        })
-        .catch((err) => {
-          console.warn("Failed to load branch inventory for dashboard overview:", err);
-        });
-    }
-  }, [branchesList]);
-
-  const userSession = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    for (const storage of [localStorage, sessionStorage]) {
-      const token = storage.getItem("inventra_token");
-      const rawUser = storage.getItem("inventra_user");
-      if (token && rawUser) {
-        try {
-          return { token, user: JSON.parse(rawUser) };
-        } catch {
-          return { token, user: null };
+      if (normalizedTier === "small") {
+        const activeBranch = branchesList[0];
+        const activeBranchName = activeBranch.branch_name;
+        const branchId = activeBranch._id || activeBranch.branch_id;
+        
+        // Load from local storage cache first for responsive UI rendering
+        const cached = loadScopedInventoryProducts([], activeBranchName);
+        if (cached && cached.length > 0) {
+          setProducts(cached);
         }
+        
+        // Always fetch dynamic live values from DB in the background to ensure data freshness
+        getBranchInventory(branchId)
+          .then((invData) => {
+            const items = invData.items || invData.inventory?.items || [];
+            const normalized = normalizeInventoryProducts(items);
+            setProducts(normalized);
+            saveScopedInventoryProducts(normalized, activeBranchName);
+          })
+          .catch((err) => {
+            console.warn("Failed to load branch inventory for dashboard overview:", err);
+          });
+      } else {
+        // Fetch all branch inventories in parallel
+        Promise.all(
+          branchesList.map(branch => {
+            const branchId = branch._id || branch.branch_id;
+            return getBranchInventory(branchId)
+              .then((invData) => {
+                const items = invData.items || invData.inventory?.items || [];
+                const normalized = normalizeInventoryProducts(items);
+                // Tag each item with its branch name so dashboard elements can map it
+                const tagged = normalized.map(p => ({ ...p, branchName: branch.branch_name, branchId: branchId }));
+                saveScopedInventoryProducts(normalized, branch.branch_name);
+                return tagged;
+              })
+              .catch((err) => {
+                console.warn(`Failed to fetch inventory for branch ${branch.branch_name}:`, err);
+                const cached = loadScopedInventoryProducts([], branch.branch_name);
+                return cached.map(p => ({ ...p, branchName: branch.branch_name, branchId: branchId }));
+              });
+          })
+        ).then((allResults) => {
+          const merged = allResults.flat();
+          setProducts(merged);
+        });
       }
+    } else {
+      setProducts([]);
     }
-    return null;
-  }, []);
+  }, [branchesList, normalizedTier]);
+
+  // Session details are moved to the top of Dashboard component
+
+  
 
   const [userProfile, setUserProfile] = useState(() => {
     if (typeof window === "undefined") return null;
@@ -585,7 +738,16 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
   });
 
   const [editingProfile, setEditingProfile] = useState(false);
-  const [profileDraft, setProfileDraft] = useState({ firstName: "", lastName: "", businessName: "", email: "" });
+  const [profileDraft, setProfileDraft] = useState({ firstName: "", lastName: "", businessName: "", email: "", businessType: "" });
+
+  // ── Delete Account state ──────────────────────────────────────────────────
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [accountDeleted, setAccountDeleted] = useState(false);   // shows post-delete screen
+  const [recoveryToken, setRecoveryToken] = useState("");          // returned by backend
+  const [recoveringAccount, setRecoveringAccount] = useState(false);
 
   useEffect(() => {
     if (userProfile) {
@@ -593,6 +755,8 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         firstName: userProfile.firstName || "",
         lastName: userProfile.lastName || "",
         businessName: userProfile.businessName || userProfile.company || "",
+        email: userProfile.email || "",
+        businessType: userProfile.businessType || "",
       });
     }
   }, [userProfile]);
@@ -611,17 +775,83 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     setActiveTab("home");
   };
 
+  const handleDeleteAccount = async () => {
+    const expectedEmail = userProfile?.email || userSession?.user?.email || "";
+    if (deleteConfirmEmail.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()) {
+      setDeleteError("Email does not match. Please type your exact account email to confirm.");
+      return;
+    }
+    setDeletingAccount(true);
+    setDeleteError("");
+    try {
+      const token = userSession?.token;
+      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/delete-account", {
+        method: "DELETE",
+        headers: { Authorization: token ? `Bearer ${token}` : "" },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof data?.detail === "string" ? data.detail : "Failed to delete account"
+        );
+      }
+      const data = await res.json().catch(() => ({}));
+      // Store recovery token for the post-delete screen
+      setRecoveryToken(data.recoveryToken || "");
+      // Clear session — user is now logged out
+      for (const storage of [localStorage, sessionStorage]) {
+        storage.removeItem("inventra_token");
+        storage.removeItem("inventra_user");
+        storage.removeItem("inventra_branches_list");
+      }
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("inventra_dashboard_section");
+      }
+      // Switch modal to post-delete choice screen (don't close modal yet)
+      setAccountDeleted(true);
+    } catch (err) {
+      setDeleteError(err.message || "An error occurred. Please try again.");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleRecoverAccount = async () => {
+    if (!recoveryToken) return;
+    setRecoveringAccount(true);
+    setDeleteError("");
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/recover-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recoveryToken }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof data?.detail === "string" ? data.detail : "Recovery failed"
+        );
+      }
+      const data = await res.json();
+      // Log the user back in automatically
+      if (data?.accessToken && data?.user) {
+        localStorage.setItem("inventra_token", data.accessToken);
+        localStorage.setItem("inventra_user", JSON.stringify(data.user));
+      }
+      toast.success("Welcome back! Your account has been fully restored.");
+      setShowDeleteAccountModal(false);
+      setAccountDeleted(false);
+      setRecoveryToken("");
+      // Force a page reload so all state picks up the restored session
+      window.location.reload();
+    } catch (err) {
+      setDeleteError(err.message || "Recovery failed. Please try again.");
+    } finally {
+      setRecoveringAccount(false);
+    }
+  };
+
   const handleCSVUploadComplete = () => {
-    // Simulate updating stock values and adding 10 transactions upon CSV parse completion
-    setProducts((currentProducts) =>
-      currentProducts.map((p) => ({
-        ...p,
-        stock: p.stock + Math.floor(10 + Math.random() * 20),
-        sold: (p.sold || 0) + Math.floor(5 + Math.random() * 15)
-      }))
-    );
-    setSalesCount((prev) => prev + 10);
-    setSalesRevenue((prev) => prev + 14500);
   };
 
   const handleSaveBranch = async () => {
@@ -636,10 +866,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       pincode: modalForm.pincode.trim(),
       phone: (modalForm.phone_country_code + " " + modalForm.phone_number.trim()).trim(),
       manager_name: modalForm.manager_name.trim(),
+      manager_email: modalForm.manager_email.trim() || null,
       employee_count: Number(modalForm.employee_count) || 1,
       working_hours: modalForm.working_hours,
       opening_date: modalForm.opening_date || null,
-      gstin: modalForm.gstin.trim() || null,
+      gstin: modalForm.branch_type === "Warehouse" ? null : (modalForm.gstin.trim() || null),
       status: "Active",
     };
 
@@ -649,6 +880,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       if (modalForm._id) {
         result = await updateBranch(modalForm._id, payload);
       } else {
+        const nameParts = modalForm.manager_name.trim().split(/\s+/);
+        const firstName = nameParts[0] || "manager";
+        const lastName = nameParts.slice(1).join("_") || "manager";
+        payload.manager_password = `${firstName}_${lastName}@manager`.toLowerCase();
         result = await createBranch(payload);
       }
       
@@ -676,7 +911,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       
       toast.success(
         <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-250 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
           <div className="min-w-0 flex-1 pr-8 text-left">
             <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-emerald-700">
               {modalForm._id ? "Branch Updated" : "Branch Added"}
@@ -747,6 +982,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         phone_country_code,
         phone_number,
         manager_name: branch.manager_name || "",
+        manager_email: branch.manager_email || "",
         employee_count: branch.employee_count || 1,
         working_hours: branch.working_hours || "9AM-9PM",
         opening_date: branch.opening_date || "",
@@ -797,7 +1033,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       
       toast.success(
         <div className="flex w-full items-center gap-3 px-3.5 py-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-250 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-black shadow-sm">✓</div>
           <div className="min-w-0 flex-1 pr-8 text-left">
             <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-emerald-700">Branch Removed</div>
             <div className="mt-0.5 text-[0.78rem] font-semibold text-emerald-950/80">Branch node deactivated and removed from live system.</div>
@@ -842,6 +1078,72 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     setActiveTab(getBranchOpsTab(normalizedTier));
   };
 
+  // Open the profile edit modal
+  const openEditProfile = () => {
+    setEditingProfile(true);
+  };
+
+  // Save profile draft locally (and attempt backend update if available)
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      // Update local state and localStorage immediately for responsive UI
+      const updated = {
+        ...userProfile,
+        firstName: profileDraft.firstName || (userProfile && userProfile.firstName) || "",
+        lastName: profileDraft.lastName || (userProfile && userProfile.lastName) || "",
+        businessName: profileDraft.businessName || (userProfile && userProfile.businessName) || "",
+        email: profileDraft.email || (userProfile && userProfile.email) || "",
+        businessType: profileDraft.businessType || (userProfile && userProfile.businessType) || "other",
+      };
+      setUserProfile(updated);
+      try {
+        localStorage.setItem("inventra_user", JSON.stringify(updated));
+        sessionStorage.setItem("inventra_user", JSON.stringify(updated));
+      } catch (err) {
+        // ignore storage errors
+      }
+
+      // Optimistic UI: close editor and show success
+      setEditingProfile(false);
+      toast.success("Executive profile updated successfully!");
+
+      // Optional: persist to backend if token present
+      const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+      if (token) {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/api/v1/auth/update-profile", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              firstName: updated.firstName,
+              lastName: updated.lastName,
+              businessName: updated.businessName,
+              email: updated.email,
+              businessType: updated.businessType,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.user) {
+              setUserProfile(data.user);
+              localStorage.setItem("inventra_user", JSON.stringify(data.user));
+              sessionStorage.setItem("inventra_user", JSON.stringify(data.user));
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to persist profile to backend:", err);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save profile.");
+    }
+  };
+
   // ==========================================
   // HIGH-FIDELITY CUSTOM VISUALIZATIONS
   // ==========================================
@@ -851,17 +1153,26 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     const height = 180;
     const padding = 20;
 
-    // Support two ranges: "7d" and "30d"
+    const hasSales = salesRevenue > 0 && salesHistory.length > 0;
+
+    if (!hasSales) {
+      return (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+          <p className="text-sm font-semibold text-slate-400">No sales data available yet.</p>
+        </div>
+      );
+    }
+
     const dates = mediumRange === "7d" 
-      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      ? salesHistory.map(h => h.day)
       : ["Wk 1", "Wk 2", "Wk 3", "Wk 4", "Wk 5", "Wk 6", "Wk 7", "Wk 8"];
-      
+       
     const baseLine = mediumRange === "7d"
-      ? [120, 145, 130, 205, 230, 310, 290]
-      : [110, 135, 120, 175, 190, 260, 280, 340];
-      
-    const upperLine = baseLine.map(v => v + 30);
-    const lowerLine = baseLine.map(v => v - 25);
+      ? salesHistory.map(h => h.revenue)
+      : [];
+
+    const upperLine = baseLine.map(v => v + Math.round(v * 0.15));
+    const lowerLine = baseLine.map(v => Math.max(0, v - Math.round(v * 0.15)));
 
     const maxVal = Math.max(...upperLine);
     const minVal = Math.min(...lowerLine);
@@ -887,31 +1198,28 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       <div className="space-y-4">
         {/* Metric Cards Row */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Model Confidence</span>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Revenue</span>
             <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-base font-black text-amber-600">98.4%</span>
-              <span className="text-[9px] font-bold text-emerald-600">Optimal</span>
+              <span className="text-base font-black text-slate-800">₹{salesRevenue.toLocaleString()}</span>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Weekly Revenue</span>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Sales Count</span>
             <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-base font-black text-slate-800">₹1,42,800</span>
-              <span className="text-[9px] font-bold text-emerald-600">+18.4%</span>
+              <span className="text-base font-black text-slate-800">{salesCount}</span>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm hover:border-amber-200 transition-colors text-left">
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Weekend Peak</span>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 shadow-sm text-left">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Note</span>
             <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-base font-black text-rose-605">1.8x</span>
-              <span className="text-[9px] font-bold text-rose-500">Holiday Surge</span>
+              <span className="text-base font-black text-slate-800">{salesRevenueNote || "—"}</span>
             </div>
           </div>
         </div>
 
         {/* Dynamic Interactive SVG */}
-        <div className="relative border border-slate-200/60 bg-gradient-to-b from-slate-50 to-white rounded-2xl p-4 shadow-inner">
+        <div className="relative overflow-hidden border border-slate-200/60 bg-gradient-to-b from-slate-50 to-white rounded-2xl p-4 shadow-inner">
           <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible select-none">
             <defs>
               <linearGradient id="forecast-glow" x1="0" y1="0" x2="0" y2="1">
@@ -945,7 +1253,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                 <g key={idx} className="cursor-pointer group">
                   <circle cx={cx} cy={cy} r="6" fill="#D97706" opacity="0" className="hover:opacity-20 transition-all duration-205" />
                   <circle cx={cx} cy={cy} r="3.5" fill="#FFFFFF" stroke="#D97706" strokeWidth="2.5" />
-                  {isPeak && (
+                  {isPeak && hasSales && (
                     <g>
                       <path d={`M ${cx} ${cy - 8} L ${cx} ${cy - 20}`} stroke="#EF4444" strokeWidth="1.5" strokeDasharray="2 2" />
                       <rect x={cx - 30} y={cy - 34} width="60" height="13" rx="4" fill="#EF4444" />
@@ -965,6 +1273,16 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               </text>
             ))}
           </svg>
+
+          {!hasSales ? (
+            <div className="absolute inset-0 bg-white/70 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-6 z-10 border border-slate-100/50">
+              <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📈</div>
+              <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cannot Forecast Now</span>
+              <p className="text-xs font-semibold text-slate-500 mt-2 max-w-sm leading-relaxed">
+                Holiday-aware profit forecasting and confidence boundaries will activate once transactions are recorded in Billing POS.
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -977,128 +1295,176 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
     const strokeWidth = 16;
     const circumference = 2 * Math.PI * radius;
 
-    const categories = [
-      { label: "Dairy", val: 40, color: "#10B981", money: "₹57,120", status: "Fast Moving", fill: "98% Fill" },
-      { label: "Beverages", val: 30, color: "#0EA5E9", money: "₹42,840", status: "Seasonal Spike", fill: "97% Fill" },
-      { label: "Snacks", val: 20, color: "#D97706", money: "₹28,560", status: "High Margin", fill: "89% Fill" },
-      { label: "Bakery", val: 10, color: "#EC4899", money: "₹14,280", status: "Critical Expiry", fill: "91% Fill" },
-    ];
+    const totalSold = products.reduce((sum, p) => sum + (p.sold || 0), 0);
+    const hasSales = totalSold > 0;
+
+    const categories = (() => {
+      const categorySales = {};
+      let netSold = 0;
+      products.forEach(p => {
+        const cat = p.category || "Other";
+        const sold = p.sold || 0;
+        categorySales[cat] = (categorySales[cat] || 0) + sold;
+        netSold += sold;
+      });
+      
+      const defaultCats = [
+        { label: "Dairy", val: 40, color: "#10B981", money: "₹0", status: "Fast Moving", fill: "98% Fill" },
+        { label: "Beverages", val: 30, color: "#0EA5E9", money: "₹0", status: "Seasonal Spike", fill: "97% Fill" },
+        { label: "Snacks", val: 20, color: "#D97706", money: "₹0", status: "High Margin", fill: "89% Fill" },
+        { label: "Bakery", val: 10, color: "#EC4899", money: "₹0", status: "Critical Expiry", fill: "91% Fill" },
+      ];
+      
+      if (netSold === 0) return defaultCats;
+      
+      const sortedCats = Object.keys(categorySales)
+        .map(cat => ({
+          label: cat,
+          val: Math.round((categorySales[cat] / netSold) * 100),
+          raw: categorySales[cat],
+          money: `₹${(categorySales[cat] * 40).toLocaleString()}`, // estimate value based on sales
+          status: "Active Segment",
+          fill: "Healthy Fill"
+        }))
+        .filter(c => c.raw > 0)
+        .sort((a, b) => b.raw - a.raw);
+        
+      const colors = ["#10B981", "#0EA5E9", "#D97706", "#EC4899", "#8B5CF6", "#64748B"];
+      return sortedCats.slice(0, 4).map((c, i) => ({
+        ...c,
+        color: colors[i % colors.length]
+      }));
+    })();
 
     let currentOffset = 0;
 
     return (
-      <div className="flex flex-col sm:flex-row items-center gap-6 justify-between text-left">
-        {/* Interactive SVG Ring */}
-        <div className="relative select-none shrink-0 mx-auto">
-          <svg width={size} height={size} className="overflow-visible">
-            {/* Background base circle */}
-            <circle cx={center} cy={center} r={radius} fill="none" stroke="#F1F5F9" strokeWidth={strokeWidth} />
-            
-            {categories.map((c, i) => {
-              const dashArray = `${(c.val / 100) * circumference} ${circumference}`;
-              const dashOffset = currentOffset;
-              currentOffset -= (c.val / 100) * circumference;
+      <div className="relative overflow-hidden w-full">
+        <div className="flex flex-col sm:flex-row items-center gap-6 justify-between text-left">
+          {/* Interactive SVG Ring */}
+          <div className="relative select-none shrink-0 mx-auto">
+            <svg width={size} height={size} className="overflow-visible">
+              {/* Background base circle */}
+              <circle cx={center} cy={center} r={radius} fill="none" stroke="#F1F5F9" strokeWidth={strokeWidth} />
               
+              {categories.map((c, i) => {
+                const dashArray = `${(c.val / 100) * circumference} ${circumference}`;
+                const dashOffset = currentOffset;
+                currentOffset -= (c.val / 100) * circumference;
+                
+                const isHovered = hoveredCategory === i;
+                const isAnyHovered = hoveredCategory !== null;
+
+                return (
+                  <circle
+                    key={i}
+                    cx={center}
+                    cy={center}
+                    r={radius}
+                    fill="none"
+                    stroke={c.color}
+                    strokeWidth={isHovered ? strokeWidth + 3 : strokeWidth}
+                    strokeDasharray={dashArray}
+                    strokeDashoffset={dashOffset}
+                    transform={`rotate(-90 ${center} ${center})`}
+                    strokeLinecap="round"
+                    className="transition-all duration-300 cursor-pointer"
+                    opacity={isAnyHovered && !isHovered ? "0.35" : "1"}
+                    onMouseEnter={() => setHoveredCategory(i)}
+                    onMouseLeave={() => setHoveredCategory(null)}
+                  />
+                );
+              })}
+
+              {/* Centered label */}
+              <g className="pointer-events-none">
+                <text x={center} y={center - 6} textAnchor="middle" fill="#94A3B8" fontSize="8" fontWeight="black" className="uppercase tracking-widest">
+                  TOTAL SALES
+                </text>
+                <text x={center} y={center + 10} textAnchor="middle" fill="#0F172A" fontSize="13" fontWeight="900">
+                  {hasSales ? `${totalSold} Units` : "0 Units"}
+                </text>
+              </g>
+            </svg>
+          </div>
+
+          {/* Legend Panel */}
+          <div className="flex-1 space-y-2 w-full">
+            {categories.map((c, i) => {
               const isHovered = hoveredCategory === i;
               const isAnyHovered = hoveredCategory !== null;
-
               return (
-                <circle
+                <div
                   key={i}
-                  cx={center}
-                  cy={center}
-                  r={radius}
-                  fill="none"
-                  stroke={c.color}
-                  strokeWidth={isHovered ? strokeWidth + 3 : strokeWidth}
-                  strokeDasharray={dashArray}
-                  strokeDashoffset={dashOffset}
-                  transform={`rotate(-90 ${center} ${center})`}
-                  strokeLinecap="round"
-                  className="transition-all duration-300 cursor-pointer"
-                  opacity={isAnyHovered && !isHovered ? "0.35" : "1"}
                   onMouseEnter={() => setHoveredCategory(i)}
                   onMouseLeave={() => setHoveredCategory(null)}
-                />
-              );
-            })}
-
-            {/* Centered label */}
-            <g className="pointer-events-none">
-              <text x={center} y={center - 6} textAnchor="middle" fill="#94A3B8" fontSize="8" fontWeight="black" className="uppercase tracking-widest">
-                TOTAL SALES
-              </text>
-              <text x={center} y={center + 10} textAnchor="middle" fill="#0F172A" fontSize="13" fontWeight="900">
-                ₹1.42L
-              </text>
-            </g>
-          </svg>
-        </div>
-
-        {/* Legend Panel */}
-        <div className="flex-1 space-y-2 w-full">
-          {categories.map((c, i) => {
-            const isHovered = hoveredCategory === i;
-            const isAnyHovered = hoveredCategory !== null;
-            return (
-              <div
-                key={i}
-                onMouseEnter={() => setHoveredCategory(i)}
-                onMouseLeave={() => setHoveredCategory(null)}
-                className={`p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer flex justify-between items-center ${
-                  isHovered 
-                    ? "bg-slate-50 border-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.03)] scale-[1.02]" 
-                    : isAnyHovered 
-                      ? "opacity-40 border-transparent bg-transparent" 
-                      : "bg-slate-50/60 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
-                  <div>
-                    <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 leading-none">
-                      <span>{c.label}</span>
-                      <span className="text-[9px] font-black text-slate-400">{c.val}%</span>
+                  className={`p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer flex justify-between items-center ${
+                    isHovered 
+                      ? "bg-slate-50 border-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.03)] scale-[1.02]" 
+                      : isAnyHovered 
+                        ? "opacity-40 border-transparent bg-transparent" 
+                        : "bg-slate-50/60 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 leading-none">
+                        <span>{c.label}</span>
+                        <span className="text-[9px] font-black text-slate-400">{c.val}%</span>
+                      </div>
+                      <span className="text-[9px] font-semibold text-slate-500 block mt-1 leading-none">{c.label} • {c.fill}</span>
                     </div>
-                    <span className="text-[9px] font-semibold text-slate-455 block mt-1 leading-none">{c.status} • {c.fill}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-black text-slate-900 block">{hasSales ? c.money : "—"}</span>
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-wide">Allocated</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-black text-slate-850 block">{c.money}</span>
-                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wide">Allocated</span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
+
+        {!hasSales ? (
+          <div className="absolute inset-0 bg-white/70 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-6 z-10 border border-slate-100/50">
+            <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📊</div>
+            <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Sales Data Unavailable</span>
+            <p className="text-xs font-semibold text-slate-500 mt-2 max-w-xs leading-relaxed">
+              Category sales distribution and segment shares will populate once transactions are recorded in Billing POS.
+            </p>
+          </div>
+        ) : null}
       </div>
     );
   };
 
   const simulateChatCommand = (promptText) => {
     if (isTyping) return;
-    
-    // Add user message
+
     const userMsg = { role: "user", text: promptText };
     setChatHistory(prev => [...prev, userMsg]);
     setIsTyping(true);
 
-    // Dynamic co-pilot replies
+    const activeBranches = branchesList && branchesList.length > 0 ? branchesList.map(b => b.branch_name) : [];
+    const activeProducts = products && products.length > 0 ? products.map(p => p.name) : [];
+
     let replyText = "";
-    if (promptText.includes("Diwali")) {
-      replyText = "Diwali Surge Simulation initialized. Expected multi-location demand multiplier is calibrated to 1.84x. Recommended triggers: increase Coke 500ml and Potato Chips stock reserves by 75 units at Mumbai and Delhi hubs. Safety stock parameters updated.";
-    } else if (promptText.includes("Chennai")) {
-      replyText = "Chennai Hub Expiries evaluated. 14 units of Organic Milk 1L are approaching expiration boundaries (expires in 48h). Auto-allocation rules triggered standard price markdown of 25% to maximize salvage rates prior to expiration.";
-    } else if (promptText.includes("Delhi")) {
-      replyText = "Delhi command network balanced. Identified supply surplus (Beverages: +120 units) in Delhi Store 2. Initiated logistics recommendation: transfer 45 units to Gurgaon Hub to resolve local stockouts. Fuel route optimization: optimal. Click Approve to authorize transfer.";
+    if (activeBranches.length === 0 && activeProducts.length === 0) {
+      replyText = "No data available. Set up branches and inventory first.";
     } else {
-      replyText = "ML classification command verified. Analyzing historical supply line signals. All regional indicators operate within normal standard error margins (efficiency: 96.8%).";
+      const lowStock = products.filter(p => p.stock <= p.reorderLevel);
+      if (lowStock.length > 0) {
+        replyText = `Found ${lowStock.length} low-stock items: ${lowStock.slice(0, 3).map(p => p.name).join(", ")}. Consider restocking soon.`;
+      } else {
+        replyText = `Monitoring ${activeBranches.length} branches with ${activeProducts.length} products. All levels nominal.`;
+      }
     }
 
     setTimeout(() => {
-      setIsTyping(false);
       setChatHistory(prev => [...prev, { role: "assistant", text: replyText }]);
-    }, 1200);
+      setIsTyping(false);
+    }, 800);
   };
 
   const handleSendChat = (e) => {
@@ -1135,10 +1501,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         </div>
 
         {/* Scrollable messages area */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-3.5 flex flex-col justify-end text-left scrollbar-thin scrollbar-thumb-slate-805 scrollbar-track-slate-950">
+        <div className="flex-1 p-4 overflow-y-auto space-y-3.5 flex flex-col justify-end text-left scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-slate-950">
           {chatHistory.map((msg, idx) => (
             <div key={idx} className={`flex flex-col max-w-[85%] ${msg.role === "user" ? "self-end items-end" : "self-start items-start"}`}>
-              <span className="text-[9px] font-black text-slate-550 uppercase tracking-widest mb-1">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
                 {msg.role === "user" ? "VP Executive Console" : "Inventra ML Engine"}
               </span>
               <div className={`p-3 rounded-2xl leading-relaxed font-sans font-semibold text-xs border ${
@@ -1192,7 +1558,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             disabled={isTyping || !chatInput.trim()}
             className="h-8 w-8 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center transition-colors shrink-0 shadow-[0_4px_12px_rgba(5,150,105,0.18)] cursor-pointer disabled:opacity-40"
           >
-            ➔
+            →
           </button>
         </form>
       </div>
@@ -1228,11 +1594,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             {/* Bezier flow lines representing transfer arrows */}
             <g>
               {/* Flow line 1: Mumbai to Bangalore */}
-              <path d="M 100 160 Q 115 185 130 210" fill="none" stroke="#059669" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
+              <path d="M 100 160 Q 115 185 130 210" fill="none" stroke="#10B981" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
               {/* Flow line 2: Delhi to Chennai */}
               <path d="M 120 50 Q 165 140 170 230" fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.4" />
               {/* Flow line 3: Bangalore to Chennai */}
-              <path d="M 130 210 Q 150 220 170 230" fill="none" stroke="#E11D48" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.5" />
+              <path d="M 130 210 Q 150 220 170 230" fill="none" stroke="#EF4444" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.5" />
             </g>
 
             {/* Custom stylized outlines - simple polygon map hints */}
@@ -1245,9 +1611,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               return (
                 <g key={key} onClick={() => setActiveBranch(key)} className="cursor-pointer">
                   {isSelected && (
-                    <circle cx={cx} cy={cy} r="12" fill="#059669" opacity="0.25" className="animate-ping" />
+                    <circle cx={cx} cy={cy} r="12" fill="#10B981" opacity="0.25" className="animate-ping" />
                   )}
-                  <circle cx={cx} cy={cy} r="6" fill={isSelected ? "#10B981" : "#1E293B"} stroke="#059669" strokeWidth="2.5" />
+                  <circle cx={cx} cy={cy} r="6" fill={isSelected ? "#10B981" : "#1E293B"} stroke="#10B981" strokeWidth="2.5" />
                   <circle cx={cx} cy={cy} r="2" fill="#FFFFFF" />
                   <text x={cx} y={cy - 10} fill="#94A3B8" fontSize="8" fontWeight="black" textAnchor="middle" className="uppercase tracking-wider">
                     {key}
@@ -1256,7 +1622,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               );
             })}
           </svg>
-          <div className="absolute top-2.5 left-2.5 text-[8px] font-black text-slate-500 uppercase tracking-widest">
+          <div className="absolute top-2.5 left-2.5 text-[8px] font-black text-slate-550 uppercase tracking-widest">
             LOGISTICS ARC ROUTING
           </div>
         </div>
@@ -1274,15 +1640,15 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
           <div className="grid grid-cols-2 gap-2 mt-4">
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
-              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Operational Yield</span>
+              <span className="text-[8px] font-black text-slate-550 uppercase tracking-wider block">Operational Yield</span>
               <span className="text-sm font-black text-emerald-400 block mt-0.5">{activeInfo.efficiency}</span>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
-              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Assigned Fleet</span>
+              <span className="text-[8px] font-black text-slate-550 uppercase tracking-wider block">Assigned Fleet</span>
               <span className="text-sm font-black text-slate-200 block mt-0.5">{activeInfo.fleet}</span>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5 col-span-2">
-              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Monitored Safety Stock Buffer</span>
+              <span className="text-[8px] font-black text-slate-550 uppercase tracking-wider block">Monitored Safety Stock Buffer</span>
               <span className="text-sm font-black text-slate-200 block mt-0.5">{activeInfo.stocks}</span>
             </div>
           </div>
@@ -1294,6 +1660,14 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
       </div>
     );
   };
+
+
+
+
+
+
+
+
 
   return (
     <div
@@ -1338,7 +1712,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             </div>
             <div className="hidden sm:flex flex-col text-left leading-[1.1]">
               <span className="text-[11px] font-black text-slate-800 tracking-tight">{userDisplayName}</span>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{config.profile.role}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-slate-500">
+                {!isOwner ? getRoleDisplayName(userProfile?.role || userSession?.user?.role) : config.profile.role}
+              </span>
             </div>
           </button>
         </div>
@@ -1363,7 +1739,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Role</div>
-                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">{config.profile.role}</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">
+                  {!isOwner ? getRoleDisplayName(userProfile?.role || userSession?.user?.role) : config.profile.role}
+                </div>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Access</div>
@@ -1373,7 +1751,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
           </div>
 
           <nav className="mt-4 space-y-2.5">
-            {WORKSPACE_TABS.map((tab) => {
+            {visibleTabs.map((tab) => {
               const isActive = activeSection === tab.key;
               return (
                 <button
@@ -1385,6 +1763,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     }
                     if (tab.key === "inventory") {
                       setActiveTab(getInventoryOpsTab(normalizedTier));
+                      return;
+                    }
+                    if (tab.key === "employees") {
+                      setActiveTab("employees");
                       return;
                     }
                     setActiveSection(tab.key);
@@ -1459,7 +1841,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         <div className="lg:hidden w-full flex justify-between items-center gap-3 px-4 sm:px-6 pt-4">
           <button
             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-            className="flex-1 py-3 px-4 rounded-xl bg-white border border-slate-200 hover:border-slate-350 text-slate-700 hover:text-slate-950 font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-2 cursor-pointer shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            className="flex-1 py-3 px-4 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 hover:text-slate-950 font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-2 cursor-pointer shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           >
             <span>🧭</span>
             <span>Workspace Navigation Menu</span>
@@ -1469,7 +1851,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
         {mobileSidebarOpen && (
           <div className="lg:hidden fixed inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col p-6 overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-450">Workspace Selection</span>
+              <span className="text-xs font-black uppercase tracking-widest text-slate-500">Workspace Selection</span>
               <button 
                 onClick={() => setMobileSidebarOpen(false)}
                 className="p-2 text-slate-500 hover:text-slate-900 text-sm cursor-pointer"
@@ -1479,7 +1861,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             </div>
             
             <nav className="space-y-2 mb-6">
-              {WORKSPACE_TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => {
@@ -1490,6 +1872,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     }
                     if (tab.key === "inventory") {
                       setActiveTab(getInventoryOpsTab(normalizedTier));
+                      setMobileSidebarOpen(false);
+                      return;
+                    }
+                    if (tab.key === "employees") {
+                      setActiveTab("employees");
                       setMobileSidebarOpen(false);
                       return;
                     }
@@ -1549,33 +1936,51 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
           {/* Section Router */}
           {activeSection === "overview" && (
             <>
-              {normalizedTier === "small" && (
-                <SmallDashboard 
+              {isOwner ? (
+                <>
+                  {normalizedTier === "small" && (
+                    <SmallDashboard 
+                      products={products}
+                      salesCount={salesCount}
+                      salesRevenue={salesRevenue}
+                      salesRevenueNote={salesRevenueNote}
+                      notifications={notifications}
+                      tierAccent={config.accent}
+                      tierAccentSoft={config.accentSoft}
+                      salesHistory={salesHistory}
+                    />
+                  )}
+                  {normalizedTier === "medium" && (
+                    <MediumDashboard 
+                      products={products}
+                      onUpdateProducts={setProducts}
+                      tierAccent={config.accent}
+                      tierAccentSoft={config.accentSoft}
+                      salesHistory={salesHistory}
+                    />
+                  )}
+                  {normalizedTier === "large" && (
+                    <LargeDashboard 
+                      products={products}
+                      onUpdateProducts={setProducts}
+                      tierAccent={config.accent}
+                      tierAccentSoft={config.accentSoft}
+                      onOpenBranchPage={handleOpenBranchOperations}
+                      branchNetwork={branchNetwork}
+                      branchesList={branchesList}
+                      isOwner={isOwner}
+                    />
+                  )}
+                </>
+              ) : (
+                <BranchManagerOverview
                   products={products}
                   salesCount={salesCount}
                   salesRevenue={salesRevenue}
                   salesRevenueNote={salesRevenueNote}
-                  notifications={notifications}
-                  tierAccent={config.accent}
-                  tierAccentSoft={config.accentSoft}
-                />
-              )}
-              {normalizedTier === "medium" && (
-                <MediumDashboard 
-                  products={products}
-                  onUpdateProducts={setProducts}
-                  tierAccent={config.accent}
-                  tierAccentSoft={config.accentSoft}
-                />
-              )}
-              {normalizedTier === "large" && (
-                <LargeDashboard 
-                  products={products}
-                  onUpdateProducts={setProducts}
-                  tierAccent={config.accent}
-                  tierAccentSoft={config.accentSoft}
-                  onOpenBranchPage={handleOpenBranchOperations}
-                  branchNetwork={branchNetwork}
+                  branchesList={branchesList}
+                  userSession={userSession}
+                  userBranchId={userBranchId}
                 />
               )}
             </>
@@ -1588,6 +1993,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               tier={normalizedTier}
               tierAccent={config.accent}
               tierAccentSoft={config.accentSoft}
+              branchesList={branchesList}
             />
           )}
 
@@ -1606,158 +2012,134 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                   {/* Dual Card Showcase */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Card 1: Fresh Bread */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-left flex flex-col justify-between">
-                      <div>
-                        <div className="flex justify-between items-start gap-4 mb-4">
-                          <div>
-                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Bakery Segment</span>
-                            <h4 className="text-base font-black text-slate-800 leading-tight">Fresh Bread 400g</h4>
-                          </div>
-                          <span
-                            className="rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider"
-                            style={{ backgroundColor: `${config.accent}15`, color: config.accent }}
-                          >
-                            Peak Demand
-                          </span>
-                        </div>
-
-                        {/* Metrics Grid */}
-                        <div className="grid grid-cols-3 gap-2.5 mb-6">
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">Stock Level</span>
-                            <span className="text-sm font-black text-rose-600 block mt-0.5">8 Units</span>
-                            <span className="text-[8px] font-semibold text-rose-500 block">Below Reorder (15)</span>
-                          </div>
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">7D Forecast</span>
-                            <span className="text-sm font-black text-slate-800 block mt-0.5">145 Units</span>
-                            <span className="text-[8px] font-semibold text-emerald-600 block">+18% Surge Peak</span>
-                          </div>
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">ML Confidence</span>
-                            <span className="text-sm font-black block mt-0.5" style={{ color: config.accent }}>94.2%</span>
-                            <span className="text-[8px] font-semibold text-slate-500 block">High Certainty</span>
-                          </div>
-                        </div>
+                    {products.length === 0 ? (
+                      <div className="col-span-2 bg-white border border-slate-200 rounded-3xl p-8 text-center text-xs font-semibold text-slate-500">
+                        📦 Add products in Inventory Operations to view category sales predictions and sparklines.
                       </div>
+                    ) : (
+                      [...products]
+                        .sort((a, b) => (b.sold || 0) - (a.sold || 0))
+                        .slice(0, 2)
+                        .map((product) => {
+                          const isLowStock = product.stock <= (product.reorderLevel || 10);
+                          const hasSales = (product.sold || 0) > 0;
+                          const forecast = hasSales ? Math.round(product.sold * 1.25) : 0;
+                          const growth = hasSales
+                            ? `+${Math.round(10 + ((product.sold || 0) % 15))}% Surge Peak`
+                            : "No Sales Data";
+                          const mlConfidence = hasSales
+                            ? (90 + ((product.price || 0) % 9) * 0.8).toFixed(1)
+                            : 0;
+                          const gradId = `spark-grad-${product.id}`;
 
-                      {/* SVG Sparkline */}
-                      <div className="relative pt-4 pb-2 border-t border-slate-100">
-                        <svg className="w-full h-28 overflow-visible" viewBox="0 0 500 100" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="bread-grad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={config.accent} stopOpacity="0.25" />
-                              <stop offset="100%" stopColor={config.accent} stopOpacity="0.00" />
-                            </linearGradient>
-                          </defs>
-                          {/* Grid Lines */}
-                          <line x1="0" y1="15" x2="500" y2="15" stroke="#F1F5F9" strokeWidth="1" />
-                          <line x1="0" y1="50" x2="500" y2="50" stroke="#F1F5F9" strokeWidth="1" />
-                          <line x1="0" y1="85" x2="500" y2="85" stroke="#F1F5F9" strokeWidth="1" />
+                          // Generate dynamic SVG sparkline coordinates
+                          const pointsCount = 7;
+                          const xStep = 500 / (pointsCount - 1);
                           
-                          {/* Gradient Fill under the curve */}
-                          <path
-                            d="M 0 70 C 80 40, 120 85, 200 35 C 280 -5, 380 95, 450 15 L 500 12 L 500 100 L 0 100 Z"
-                            fill="url(#bread-grad)"
-                          />
-                          {/* Sparkline Stroke */}
-                          <path
-                            d="M 0 70 C 80 40, 120 85, 200 35 C 280 -5, 380 95, 450 15 L 500 12"
-                            fill="none"
-                            stroke={config.accent}
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2.5 px-0.5">
-                          <span>Mon</span>
-                          <span>Tue</span>
-                          <span>Wed</span>
-                          <span>Thu</span>
-                          <span>Fri</span>
-                          <span>Sat (Peak)</span>
-                          <span>Sun</span>
-                        </div>
-                      </div>
-                    </div>
+                          let yValues;
+                          if (hasSales) {
+                            const dailyAvg = (product.sold || 0) / 7;
+                            const factors = [0.8, 1.1, 0.9, 1.2, 1.5, 1.8, 1.4];
+                            const maxVal = dailyAvg * 1.8;
+                            yValues = factors.map(f => {
+                              const val = dailyAvg * f;
+                              return 85 - (val / (maxVal || 1)) * 65;
+                            });
+                          } else {
+                            yValues = [85, 85, 85, 85, 85, 85, 85];
+                          }
 
-                    {/* Card 2: Organic Milk */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-left flex flex-col justify-between">
-                      <div>
-                        <div className="flex justify-between items-start gap-4 mb-4">
-                          <div>
-                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Dairy Segment</span>
-                            <h4 className="text-base font-black text-slate-800 leading-tight">Organic Milk 1L</h4>
-                          </div>
-                          <span
-                            className="rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600"
-                          >
-                            Stable Supply
-                          </span>
-                        </div>
+                          const pathPoints = yValues.map((y, i) => `${i * xStep} ${y}`);
+                          const strokeD = `M ${pathPoints.join(" L ")}`;
+                          const fillD = `${strokeD} L 500 100 L 0 100 Z`;
 
-                        {/* Metrics Grid */}
-                        <div className="grid grid-cols-3 gap-2.5 mb-6">
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">Stock Level</span>
-                            <span className="text-sm font-black text-amber-600 block mt-0.5">12 Units</span>
-                            <span className="text-[8px] font-semibold text-amber-500 block">Near Reorder (20)</span>
-                          </div>
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">7D Forecast</span>
-                            <span className="text-sm font-black text-slate-800 block mt-0.5">280 Units</span>
-                            <span className="text-[8px] font-semibold text-emerald-600 block">+8% Steady Growth</span>
-                          </div>
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">ML Confidence</span>
-                            <span className="text-sm font-black text-emerald-600 block mt-0.5">96.8%</span>
-                            <span className="text-[8px] font-semibold text-slate-500 block">Optimal Signals</span>
-                          </div>
-                        </div>
-                      </div>
+                          return (
+                            <div key={product.id} className="relative overflow-hidden bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-left flex flex-col justify-between">
+                              <div>
+                                <div className="flex justify-between items-start gap-4 mb-4">
+                                  <div>
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">{product.category} Segment</span>
+                                    <h4 className="text-base font-black text-slate-800 leading-tight">{product.name}</h4>
+                                  </div>
+                                  <span
+                                    className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                      isLowStock ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
+                                    }`}
+                                  >
+                                    {isLowStock ? "Needs Restock" : "Stable Supply"}
+                                  </span>
+                                </div>
 
-                      {/* SVG Sparkline */}
-                      <div className="relative pt-4 pb-2 border-t border-slate-100">
-                        <svg className="w-full h-28 overflow-visible" viewBox="0 0 500 100" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="milk-grad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#10B981" stopOpacity="0.2" />
-                              <stop offset="100%" stopColor="#10B981" stopOpacity="0.00" />
-                            </linearGradient>
-                          </defs>
-                          {/* Grid Lines */}
-                          <line x1="0" y1="15" x2="500" y2="15" stroke="#F1F5F9" strokeWidth="1" />
-                          <line x1="0" y1="50" x2="500" y2="50" stroke="#F1F5F9" strokeWidth="1" />
-                          <line x1="0" y1="85" x2="500" y2="85" stroke="#F1F5F9" strokeWidth="1" />
-                          
-                          {/* Gradient Fill under the curve */}
-                          <path
-                            d="M 0 35 C 100 50, 180 15, 250 55 C 320 95, 400 30, 500 40 L 500 100 L 0 100 Z"
-                            fill="url(#milk-grad)"
-                          />
-                          {/* Sparkline Stroke */}
-                          <path
-                            d="M 0 35 C 100 50, 180 15, 250 55 C 320 95, 400 30, 500 40"
-                            fill="none"
-                            stroke="#10B981"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2.5 px-0.5">
-                          <span>Mon</span>
-                          <span>Tue (Stable)</span>
-                          <span>Wed</span>
-                          <span>Thu</span>
-                          <span>Fri</span>
-                          <span>Sat</span>
-                          <span>Sun</span>
-                        </div>
-                      </div>
-                    </div>
+                                {/* Metrics Grid */}
+                                <div className="grid grid-cols-3 gap-2.5 mb-6">
+                                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">Stock Level</span>
+                                    <span className={`text-sm font-black block mt-0.5 ${isLowStock ? "text-rose-600" : "text-slate-800"}`}>
+                                      {product.stock} Units
+                                    </span>
+                                    <span className={`text-[8.5px] font-semibold block ${isLowStock ? "text-rose-500" : "text-slate-500"}`}>
+                                      {isLowStock ? `Below Reorder (${product.reorderLevel})` : `Healthy (min ${product.reorderLevel})`}
+                                    </span>
+                                  </div>
+                                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">7D Forecast</span>
+                                    <span className="text-sm font-black text-slate-800 block mt-0.5">{hasSales ? `${forecast} Units` : "—"}</span>
+                                    <span className={`text-[8.5px] font-semibold block ${hasSales ? "text-emerald-600" : "text-slate-400"}`}>{growth}</span>
+                                  </div>
+                                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">ML Confidence</span>
+                                    <span className="text-sm font-black block mt-0.5" style={{ color: hasSales ? config.accent : "#94a3b8" }}>
+                                      {hasSales ? `${mlConfidence}%` : "—"}
+                                    </span>
+                                    <span className="text-[8.5px] font-semibold text-slate-500 block">{hasSales ? "High Certainty" : "Pending"}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* SVG Sparkline */}
+                              <div className="relative pt-4 pb-2 border-t border-slate-100">
+                                <svg className="w-full h-28 overflow-visible" viewBox="0 0 500 100" preserveAspectRatio="none">
+                                  <defs>
+                                    <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor={config.accent} stopOpacity={hasSales ? 0.25 : 0.05} />
+                                      <stop offset="100%" stopColor={config.accent} stopOpacity="0.00" />
+                                    </linearGradient>
+                                  </defs>
+                                  {/* Grid Lines */}
+                                  <line x1="0" y1="15" x2="500" y2="15" stroke="#F1F5F9" strokeWidth="1" />
+                                  <line x1="0" y1="50" x2="500" y2="50" stroke="#F1F5F9" strokeWidth="1" />
+                                  <line x1="0" y1="85" x2="500" y2="85" stroke="#F1F5F9" strokeWidth="1" />
+                                  
+                                  {/* Gradient Fill under the curve */}
+                                  <path d={fillD} fill={`url(#${gradId})`} />
+                                  {/* Sparkline Stroke */}
+                                  <path d={strokeD} fill="none" stroke={hasSales ? config.accent : "#cbd5e1"} strokeWidth="3" strokeDasharray={hasSales ? "none" : "4 4"} strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2.5 px-0.5">
+                                  <span>Mon</span>
+                                  <span>Tue</span>
+                                  <span>Wed</span>
+                                  <span>Thu</span>
+                                  <span>Fri</span>
+                                  <span>Sat</span>
+                                  <span>Sun</span>
+                                </div>
+                              </div>
+
+                              {/* Onboarding Glassmorphic Overlay */}
+                              {!hasSales ? (
+                                <div className="absolute inset-0 bg-white/75 backdrop-blur-[3px] rounded-3xl flex flex-col items-center justify-center text-center p-4 z-10 border border-slate-100/50">
+                                  <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📈</div>
+                                  <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cannot Forecast Now</span>
+                                  <p className="text-xs font-semibold text-slate-500 mt-2 max-w-[240px] leading-relaxed">
+                                    Awaiting sales activity to calibrate predictive models. Record transactions in Billing POS to generate forecasts.
+                                  </p>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                    )}
                   </div>
                 </div>
               )}
@@ -1774,7 +2156,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                           <button
                             key={r}
                             onClick={() => setMediumRange(r)}
-                            className={`px-2.5 py-1 text-[10px] uppercase font-black tracking-wider rounded-lg transition-all cursor-pointer ${mediumRange === r ? 'bg-white text-slate-900 border border-slate-205 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800 font-bold'}`}
+                            className={`px-2.5 py-1 text-[10px] uppercase font-black tracking-wider rounded-lg transition-all cursor-pointer ${mediumRange === r ? 'bg-white text-slate-900 border border-slate-200 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800 font-bold'}`}
                           >
                             {r}
                           </button>
@@ -1794,126 +2176,165 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
                 </div>
               )}
-              {normalizedTier === "large" && (
-                <div className="space-y-6 text-left">
-                  <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
-                    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5 mb-6">
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Enterprise AI Forecasting</span>
-                        <h3 className="text-2xl md:text-3xl font-black text-slate-950 mt-1 leading-tight">Network Demand & Inventory Risk Command</h3>
-                        <p className="text-xs md:text-sm text-slate-500 font-semibold mt-2 max-w-3xl leading-relaxed">
-                          Multi-branch forecast model combining sales velocity, stock cover, expiry exposure, fulfillment load, and transfer feasibility across regional hubs.
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 min-w-0 lg:min-w-[520px]">
-                        {[
-                          { label: "Model Confidence", value: "96.4%", note: "+2.1 pts", tone: "text-emerald-600" },
-                          { label: "30D Revenue Forecast", value: "₹18.7Cr", note: "+12.8%", tone: "text-emerald-600" },
-                          { label: "Risk Exposure", value: "₹42.8L", note: "actionable", tone: "text-amber-600" },
-                          { label: "Service Level", value: "93.8%", note: "target 96%", tone: "text-sky-600" },
-                        ].map((metric) => (
-                          <div key={metric.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
-                            <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">{metric.label}</span>
-                            <span className="block text-lg font-black text-slate-950 mt-1">{metric.value}</span>
-                            <span className={`block text-[10px] font-black uppercase tracking-wider mt-0.5 ${metric.tone}`}>{metric.note}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
-                      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:p-5">
-                        <div className="flex items-start justify-between gap-4 mb-4">
-                          <div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">Demand Curve</span>
-                            <h4 className="text-lg font-black text-slate-900 mt-1">30-Day Network Forecast</h4>
-                          </div>
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-700">
-                            Auto-Rebalance Active
-                          </span>
+              {normalizedTier === "large" && (() => {
+                const networkHasSales = products.some(p => (p.sold || 0) > 0);
+                return (
+                  <div className="space-y-6 text-left">
+                    <section className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+                      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5 mb-6">
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Enterprise AI Forecasting</span>
+                          <h3 className="text-2xl md:text-3xl font-black text-slate-950 mt-1 leading-tight">Network Demand & Inventory Risk Command</h3>
+                          <p className="text-xs md:text-sm text-slate-500 font-semibold mt-2 max-w-3xl leading-relaxed">
+                            Multi-branch forecast model combining sales velocity, stock cover, expiry exposure, fulfillment load, and transfer feasibility across regional hubs.
+                          </p>
                         </div>
-                        <svg className="w-full h-72 overflow-visible" viewBox="0 0 760 280" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="enterpriseForecastFill" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#10B981" stopOpacity="0.25" />
-                              <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
-                            </linearGradient>
-                            <linearGradient id="enterpriseRiskFill" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.18" />
-                              <stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
-                            </linearGradient>
-                          </defs>
-                          {[40, 90, 140, 190, 240].map((y) => (
-                            <line key={y} x1="0" y1={y} x2="760" y2={y} stroke="#E2E8F0" strokeWidth="1" />
-                          ))}
-                          <path
-                            d="M0 214 C72 188 104 154 172 164 C232 172 260 104 326 116 C386 128 404 78 472 82 C552 86 584 140 646 108 C700 80 724 62 760 54 L760 280 L0 280 Z"
-                            fill="url(#enterpriseForecastFill)"
-                          />
-                          <path
-                            d="M0 224 C84 210 126 204 188 196 C260 188 326 174 390 154 C476 126 536 132 610 104 C672 82 718 76 760 68"
-                            fill="none"
-                            stroke="#10B981"
-                            strokeWidth="5"
-                            strokeLinecap="round"
-                          />
-                          <path
-                            d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92 L760 280 L0 280 Z"
-                            fill="url(#enterpriseRiskFill)"
-                          />
-                          <path
-                            d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92"
-                            fill="none"
-                            stroke="#F59E0B"
-                            strokeWidth="3"
-                            strokeDasharray="10 8"
-                            strokeLinecap="round"
-                          />
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 min-w-0 lg:min-w-[520px]">
                           {[
-                            { x: 172, y: 164, label: "Delhi buffer breach" },
-                            { x: 472, y: 82, label: "Holiday demand lift" },
-                            { x: 646, y: 108, label: "Pune surplus release" },
-                          ].map((point) => (
-                            <g key={point.label}>
-                              <circle cx={point.x} cy={point.y} r="7" fill="#fff" stroke="#10B981" strokeWidth="4" />
-                              <text x={point.x + 12} y={point.y - 10} fill="#475569" fontSize="11" fontWeight="800">{point.label}</text>
-                            </g>
+                            { label: "Total Sales", value: salesCount > 0 ? String(salesCount) : "—", note: salesCount > 0 ? "transactions" : "No data", tone: salesCount > 0 ? "text-emerald-600" : "text-slate-400" },
+                            { label: "Revenue", value: salesRevenue > 0 ? `₹${salesRevenue}` : "—", note: salesRevenue > 0 ? "current" : "No data", tone: salesRevenue > 0 ? "text-emerald-600" : "text-slate-400" },
+                            { label: "Products", value: products.length > 0 ? String(products.length) : "—", note: products.length > 0 ? "active SKUs" : "No data", tone: products.length > 0 ? "text-emerald-600" : "text-slate-400" },
+                            { label: "Branches", value: branchesList.length > 0 ? String(branchesList.length) : "—", note: branchesList.length > 0 ? "active" : "No data", tone: branchesList.length > 0 ? "text-sky-600" : "text-slate-400" },
+                          ].map((metric) => (
+                            <div key={metric.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                              <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">{metric.label}</span>
+                              <span className="block text-lg font-black text-slate-950 mt-1">{metric.value}</span>
+                              <span className={`block text-[10px] font-black uppercase tracking-wider mt-0.5 ${metric.tone}`}>{metric.note}</span>
+                            </div>
                           ))}
-                        </svg>
-                        <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-emerald-500" /> Demand forecast</span>
-                          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-amber-500" /> Inventory risk band</span>
-                          <span>Planning horizon: 30 days</span>
                         </div>
                       </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
+                        <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:p-5">
+                          <div className="flex items-start justify-between gap-4 mb-4">
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">Demand Curve</span>
+                              <h4 className="text-lg font-black text-slate-900 mt-1">30-Day Network Forecast</h4>
+                            </div>
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                              Auto-Rebalance Active
+                            </span>
+                          </div>
+                          <svg className="w-full h-72 overflow-visible" viewBox="0 0 760 280" preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="enterpriseForecastFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#10B981" stopOpacity={networkHasSales ? 0.25 : 0.05} />
+                                <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
+                              </linearGradient>
+                              <linearGradient id="enterpriseRiskFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#F59E0B" stopOpacity={networkHasSales ? 0.18 : 0.02} />
+                                <stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            {[40, 90, 140, 190, 240].map((y) => (
+                              <line key={y} x1="0" y1={y} x2="760" y2={y} stroke="#E2E8F0" strokeWidth="1" />
+                            ))}
+                            <path
+                              d="M0 214 C72 188 104 154 172 164 C232 172 260 104 326 116 C386 128 404 78 472 82 C552 86 584 140 646 108 C700 80 724 62 760 54 L760 280 L0 280 Z"
+                              fill="url(#enterpriseForecastFill)"
+                            />
+                            <path
+                              d="M0 224 C84 210 126 204 188 196 C260 188 326 174 390 154 C476 126 536 132 610 104 C672 82 718 76 760 68"
+                              fill="none"
+                              stroke={networkHasSales ? "#10B981" : "#cbd5e1"}
+                              strokeWidth="5"
+                              strokeLinecap="round"
+                            />
+                            <path
+                              d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92 L760 280 L0 280 Z"
+                              fill="url(#enterpriseRiskFill)"
+                            />
+                            <path
+                              d="M0 242 C78 232 128 224 194 214 C278 202 350 184 420 164 C494 146 562 156 632 128 C690 106 724 102 760 92"
+                              fill="none"
+                              stroke={networkHasSales ? "#F59E0B" : "#e2e8f0"}
+                              strokeWidth="3"
+                              strokeDasharray="10 8"
+                              strokeLinecap="round"
+                            />
+                            {networkHasSales && (() => {
+                              const b1 = branchesList[0]?.branch_name || "Primary Hub";
+                              const b2 = branchesList[1]?.branch_name || "Secondary Hub";
+                              return [
+                                { x: 172, y: 164, label: `${b1} warning` },
+                                { x: 472, y: 82, label: "Holiday demand lift" },
+                                { x: 646, y: 108, label: `${b2} surplus` },
+                              ].map((point) => (
+                                <g key={point.label}>
+                                  <circle cx={point.x} cy={point.y} r="7" fill="#fff" stroke="#10B981" strokeWidth="4" />
+                                  <text x={point.x + 12} y={point.y - 10} fill="#475569" fontSize="11" fontWeight="800">{point.label}</text>
+                                </g>
+                              ));
+                            })()}
+                          </svg>
+                          <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-emerald-500" /> Demand forecast</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-6 rounded-full bg-amber-500" /> Inventory risk band</span>
+                            <span>Planning horizon: 30 days</span>
+                          </div>
+
+                          {!networkHasSales ? (
+                            <div className="absolute inset-0 bg-white/70 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-6 z-10 border border-slate-100/50">
+                              <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-sm text-sm mb-2">📈</div>
+                              <span className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cannot Forecast Now</span>
+                              <p className="text-xs font-semibold text-slate-500 mt-2 max-w-sm leading-relaxed">
+                                Enterprise command neural charts and network demand forecasting will activate once sales are registered in POS.
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
 
                       <div className="space-y-3">
-                        {[
-                          { label: "Delhi Branch", signal: "Understock risk", value: "68% cover", action: "Receive 30 Bakery + Dairy units", tone: "border-rose-200 bg-rose-50 text-rose-700" },
-                          { label: "Pune Depot", signal: "Overstock expiry", value: "98% capacity", action: "Release slow-moving surplus", tone: "border-amber-200 bg-amber-50 text-amber-700" },
-                          { label: "Bangalore Branch", signal: "Demand expansion", value: "+14% velocity", action: "Raise beverage reorder min", tone: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-                          { label: "London Branch", signal: "Service watch", value: "76% stock health", action: "Confirm supplier SLA", tone: "border-sky-200 bg-sky-50 text-sky-700" },
-                        ].map((branch) => (
-                          <div key={branch.label} className="rounded-2xl border border-slate-200 bg-white p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Branch Risk Signal</span>
-                                <h4 className="text-base font-black text-slate-950 mt-1">{branch.label}</h4>
+                        {branchesList.slice(0, 4).map((branch) => {
+                          const branchName = branch.branch_name;
+                          const branchProducts = products.filter(p => p.branchName === branchName);
+                          const totalStock = branchProducts.reduce((sum, p) => sum + p.stock, 0);
+                          const lowStock = branchProducts.filter(p => p.stock <= p.reorderLevel);
+                          
+                          let signal = "Optimal Health";
+                          let value = "100% cover";
+                          let action = "Keep monitoring";
+                          let tone = "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+                          if (branchProducts.length === 0) {
+                            signal = "No Catalog";
+                            value = "0 units";
+                            action = "Add products to branch";
+                            tone = "border-slate-200 bg-slate-50 text-slate-700";
+                          } else if (lowStock.length > 0) {
+                            signal = "Understock Risk";
+                            value = `${Math.round((lowStock.length / branchProducts.length) * 100)}% alert rate`;
+                            action = `Restock ${lowStock.slice(0, 2).map(p => p.name).join(", ")}`;
+                            tone = "border-rose-200 bg-rose-50 text-rose-700";
+                          } else if (totalStock > 400) {
+                            signal = "Overstock Alert";
+                            value = "High capacity";
+                            action = "Clear excess surplus";
+                            tone = "border-amber-200 bg-amber-50 text-amber-700";
+                          }
+
+                          return (
+                            <div key={branchName} className="rounded-2xl border border-slate-200 bg-white p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Branch Risk Signal</span>
+                                  <h4 className="text-base font-black text-slate-950 mt-1">{branchName}</h4>
+                                </div>
+                                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${tone}`}>{signal}</span>
                               </div>
-                              <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${branch.tone}`}>{branch.signal}</span>
+                              <div className="mt-3.5 flex justify-between items-center text-xs font-semibold">
+                                <div className="text-slate-500">{action}</div>
+                                <div className="text-slate-900 font-black">{value}</div>
+                              </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 mt-4">
-                              <div>
-                                <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Current State</span>
-                                <span className="block text-sm font-black text-slate-800 mt-1">{branch.value}</span>
-                              </div>
-                              <div>
-                                <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">AI Action</span>
-                                <span className="block text-sm font-black text-slate-800 mt-1">{branch.action}</span>
-                              </div>
-                            </div>
+                          );
+                        })}
+                        {branchesList.length === 0 && (
+                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs font-semibold text-slate-500">
+                            No branches configured. Setup branch networks in Branch Operations.
                           </div>
-                        ))}
+                        )}
                       </div>
                     </div>
                   </section>
@@ -1922,53 +2343,67 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
                       <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">AI Decision Queue</span>
                       <h3 className="text-lg font-black text-slate-900 mt-1">Recommended Enterprise Actions</h3>
-                      <div className="mt-5 space-y-3">
-                        {[
-                          ["1", "Rebalance Stock", "Move 30 Bakery/Dairy units from Pune Depot to Delhi Branch before tomorrow morning dispatch."],
-                          ["2", "Update Reorder Policy", "Increase beverage minimum stock by 18% for Bangalore and Mumbai through the next holiday window."],
-                          ["3", "Protect Margin", "Hold discounting on Dairy SKUs in high-velocity branches; route promotion spend to Snacks instead."],
-                          ["4", "Supplier Escalation", "Trigger SLA check for London cold-chain supply due to two-cycle service-level drift."],
-                        ].map(([step, title, body]) => (
-                          <div key={step} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-                            <span className="h-7 w-7 rounded-full bg-emerald-600 text-white text-xs font-black grid place-items-center shrink-0">{step}</span>
-                            <div>
-                              <h4 className="text-sm font-black text-slate-950">{title}</h4>
-                              <p className="text-[11px] font-semibold text-slate-500 leading-relaxed mt-0.5">{body}</p>
+                      {products.length > 0 ? (
+                        <div className="mt-5 space-y-3">
+                          {products.filter(p => p.stock <= p.reorderLevel).slice(0, 4).map((p, i) => (
+                            <div key={p.id || i} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                              <span className="h-7 w-7 rounded-full bg-emerald-600 text-white text-xs font-black grid place-items-center shrink-0">{i + 1}</span>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-950">Restock {p.name}</h4>
+                                <p className="text-[11px] font-semibold text-slate-500 leading-relaxed mt-0.5">Current stock: {p.stock}, reorder level: {p.reorderLevel}. {p.category} category needs attention.</p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                          {products.filter(p => p.stock <= p.reorderLevel).length === 0 && (
+                            <p className="text-xs font-semibold text-slate-400 text-center py-4">All stock levels are healthy. No reorder actions needed.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-semibold text-slate-400 text-center py-4">No inventory data available for recommendations.</p>
+                      )}
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
                       <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Category Exposure</span>
                       <h3 className="text-lg font-black text-slate-900 mt-1">Inventory, Margin & Expiry Analysis</h3>
-                      <div className="mt-5 space-y-4">
-                        {[
-                          { label: "Dairy", stock: 74, margin: "18.4%", risk: "High expiry sensitivity", color: "#0EA5E9" },
-                          { label: "Bakery", stock: 61, margin: "21.7%", risk: "Short cover in Delhi", color: "#F59E0B" },
-                          { label: "Beverages", stock: 88, margin: "25.2%", risk: "Holiday demand lift", color: "#10B981" },
-                          { label: "Snacks", stock: 79, margin: "31.5%", risk: "Promo upside", color: "#6366F1" },
-                        ].map((category) => (
-                          <div key={category.label}>
-                            <div className="flex justify-between items-end gap-3 mb-1.5">
-                              <div>
-                                <span className="text-sm font-black text-slate-900">{category.label}</span>
-                                <span className="ml-2 text-[10px] font-bold text-slate-400">{category.risk}</span>
-                              </div>
-                              <span className="text-xs font-black text-slate-700">{category.margin} margin</span>
-                            </div>
-                            <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${category.stock}%`, background: category.color }} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      {products.length > 0 ? (
+                        <div className="mt-5 space-y-4">
+                          {(() => {
+                            const categories = {};
+                            products.forEach(p => {
+                              const cat = p.category || "Uncategorized";
+                              if (!categories[cat]) categories[cat] = { totalStock: 0, count: 0 };
+                              categories[cat].totalStock += p.stock;
+                              categories[cat].count += 1;
+                            });
+                            const maxStock = Math.max(...Object.values(categories).map(c => c.totalStock), 1);
+                            return Object.entries(categories).map(([label, data]) => {
+                              const pct = Math.round((data.totalStock / maxStock) * 100);
+                              return (
+                                <div key={label}>
+                                  <div className="flex justify-between items-end gap-3 mb-1.5">
+                                    <div>
+                                      <span className="text-sm font-black text-slate-900">{label}</span>
+                                      <span className="ml-2 text-[10px] font-bold text-slate-400">{data.count} products</span>
+                                    </div>
+                                    <span className="text-xs font-black text-slate-700">{data.totalStock} units</span>
+                                  </div>
+                                  <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "#0EA5E9" }} />
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-semibold text-slate-400 text-center py-4">No inventory data for category analysis.</p>
+                      )}
                     </div>
                   </section>
-
-                </div>
-              )}
+                  </div>
+                );
+              })()}
             </>
           )}
 
@@ -2004,7 +2439,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                         <div className="flex items-center gap-2">
                           <span className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Executive identity</span>
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600">SYSTEM OWNER</span>
+                          <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600">{isOwner ? "SYSTEM OWNER" : getRoleDisplayName(userProfile?.role || userSession?.user?.role)}</span>
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mt-1.5 leading-none tracking-tight">{userDisplayName}</h2>
                         <p className="text-xs text-slate-500 font-extrabold mt-2 flex items-center gap-1.5">
@@ -2028,11 +2463,11 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                   <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs font-semibold text-slate-500 leading-normal">
                     <p className="max-w-md">
-                      ✨ {config.profile.role}. You possess full operations permissions, ledger scopes, and forecasting triggers for your enterprise.
+                      ✨ {isOwner ? config.profile.role : getRoleDisplayName(userProfile?.role || userSession?.user?.role)}. You possess full operations permissions, ledger scopes, and forecasting triggers for your {!isOwner ? "branch" : "enterprise"}.
                     </p>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-450">Active Status</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Active Status</span>
                     </div>
                   </div>
                 </div>
@@ -2041,7 +2476,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
                     <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Access Scope</span>
-                    <div className="mt-2 text-base font-black text-slate-905 flex items-center gap-1.5">
+                    <div className="mt-2 text-base font-black text-slate-900 flex items-center gap-1.5">
                       🔑 <span style={{ color: config.accent }}>Full scope Access</span>
                     </div>
                   </div>
@@ -2053,7 +2488,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
                     <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">System Security</span>
-                    <div className="mt-2 text-base font-black text-slate-905 flex items-center gap-1.5">
+                    <div className="mt-2 text-base font-black text-slate-900 flex items-center gap-1.5">
                       🔒 <span>Secure Socket Layer</span>
                     </div>
                   </div>
@@ -2066,7 +2501,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                       <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">Database nodes</span>
                       <h3 className="text-lg font-black text-slate-900 mt-1">Active Registered Branch Networks</h3>
                     </div>
-                    <span className="rounded-xl bg-slate-105 text-[10px] font-black px-3 py-1 uppercase tracking-wider text-slate-600">
+                    <span className="rounded-xl bg-slate-100 text-[10px] font-black px-3 py-1 uppercase tracking-wider text-slate-600">
                       {branchesList.length} Nodes Online
                     </span>
                   </div>
@@ -2105,16 +2540,19 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-                      {branchesList.filter(b => b.status !== "Inactive").map((branch) => {
+                      {branchesList
+                        .filter(b => b.status !== "Inactive")
+                        .filter(b => isOwner || b.branch_id === userBranchId)
+                        .map((branch) => {
                         const isExpanded = !!expandedBranches[branch._id || branch.branch_id];
                         return (
                           <div 
                             key={branch._id || branch.branch_id} 
                             onClick={() => setExpandedBranches((prev) => ({ ...prev, [branch._id || branch.branch_id]: !isExpanded }))}
-                            className={`relative overflow-hidden rounded-2xl border transition-all duration-305 shadow-sm flex flex-col justify-between p-5 cursor-pointer select-none group self-start ${
+                            className={`relative overflow-hidden rounded-2xl border transition-all duration-300 shadow-sm flex flex-col justify-between p-5 cursor-pointer select-none group self-start ${
                               isExpanded 
                                 ? "border-slate-800 bg-slate-50/90 ring-4 ring-slate-900/5 shadow-md" 
-                                : "border-slate-150 bg-slate-50/40 hover:bg-slate-50/80 hover:border-slate-350 hover:shadow-md"
+                                : "border-slate-200 bg-slate-50/40 hover:bg-slate-50/80 hover:border-slate-300 hover:shadow-md"
                             }`}
                           >
                             {/* Card Content Header */}
@@ -2125,10 +2563,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 rounded-md border border-slate-250 bg-slate-100 text-[9px] font-black uppercase text-slate-705 tracking-wider">
+                                  <span className="px-2 py-0.5 rounded-md border border-slate-200 bg-slate-100 text-[9px] font-black uppercase text-slate-700 tracking-wider">
                                     {branch.branch_code || "CODE"}
                                   </span>
-                                  <span className={`text-[10px] text-slate-450 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>
+                                  <span className={`text-[10px] text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>
                                     ▼
                                   </span>
                                 </div>
@@ -2149,14 +2587,14 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                             {/* Minimal default view */}
                             {!isExpanded && (
-                              <div className="grid grid-cols-2 gap-2 mt-4 pt-3.5 border-t border-slate-105 text-left">
+                              <div className="grid grid-cols-2 gap-2 mt-4 pt-3.5 border-t border-slate-100 text-left">
                                 <div>
                                   <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Manager</span>
-                                  <span className="block text-[10px] font-black text-slate-705 mt-0.5 truncate">{branch.manager_name}</span>
+                                  <span className="block text-[10px] font-black text-slate-700 mt-0.5 truncate">{branch.manager_name}</span>
                                 </div>
                                 <div>
                                   <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400 text-right">Employees</span>
-                                  <span className="block text-[10px] font-black text-slate-750 mt-0.5 text-right">{branch.employee_count} assigned</span>
+                                  <span className="block text-[10px] font-black text-slate-700 mt-0.5 text-right">{branch.employee_count} assigned</span>
                                 </div>
                               </div>
                             )}
@@ -2168,7 +2606,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                   <div>
                                     <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Full Address</span>
                                     <span className="block text-[10.5px] font-bold text-slate-800 leading-relaxed mt-0.5">{branch.address}</span>
-                                    <span className="block text-[10.5px] font-bold text-slate-805 leading-relaxed mt-0.5">{branch.city}, {branch.state}, {branch.country} - {branch.pincode}</span>
+                                    <span className="block text-[10.5px] font-bold text-slate-800 leading-relaxed mt-0.5">{branch.city}, {branch.state}, {branch.country} - {branch.pincode}</span>
                                   </div>
                                   <div className="grid grid-cols-2 gap-3">
                                     <div>
@@ -2194,7 +2632,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                       <span className="block text-[9px] font-bold text-slate-500 mt-0.5">Shifts: {branch.working_hours || "9AM-9PM"}</span>
                                     </div>
                                   </div>
-                                  {branch.gstin && (
+                                  {branch.branch_type !== "Warehouse" && branch.gstin && (
                                     <div>
                                       <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">GSTIN Identification</span>
                                       <span className="inline-block text-[9.5px] font-mono font-black uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md mt-0.5">{branch.gstin}</span>
@@ -2203,26 +2641,28 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                 </div>
 
                                 {/* Premium Actions Row */}
-                                <div className="flex gap-2.5 pt-3 border-t border-slate-100">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditBranch(branch);
-                                    }}
-                                    className="flex-1 py-2 border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
-                                  >
-                                    ✏️ Edit Node
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteBranch(branch._id || branch.branch_id);
-                                    }}
-                                    className="flex-1 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
-                                  >
-                                    Deactivate Node
-                                  </button>
-                                </div>
+                                {isOwner && (
+                                  <div className="flex gap-2.5 pt-3 border-t border-slate-100">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditBranch(branch);
+                                      }}
+                                      className="flex-1 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
+                                    >
+                                      ✏️ Edit Node
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteBranch(branch._id || branch.branch_id);
+                                      }}
+                                      className="flex-1 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm text-center flex items-center justify-center gap-1.5"
+                                    >
+                                      Deactivate Node
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2236,40 +2676,42 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
               {/* ── RIGHT DESK: Growth Console & Session Monitor ── */}
               <div className="space-y-6">
                 {/* Actions & Next Steps */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action desk</span>
-                      <h3 className="text-lg font-black text-slate-900 mt-0.5">Console Actions</h3>
+                {isOwner && (
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Action desk</span>
+                        <h3 className="text-lg font-black text-slate-900 mt-0.5">Console Actions</h3>
+                      </div>
+                    </div>
+
+
+
+                    {/* Growth console expand branch */}
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+                      <span className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">Enterprise Expansion</span>
+                      <h4 className="text-base font-black text-slate-950 mt-1">Scale Branch Networks</h4>
+                      <p className="text-xs font-semibold text-slate-600 leading-normal mt-1">
+                        Register a new branch node inside MongoDB. It will instantly initialize stock records conforming to the latest Complete Inventory Schema.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setModalStep(1);
+                          setModalForm(EMPTY_BRANCH_FORM);
+                          setModalErrors({});
+                          setModalDropdownOpen(false);
+                          setModalDropdownSearch("");
+                          setModalCountryDropdownOpen(false);
+                          setModalPhonePrefixOpen(false);
+                          setShowAddBranchModal(true);
+                        }}
+                        className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_8px_20px_rgba(16,185,129,0.25)] hover:bg-emerald-700 transition-all cursor-pointer select-none"
+                      >
+                        + Add New Branch
+                      </button>
                     </div>
                   </div>
-
-
-
-                  {/* Growth console expand branch */}
-                  <div className="rounded-2xl border border-emerald-250 bg-emerald-50/50 p-4">
-                    <span className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">Enterprise Expansion</span>
-                    <h4 className="text-base font-black text-slate-950 mt-1">Scale Branch Networks</h4>
-                    <p className="text-xs font-semibold text-slate-600 leading-normal mt-1">
-                      Register a new branch node inside MongoDB. It will instantly initialize stock records conforming to the latest Complete Inventory Schema.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setModalStep(1);
-                        setModalForm(EMPTY_BRANCH_FORM);
-                        setModalErrors({});
-                        setModalDropdownOpen(false);
-                        setModalDropdownSearch("");
-                        setModalCountryDropdownOpen(false);
-                        setModalPhonePrefixOpen(false);
-                        setShowAddBranchModal(true);
-                      }}
-                      className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_8px_20px_rgba(16,185,129,0.25)] hover:bg-emerald-700 transition-all cursor-pointer select-none"
-                    >
-                      + Add New Branch
-                    </button>
-                  </div>
-                </div>
+                )}
 
                 {/* Session Security Terminal */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
@@ -2309,18 +2751,45 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     End Active Session (Logout)
                   </button>
                 </div>
+
+                {/* ── Danger Zone Card ── */}
+                {isOwner && (
+                  <div className="bg-white border border-rose-200 rounded-3xl p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)] space-y-4">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-rose-400">Danger Zone</span>
+                      <h3 className="text-base font-black text-slate-900 mt-0.5">Delete Account</h3>
+                    </div>
+
+                    <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
+                      <p className="text-xs font-semibold text-slate-600 leading-relaxed">
+                        Permanently remove your account, business profile, all branches, and associated inventory data from Inventra. <strong className="text-rose-700">This action cannot be undone.</strong>
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setDeleteConfirmEmail("");
+                        setDeleteError("");
+                        setShowDeleteAccountModal(true);
+                      }}
+                      className="w-full py-3 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] text-rose-600 border-2 border-rose-200 bg-rose-50 hover:bg-rose-100 hover:border-rose-300 transition-all cursor-pointer select-none"
+                    >
+                      🗑️ Delete My Account
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {editingProfile && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+            <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm overflow-y-auto">
+              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)] my-8">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Edit Profile</span>
                     <h3 className="text-xl font-black text-slate-950 mt-1">Update Executive Profile</h3>
-                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">Your role will remain <strong>OWNER</strong>.</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">Your role will remain <strong>{isOwner ? "OWNER" : getRoleDisplayName(userProfile?.role || userSession?.user?.role)}</strong>.</p>
                   </div>
                   <button
                     onClick={() => setEditingProfile(false)}
@@ -2372,6 +2841,25 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                     />
                   </label>
 
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business Category</span>
+                    <CustomDropdown
+                      value={profileDraft.businessType || "other"}
+                      onChange={(val) => setProfileDraft((p) => ({ ...p, businessType: val }))}
+                      options={[
+                        { value: "retail", label: "Retail" },
+                        { value: "grocery", label: "Grocery" },
+                        { value: "pharmacy", label: "Pharmacy" },
+                        { value: "apparel", label: "Apparel" },
+                        { value: "other", label: "Other" },
+                      ]}
+                      theme="emerald"
+                      className="mt-1"
+                      buttonClassName="font-bold"
+                      up={true}
+                    />
+                  </label>
+
                   <div className="flex gap-3">
                     <button
                       type="submit"
@@ -2392,17 +2880,168 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             </div>
           )}
 
+          {/* ── Delete Account Confirmation Modal ── */}
+          {showDeleteAccountModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-md rounded-3xl border border-rose-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)] overflow-hidden">
+                {/* Red top bar */}
+                <div className="h-1.5 bg-gradient-to-r from-rose-500 to-red-600" />
+
+                <div className="p-6">
+
+                  {/* ── POST-DELETE: Choice Screen ── */}
+                  {accountDeleted ? (
+                    <>
+                      <div className="text-center mb-6">
+                        <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-2xl mx-auto mb-4 shadow-sm">
+                          🗂️
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-500">Account Deactivated</span>
+                        <h3 className="text-xl font-black text-slate-950 mt-1 leading-tight">Your account is now deleted</h3>
+                        <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed max-w-sm mx-auto">
+                          Your data is safely preserved for <strong className="text-slate-700">30 days</strong>. What would you like to do?
+                        </p>
+                      </div>
+
+                      {deleteError && (
+                        <p className="text-rose-600 text-xs font-bold mb-4 text-center leading-snug">{deleteError}</p>
+                      )}
+
+                      {/* Option 1: Recover */}
+                      <button
+                        onClick={handleRecoverAccount}
+                        disabled={recoveringAccount}
+                        className="w-full mb-3 py-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-left px-5 cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl shrink-0">🔄</span>
+                          <div>
+                            <span className="block text-sm font-black text-emerald-900">
+                              {recoveringAccount ? "Restoring account…" : "Recover My Account"}
+                            </span>
+                            <span className="block text-xs font-semibold text-emerald-700 mt-0.5 leading-snug">
+                              Restore everything — all data, branches, and staff access — instantly.
+                            </span>
+                          </div>
+                          <span className="ml-auto text-emerald-600 font-black text-lg shrink-0">→</span>
+                        </div>
+                      </button>
+
+                      {/* Option 2: Start Fresh */}
+                      <button
+                        onClick={() => {
+                          setShowDeleteAccountModal(false);
+                          setAccountDeleted(false);
+                          setRecoveryToken("");
+                          window.history.replaceState({}, "", "/");
+                          setActiveTab("signup");
+                        }}
+                        className="w-full py-4 rounded-2xl border-2 border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all text-left px-5 cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl shrink-0">✨</span>
+                          <div>
+                            <span className="block text-sm font-black text-slate-900">Start a New Account</span>
+                            <span className="block text-xs font-semibold text-slate-500 mt-0.5 leading-snug">
+                              Begin fresh with a brand new profile and business setup.
+                            </span>
+                          </div>
+                          <span className="ml-auto text-slate-400 font-black text-lg shrink-0">→</span>
+                        </div>
+                      </button>
+
+                      <p className="text-center text-[10px] font-semibold text-slate-400 mt-4">
+                        Recovery window closes in 30 days. After that, data is permanently purged.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {/* ── CONFIRMATION SCREEN ── */}
+                      {/* Icon + Title */}
+                      <div className="flex items-start gap-4 mb-5">
+                        <div className="h-12 w-12 rounded-2xl bg-rose-100 border border-rose-200 flex items-center justify-center text-xl shrink-0 shadow-sm">
+                          🗑️
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-[0.24em] text-rose-500">Danger Zone</span>
+                          <h3 className="text-xl font-black text-slate-950 mt-0.5 leading-tight">Delete Account</h3>
+                          <p className="text-xs font-semibold text-slate-500 mt-1.5 leading-relaxed">
+                            Your account will be <strong className="text-slate-700">soft-deleted</strong> — data is kept for 30 days so you can recover it. Staff will be locked out but can re-register.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Warning checklist */}
+                      <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4 space-y-2 mb-5">
+                        {[
+                          "You will be immediately logged out",
+                          "Staff accounts will be locked (can re-register freely)",
+                          "All data preserved for 30-day recovery window",
+                          "After 30 days, data is permanently purged",
+                        ].map((item) => (
+                          <div key={item} className="flex items-start gap-2 text-xs font-semibold text-rose-700">
+                            <span className="mt-0.5 shrink-0">⚠</span>
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Email confirmation input */}
+                      <label className="block mb-4">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                          Type your email to confirm
+                        </span>
+                        <input
+                          type="email"
+                          value={deleteConfirmEmail}
+                          onChange={(e) => {
+                            setDeleteConfirmEmail(e.target.value);
+                            setDeleteError("");
+                          }}
+                          placeholder={userProfile?.email || userSession?.user?.email || "your@email.com"}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-rose-400 focus:bg-white transition-all"
+                          autoFocus
+                        />
+                        {deleteError && (
+                          <p className="text-rose-600 text-xs font-bold mt-2 leading-snug">{deleteError}</p>
+                        )}
+                      </label>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-3">
+                        <button
+                          onClick={handleDeleteAccount}
+                          disabled={deletingAccount || !deleteConfirmEmail.trim()}
+                          className="flex-1 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.18em] transition-all shadow-[0_8px_20px_rgba(225,29,72,0.28)] cursor-pointer select-none"
+                        >
+                          {deletingAccount ? "Processing…" : "Delete Account"}
+                        </button>
+                        <button
+                          onClick={() => setShowDeleteAccountModal(false)}
+                          disabled={deletingAccount}
+                          className="rounded-xl bg-slate-100 px-5 py-3 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50 transition-all cursor-pointer select-none"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {showAddBranchModal && (() => {
             const inp = (field) =>
               `w-full border ${
-                modalErrors[field] ? "border-rose-450 bg-rose-50/40" : "border-slate-200 bg-slate-50/50"
-              } text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white transition-all`;
+                modalErrors[field] ? "border-rose-500 bg-rose-50/40" : "border-slate-200 bg-slate-50/50"
+              } text-slate-900 placeholder:text-slate-400 px-3 py-1.5 rounded-lg font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white transition-all`;
 
             const ErrMsg = ({ field }) =>
               modalErrors[field] ? <p className="text-rose-600 text-xs font-bold mt-1.5 leading-none">{modalErrors[field]}</p> : null;
 
             const Label = ({ children }) => (
-              <label className="text-[11px] font-black uppercase tracking-wider text-slate-450 block mb-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-0.5">
                 {children}
               </label>
             );
@@ -2413,14 +3052,109 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
             const STEPS = ["Branch", "Location", "Contact", "Review"];
 
+            const setModalFormField = (field, value) => {
+              setModalForm((prev) => ({ ...prev, [field]: value }));
+              setModalErrors((prev) => {
+                const next = { ...prev };
+                if (Object.prototype.hasOwnProperty.call(next, field)) {
+                  delete next[field];
+                }
+                if (field === "phone_number" && Object.prototype.hasOwnProperty.call(next, "phone")) {
+                  delete next.phone;
+                }
+                return next;
+              });
+            };
+
+            const validateModalStep = (step) => {
+              const errors = {};
+              const currentLabels = getDynamicLabels(modalForm.branch_type);
+
+              if (step === 1) {
+                if (!modalForm.branch_name.trim()) errors.branch_name = `${currentLabels.nameLabel} is required.`;
+                if (!modalForm.branch_code.trim()) errors.branch_code = `${currentLabels.codeLabel} is required.`;
+                if (!modalForm.branch_type?.trim()) errors.branch_type = "Branch type is required.";
+              }
+
+              if (step === 2) {
+                if (!modalForm.address.trim()) errors.address = `${currentLabels.addressLabel} is required.`;
+                if (!modalForm.city.trim()) errors.city = `${currentLabels.cityLabel} is required.`;
+                if (!modalForm.state.trim()) errors.state = "State is required.";
+                if (!modalForm.country.trim()) errors.country = "Country is required.";
+                if (!modalForm.pincode.trim()) errors.pincode = `${currentLabels.pincodeLabel} is required.`;
+              }
+
+              if (step === 3) {
+                if (!modalForm.manager_name.trim()) errors.manager_name = `${currentLabels.managerLabel} is required.`;
+                if (!modalForm.phone_number.trim()) {
+                  errors.phone = `${currentLabels.phoneLabel} is required.`;
+                } else if (modalForm.phone_number.replace(/\D/g, "").length < 7) {
+                  errors.phone = `Enter a valid ${currentLabels.phoneLabel.toLowerCase()}.`;
+                }
+                if (!modalForm.manager_email.trim()) {
+                  errors.manager_email = `${currentLabels.emailLabel} is required.`;
+                } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(modalForm.manager_email.trim())) {
+                  errors.manager_email = "Enter a valid email address.";
+                }
+              }
+
+              setModalErrors(errors);
+              return Object.keys(errors).length === 0;
+            };
+
+            const validateAllModalSteps = () => {
+              const errors = {};
+              const currentLabels = getDynamicLabels(modalForm.branch_type);
+
+              if (!modalForm.branch_name.trim()) errors.branch_name = `${currentLabels.nameLabel} is required.`;
+              if (!modalForm.branch_code.trim()) errors.branch_code = `${currentLabels.codeLabel} is required.`;
+              if (!modalForm.branch_type?.trim()) errors.branch_type = "Branch type is required.";
+              if (!modalForm.address.trim()) errors.address = `${currentLabels.addressLabel} is required.`;
+              if (!modalForm.city.trim()) errors.city = `${currentLabels.cityLabel} is required.`;
+              if (!modalForm.state.trim()) errors.state = "State is required.";
+              if (!modalForm.country.trim()) errors.country = "Country is required.";
+              if (!modalForm.pincode.trim()) errors.pincode = `${currentLabels.pincodeLabel} is required.`;
+              if (!modalForm.manager_name.trim()) errors.manager_name = `${currentLabels.managerLabel} is required.`;
+
+              if (!modalForm.phone_number.trim()) {
+                errors.phone = `${currentLabels.phoneLabel} is required.`;
+              } else if (modalForm.phone_number.replace(/\D/g, "").length < 7) {
+                errors.phone = `Enter a valid ${currentLabels.phoneLabel.toLowerCase()}.`;
+              }
+              if (!modalForm.manager_email.trim()) {
+                errors.manager_email = `${currentLabels.emailLabel} is required.`;
+              } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(modalForm.manager_email.trim())) {
+                errors.manager_email = "Enter a valid email address.";
+              }
+
+              setModalErrors(errors);
+              return Object.keys(errors).length === 0;
+            };
+
+            const goBackModalStep = () => {
+              setModalStep((prev) => Math.max(1, prev - 1));
+            };
+
+            const goNextModalStep = () => {
+              if (!validateModalStep(modalStep)) return;
+              setModalStep((prev) => Math.min(4, prev + 1));
+            };
+
+            const handleAddBranch = async () => {
+              if (!validateAllModalSteps()) return;
+              await handleSaveBranch();
+            };
+
+            const labels = getDynamicLabels(modalForm.branch_type);
+
             return (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-                <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden max-h-[90vh]">
+                <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden max-h-[90vh]">
                   {/* Decorative top colored line */}
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-slate-900" />
                   
                   {/* Modal Header */}
-                  <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
+                  <div className="px-6 pt-4 pb-2 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
                     <div>
                       <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700">
                         {modalForm._id ? "Enterprise Modifier Desk" : "Enterprise Onboarding Desk"}
@@ -2444,7 +3178,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
 
                   {/* Step progress bar */}
-                  <div className="px-6 py-4 border-b border-slate-150 bg-slate-50/60">
+                  <div className="px-6 py-2 border-b border-slate-200 bg-slate-50/60">
                     <div className="flex items-start justify-between w-full max-w-[480px] mx-auto">
                       {STEPS.map((label, i) => (
                         <React.Fragment key={label}>
@@ -2456,22 +3190,22 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
 
                   {/* Form Content Scroll Area */}
-                  <div className="p-6 overflow-y-auto flex-1 min-h-[300px]">
+                  <div className="p-4 overflow-y-auto flex-1 min-h-0">
                     {/* ── Step 1: Branch Basics ── */}
                     {modalStep === 1 && (
-                      <div className="space-y-5">
-                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
-                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Branch Identity</h4>
-                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                          <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Branch Identity</h4>
+                          <span className="text-[9px] font-bold text-slate-400">* Required fields</span>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-                          <div className="md:col-span-5 flex flex-col gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                          <div className="md:col-span-5 flex flex-col gap-2">
                             <div>
-                              <Label>Branch Name <span className="text-rose-500 font-black">*</span></Label>
+                              <Label>{labels.nameLabel} <span className="text-rose-500 font-black">*</span></Label>
                               <input
                                 type="text"
-                                placeholder="e.g. Dhara Flagship"
+                                placeholder={labels.namePlaceholder}
                                 value={modalForm.branch_name}
                                 onChange={(e) => {
                                   setModalFormField("branch_name", e.target.value);
@@ -2485,10 +3219,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                               <ErrMsg field="branch_name" />
                             </div>
                             <div>
-                              <Label>Branch Code <span className="text-rose-500 font-black">*</span></Label>
+                              <Label>{labels.codeLabel} <span className="text-rose-500 font-black">*</span></Label>
                               <input
                                 type="text"
-                                placeholder="e.g. DHA-FLG-01"
+                                placeholder={labels.codePlaceholder}
                                 value={modalForm.branch_code}
                                 onChange={(e) => setModalFormField("branch_code", e.target.value.toUpperCase())}
                                 className={inp("branch_code")}
@@ -2509,15 +3243,15 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                       key={t.value}
                                       type="button"
                                       onClick={() => setModalFormField("branch_type", t.value)}
-                                      className={`p-2.5 rounded-2xl border-2 text-center transition-all duration-205 cursor-pointer flex flex-col items-center justify-center ${
+                                      className={`p-2.5 rounded-2xl border-2 text-center transition-all duration-200 cursor-pointer flex flex-col items-center justify-center ${
                                         isSelected
                                           ? "border-slate-900 bg-slate-900 text-white shadow-md shadow-slate-950/10"
-                                          : "border-slate-200 bg-slate-50 hover:border-slate-350 hover:bg-slate-105 text-slate-700"
+                                          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100 text-slate-700"
                                       }`}
                                     >
                                       <span className="text-xl mb-0.5 leading-none">{t.icon}</span>
                                       <span className="text-[11px] font-black tracking-tight">{t.value}</span>
-                                      <span className={`text-[9px] font-semibold mt-0.5 leading-none ${isSelected ? "text-slate-350" : "text-slate-400"}`}>
+                                      <span className={`text-[9px] font-semibold mt-0.5 leading-none ${isSelected ? "text-slate-300" : "text-slate-400"}`}>
                                         {t.desc}
                                       </span>
                                     </button>
@@ -2532,19 +3266,19 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                     {/* ── Step 2: Location ── */}
                     {modalStep === 2 && (
-                      <div className="space-y-5">
-                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
-                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Location Parameters</h4>
-                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                          <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Location Parameters</h4>
+                          <span className="text-[9px] font-bold text-slate-400">* Required fields</span>
                         </div>
 
-                        <div className="grid grid-cols-12 gap-4">
+                        <div className="grid grid-cols-12 gap-2">
                           {/* Line 1: Address (Full width) */}
                           <div className="col-span-12">
-                            <Label>Address <span className="text-rose-500 font-black">*</span></Label>
+                            <Label>{labels.addressLabel} <span className="text-rose-500 font-black">*</span></Label>
                             <input
                               type="text"
-                              placeholder="Shop No., Street, Area..."
+                              placeholder={labels.addressPlaceholder}
                               value={modalForm.address}
                               onChange={(e) => setModalFormField("address", e.target.value)}
                               className={inp("address")}
@@ -2554,10 +3288,10 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                           {/* Line 2: City & State side-by-side */}
                           <div className="col-span-12 sm:col-span-6">
-                            <Label>City <span className="text-rose-500 font-black">*</span></Label>
+                            <Label>{labels.cityLabel} <span className="text-rose-500 font-black">*</span></Label>
                             <input
                               type="text"
-                              placeholder="e.g. Pune"
+                              placeholder={labels.cityPlaceholder}
                               value={modalForm.city}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -2586,7 +3320,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                               <span className={modalForm.state ? "text-slate-900 font-bold" : "text-slate-400 font-bold"}>
                                 {modalForm.state || "Select State"}
                               </span>
-                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-205 ${modalDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${modalDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                               </svg>
                             </button>
@@ -2651,7 +3385,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                 <span>{COUNTRIES.find(c => c.name === modalForm.country)?.flag || "🇮🇳"}</span>
                                 <span>{modalForm.country}</span>
                               </span>
-                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-205 ${modalCountryDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${modalCountryDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                               </svg>
                             </button>
@@ -2687,8 +3421,8 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                             )}
                           </div>
                           <div className="col-span-12 sm:col-span-6">
-                            <Label>Pincode <span className="text-rose-500 font-black">*</span></Label>
-                            <input type="text" placeholder="e.g. 411001" value={modalForm.pincode} onChange={(e) => setModalFormField("pincode", e.target.value)} className={inp("pincode")} maxLength={10} />
+                            <Label>{labels.pincodeLabel} <span className="text-rose-500 font-black">*</span></Label>
+                            <input type="text" placeholder={labels.pincodePlaceholder} value={modalForm.pincode} onChange={(e) => setModalFormField("pincode", e.target.value)} className={inp("pincode")} maxLength={10} />
                             <ErrMsg field="pincode" />
                           </div>
                         </div>
@@ -2697,21 +3431,21 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                     {/* ── Step 3: Contact & Operations ── */}
                     {modalStep === 3 && (
-                      <div className="space-y-5">
-                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
-                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Contact & Shifts</h4>
-                          <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                          <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Contact & Shifts</h4>
+                          <span className="text-[9px] font-bold text-slate-400">* Required fields</span>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                          <div className="md:col-span-6 flex flex-col gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                          <div className="md:col-span-6 flex flex-col gap-2">
                             <div>
-                              <Label>Branch Manager Name <span className="text-rose-500 font-black">*</span></Label>
-                              <input type="text" placeholder="e.g. Rahul Patil" value={modalForm.manager_name} onChange={(e) => setModalFormField("manager_name", e.target.value)} className={inp("manager_name")} />
+                              <Label>{labels.managerLabel} <span className="text-rose-500 font-black">*</span></Label>
+                              <input type="text" placeholder={labels.placeholderName} value={modalForm.manager_name} onChange={(e) => setModalFormField("manager_name", e.target.value)} className={inp("manager_name")} />
                               <ErrMsg field="manager_name" />
                             </div>
                             <div className="relative custom-phone-prefix-container">
-                              <Label>Phone Number <span className="text-rose-500 font-black">*</span></Label>
+                              <Label>{labels.phoneLabel} <span className="text-rose-500 font-black">*</span></Label>
                               <div className="flex relative">
                                 <div className="absolute left-0 top-0 bottom-0 flex items-center z-10">
                                   <button
@@ -2756,7 +3490,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                                 <input
                                   type="tel"
-                                  placeholder="98765 43210"
+                                  placeholder={labels.phonePlaceholder}
                                   value={modalForm.phone_number}
                                   onChange={(e) => {
                                     const val = e.target.value.replace(/[^\d\s\-]/g, ""); // allow digits, spaces, hyphens
@@ -2769,28 +3503,36 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                               <ErrMsg field="phone" />
                             </div>
                             <div>
-                              <Label>GSTIN (Optional)</Label>
-                              <input type="text" placeholder="27AAAAA0000A1Z5" value={modalForm.gstin} onChange={(e) => setModalFormField("gstin", e.target.value.toUpperCase())} className={inp("gstin") + " font-mono uppercase tracking-wider text-sm"} maxLength={15} />
+                              <Label>{labels.emailLabel} <span className="text-rose-500 font-black">*</span></Label>
+                              <input type="email" placeholder={labels.emailPlaceholder} value={modalForm.manager_email} onChange={(e) => setModalFormField("manager_email", e.target.value)} className={inp("manager_email")} />
+                              <ErrMsg field="manager_email" />
                             </div>
+                            {modalForm.branch_type !== "Warehouse" && (
+                              <div>
+                                <Label>{labels.gstLabel}</Label>
+                                <input type="text" placeholder={labels.gstPlaceholder} value={modalForm.gstin} onChange={(e) => setModalFormField("gstin", e.target.value.toUpperCase())} className={inp("gstin") + " font-mono uppercase tracking-wider text-sm"} maxLength={15} />
+                              </div>
+                            )}
                           </div>
 
-                          <div className="md:col-span-6 flex flex-col gap-4">
-                            <div className="grid grid-cols-2 gap-4">
+                          <div className="md:col-span-6 flex flex-col gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                               <div>
-                                <Label>Employee Count</Label>
-                                <input type="number" min={1} value={modalForm.employee_count} onChange={(e) => setModalFormField("employee_count", e.target.value)} className={inp("employee_count")} />
+                                <Label>{labels.staffLabel}</Label>
+                                <input type="number" min={0} value={modalForm.employee_count} onChange={(e) => setModalFormField("employee_count", e.target.value)} className={inp("employee_count")} />
                               </div>
                               <div>
-                                <Label>Opening Date</Label>
+                                <Label>{labels.openingDateLabel}</Label>
                                 <input type="date" value={modalForm.opening_date} onChange={(e) => setModalFormField("opening_date", e.target.value)} className={inp("opening_date") + " cursor-pointer"} />
                               </div>
                             </div>
 
+
                             <div>
                               <div className="flex justify-between items-center mb-1">
-                                <Label>Working Hours</Label>
+                                <Label>{labels.hoursLabel}</Label>
                               </div>
-                              <input type="text" placeholder="e.g. 9AM-9PM" value={modalForm.working_hours} onChange={(e) => setModalFormField("working_hours", e.target.value)} className={inp("working_hours")} />
+                              <input type="text" placeholder={labels.placeholderHours} value={modalForm.working_hours} onChange={(e) => setModalFormField("working_hours", e.target.value)} className={inp("working_hours")} />
                               <div className="flex flex-wrap gap-1 mt-1.5">
                                 {WORKING_HOURS_PRESETS.map((h) => {
                                   const isSelected = modalForm.working_hours === h;
@@ -2818,9 +3560,9 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                     {/* ── Step 4: Review ── */}
                     {modalStep === 4 && (
-                      <div className="space-y-5">
-                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
-                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Final Verification</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                          <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">{labels.verificationHeader}</h4>
                           <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">Ready to launch</span>
                         </div>
 
@@ -2831,26 +3573,29 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                                 {BRANCH_TYPES.find((t) => t.value === modalForm.branch_type)?.icon || "🏪"}
                               </div>
                               <div>
-                                <h5 className="text-white font-black text-sm leading-none">{modalForm.branch_name || "New Branch"}</h5>
+                                <h5 className="text-white font-black text-sm leading-none">{modalForm.branch_name || `New ${labels.titleLabel}`}</h5>
                                 <span className="text-emerald-400 text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-full inline-block mt-1">{modalForm.branch_code || "CODE"}</span>
                               </div>
                             </div>
                             <div className="pt-1">
-                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Registered Address</span>
-                              <span className="text-slate-350 text-xs font-semibold leading-relaxed block">{modalForm.address}</span>
+                              <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.addressSectionLabel}</span>
+                              <span className="text-slate-300 text-xs font-semibold leading-relaxed block">{modalForm.address}</span>
                               <span className="text-white text-xs font-bold block mt-1">{modalForm.city}, {modalForm.state}, {modalForm.country} – {modalForm.pincode}</span>
                             </div>
                           </div>
 
                           <div className="space-y-3 md:border-r md:border-slate-800 md:px-4">
                             <div>
-                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Branch Manager</span>
+                              <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.managerSectionLabel}</span>
                               <span className="text-white text-sm font-bold block">{modalForm.manager_name}</span>
                               <span className="text-slate-400 text-xs font-semibold block mt-0.5">{modalForm.phone}</span>
+                              {modalForm.manager_email && (
+                                <span className="text-slate-400 text-xs font-semibold block mt-0.5">{modalForm.manager_email}</span>
+                              )}
                             </div>
-                            {modalForm.gstin && (
+                            {modalForm.branch_type !== "Warehouse" && modalForm.gstin && (
                               <div>
-                                <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">GST Identification</span>
+                                <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.gstSectionLabel}</span>
                                 <span className="text-emerald-400 font-mono text-[10px] font-black uppercase tracking-widest">{modalForm.gstin}</span>
                               </div>
                             )}
@@ -2858,14 +3603,14 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
 
                           <div className="space-y-3 md:pl-4">
                             <div>
-                              <span className="text-slate-500 text-[9px] font-black uppercase tracking-wider block mb-1">Operating Hours</span>
+                              <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.hoursSectionLabel}</span>
                               <span className="text-white text-sm font-bold block">{modalForm.working_hours}</span>
                             </div>
                             <div>
-                              <span className="text-slate-550 text-[9px] font-black uppercase tracking-wider block mb-1">Team & Launch</span>
-                              <span className="text-white text-xs font-bold block">{modalForm.employee_count} Active Staff Member{modalForm.employee_count !== 1 ? "s" : ""}</span>
+                              <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block mb-1">{labels.teamSectionLabel}</span>
+                              <span className="text-white text-xs font-bold block">{modalForm.employee_count} Additional Staff Member{modalForm.employee_count !== 1 ? "s" : ""}</span>
                               {modalForm.opening_date && (
-                                <span className="text-slate-400 text-[10px] font-semibold block mt-0.5">Opening: {modalForm.opening_date}</span>
+                                <span className="text-slate-400 text-[10px] font-semibold block mt-0.5">{labels.openingDateLabel}: {modalForm.opening_date}</span>
                               )}
                             </div>
                           </div>
@@ -2875,7 +3620,7 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
                   </div>
 
                   {/* Modal Footer Controls */}
-                  <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between gap-3">
+                  <div className="px-6 py-2 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between gap-3">
                     {modalStep === 1 ? (
                       <button
                         type="button"
@@ -2925,6 +3670,61 @@ export default function Dashboard({ tier = "small", setActiveTab }) {
             );
           })()}
         </main>
+      </div>
+    </div>
+  );
+}
+
+function BranchManagerOverview({ products, salesCount, salesRevenue, salesRevenueNote, branchesList, userSession, userBranchId }) {
+  const [staffCount, setStaffCount] = React.useState(0);
+  const branch = branchesList?.[0];
+
+  React.useEffect(() => {
+    getEmployees()
+      .then(emps => {
+        if (Array.isArray(emps)) {
+          setStaffCount(emps.length);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const lowStockCount = products.filter(p => p.stock <= (p.reorderLevel || 10)).length;
+  const totalUnits = products.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
+  const totalItems = products.length;
+
+  const statCards = [
+    { label: "Total Items", value: totalItems, icon: "📦", color: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+    { label: "Units in Stock", value: totalUnits, icon: "📊", color: "bg-blue-50 border-blue-200 text-blue-700" },
+    { label: "Low Stock", value: lowStockCount, icon: "⚠️", color: lowStockCount > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-emerald-50 border-emerald-200 text-emerald-700" },
+    { label: "Staff Count", value: staffCount, icon: "👥", color: "bg-violet-50 border-violet-200 text-violet-700" },
+    { label: "Sales", value: salesCount, icon: "🧾", color: "bg-sky-50 border-sky-200 text-sky-700" },
+    { label: "Revenue", value: `₹${(salesRevenue || 0).toLocaleString("en-IN")}`, icon: "💰", color: "bg-amber-50 border-amber-200 text-amber-700" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+          {branch?.branch_code || "Branch"}
+        </span>
+        <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">
+          {branch?.branch_name || "My Branch"}
+        </h3>
+        <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">
+          {branch?.branch_type || "Store"} · {branch?.address || ""}
+          {salesRevenueNote ? ` · ${salesRevenueNote}` : ""}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {statCards.map((card) => (
+          <div key={card.label} className={`rounded-2xl border p-4 ${card.color}`}>
+            <span className="text-lg">{card.icon}</span>
+            <div className="mt-2 text-2xl font-black">{card.value}</div>
+            <div className="text-[10px] font-black uppercase tracking-wider mt-1 opacity-80">{card.label}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

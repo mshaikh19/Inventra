@@ -157,6 +157,17 @@ export function getDashboardTabFromUser(user) {
   return getDashboardTab(getDashboardTierFromUser(user));
 }
 
+export function userHasOwnerAccess(user) {
+  if (!user || typeof user !== "object") return false;
+
+  const role = String(user.role || "").trim().toLowerCase();
+  const roles = Array.isArray(user.roles)
+    ? user.roles.map((entry) => String(entry || "").trim().toLowerCase())
+    : [];
+
+  return !role || role === "owner" || role === "user" || roles.includes("owner") || roles.includes("user");
+}
+
 
 
 export function getTierDisplayName(value) {

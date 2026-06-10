@@ -1,11 +1,51 @@
 const API_BASE = "http://127.0.0.1:8000/api/v1/branches";
 
 export function getAuthHeaders() {
-  const token = localStorage.getItem("inventra_token");
+  const token =
+    localStorage.getItem("inventra_token") ||
+    sessionStorage.getItem("inventra_token");
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+export function getCurrentUserId(user) {
+  if (user) return user.id || user._id || user.email || "default";
+
+  if (typeof window === "undefined") return "default";
+
+  const rawUser =
+    localStorage.getItem("inventra_user") ||
+    sessionStorage.getItem("inventra_user");
+  if (!rawUser) return "default";
+
+  try {
+    const parsedUser = JSON.parse(rawUser);
+    return parsedUser.id || parsedUser._id || parsedUser.email || "default";
+  } catch {
+    return "default";
+  }
+}
+
+export function markBranchSetupCompleted(user) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(
+    `inventra_onboarding_completed_${getCurrentUserId(user)}`,
+    "true",
+  );
+}
+
+export function isBranchSetupComplete(branchData) {
+  const branches = Array.isArray(branchData?.branches)
+    ? branchData.branches
+    : [];
+  const expectedBranches =
+    typeof branchData?.expected_branches === "number"
+      ? branchData.expected_branches
+      : 1;
+
+  return branches.length >= expectedBranches && branches.length > 0;
 }
 
 /** Create a new branch for the authenticated business */
@@ -184,8 +224,8 @@ export async function hasSetupBranches() {
   }
 }
 
-/** Synchronously get branch network from localStorage or fallback to standard ones */
-export function getBranchNetwork(tier) {
+/** Synchronously get branch network from localStorage */
+export function getBranchNetwork(_tier) {
   if (typeof window === "undefined") return [];
   const stored = localStorage.getItem("inventra_branches");
   if (stored) {
@@ -198,24 +238,7 @@ export function getBranchNetwork(tier) {
       // ignore
     }
   }
-
-  // Standard fallback lists if not loaded/saved yet
-  if (tier === "small") {
-    return ["Main Store"];
-  } else if (tier === "medium") {
-    return ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot"];
-  } else {
-    return [
-      "Mumbai Hub",
-      "Delhi Branch",
-      "Bangalore Branch",
-      "Pune Depot",
-      "New York Hub",
-      "London Branch",
-      "Tokyo Depot",
-      "Singapore Hub",
-    ];
-  }
+  return [];
 }
 
 /** Synchronously add branch to network (cached in localStorage) */

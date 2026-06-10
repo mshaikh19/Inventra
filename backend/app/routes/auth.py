@@ -1,13 +1,14 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Header
 from app.models import schemas
 from app.database.mongo import getDatabase
 from app.utils import security
 from datetime import timedelta
-from pydantic import EmailStr
+from pydantic import EmailStr, BaseModel
 from datetime import datetime
 from app.services.ml_classifier import classifier
 from app.services.dashboard_profiles import normalize_business_tier
 from bson import ObjectId
+from typing import Optional
 
 router = APIRouter()
 
@@ -15,8 +16,8 @@ router = APIRouter()
 @router.post("/signup", response_model=schemas.LoginResponse)
 async def signUp(user: schemas.UserCreate):
     db = getDatabase()
-    # check existing
-    existing = await db.users.find_one({"email": user.email})
+    # check existing — skip soft-deleted accounts (their email is freed for re-signup)
+    existing = await db.users.find_one({"email": user.email, "isDeleted": {"$ne": True}})
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
             "field": "email",
@@ -30,12 +31,14 @@ async def signUp(user: schemas.UserCreate):
         "firstName": user.firstName,
         "lastName": user.lastName,
         "businessName": user.businessName,
-        "roles": ["user"],
+        "role": "owner",
+        "roles": ["owner", "user"],
         "hashedPassword": hashed,
         "isActive": True,
         "isVerified": False,
     }
     resolved_tier = normalize_business_tier(user.classification)
+
 
     try:
         res = await db.users.insert_one(user_doc)
@@ -86,18 +89,7 @@ async def signUp(user: schemas.UserCreate):
                     business_doc["signalQuality"] = float(ml_result.get("signalQuality", 0))
                     business_doc["classifiedAt"] = datetime.utcnow()
                 except Exception:
-                    # fallback lightweight weighted scoring
-                    score = 0
-                    score += min(business_doc["employees"], 200) * 0.002
-                    score += min(business_doc["branches"], 50) * 0.02
-                    score += MathSafeLog(business_doc["transactionsLast30d"]) * 0.6
-                    score += MathSafeLog(business_doc["inventorySize"]) * 0.4
-                    if score > 12:
-                        business_doc["classification"] = "large"
-                    elif score > 6:
-                        business_doc["classification"] = "medium"
-                    else:
-                        business_doc["classification"] = "small"
+                    raise
 
             resolved_tier = normalize_business_tier(business_doc.get("classification") or resolved_tier)
             business_doc["classification"] = resolved_tier
@@ -159,17 +151,61 @@ async def login(user: schemas.UserLogin):
             detail="Invalid email or password",
         )
 
+    if existing.get("isDeleted", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deleted. Use the recovery link sent to your email to restore it, or sign up for a new account.",
+        )
+
+    if not existing.get("isActive", True):
+        # Check if deactivated because owner deleted their account
+        if existing.get("ownerDeleted", False):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your access was revoked when the account owner deleted their account. You can sign up for a new account.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Your account has been deactivated. Contact your administrator.",
+        )
+
+    business = None
+    business_id = existing.get("businessId")
+    if business_id:
+        business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+    else:
+        business = await db.businesses.find_one({"ownerUserId": str(existing["_id"])})
+
+    business_tier = "small"
+    business_name = existing.get("businessName")
+    if business:
+        business_tier = normalize_business_tier(business.get("classification") or business.get("businessTier") or "small")
+        if not business_name:
+            business_name = business.get("name")
+
+    existing_id = str(existing.get("_id"))
+    existing_roles = existing.get("roles") or []
+    is_business_owner = (
+        (business and str(business.get("ownerUserId")) == existing_id)
+        or existing.get("role") in ("owner", "user")
+        or "owner" in existing_roles
+    )
+
     access_token = security.createAccessToken(str(existing.get("_id")))
     user_response = {
-        "_id": str(existing.get("_id")),
+        "_id": existing_id,
         "email": existing.get("email"),
         "firstName": existing.get("firstName"),
         "lastName": existing.get("lastName"),
-        "businessName": existing.get("businessName"),
-        "businessTier": normalize_business_tier(existing.get("businessTier") or existing.get("classification")),
-        "dashboardPath": f"/dashboard/{normalize_business_tier(existing.get('businessTier') or existing.get('classification'))}",
-        "mlConfidence": existing.get("mlConfidence"),
-        "signalQuality": existing.get("signalQuality"),
+        "businessName": business_name or "",
+        "businessTier": business_tier,
+        "dashboardPath": f"/dashboard/{business_tier}",
+        "mlConfidence": existing.get("mlConfidence") or (business.get("mlConfidence") if business else None),
+        "signalQuality": existing.get("signalQuality") or (business.get("signalQuality") if business else None),
+        "role": "owner" if is_business_owner else (existing.get("role") or "employee"),
+        "roles": ["owner", "user"] if is_business_owner else existing_roles,
+        "branchId": existing.get("branchId"),
+        "isActive": existing.get("isActive", True),
     }
 
     return {
@@ -182,7 +218,12 @@ async def login(user: schemas.UserLogin):
 @router.get("/check-email")
 async def checkEmail(email: EmailStr):
     db = getDatabase()
-    user = await db.users.find_one({"email": email})
+    # Only treat non-soft-deleted accounts (and non-ownerDeleted staff) as "existing"
+    user = await db.users.find_one({
+        "email": email,
+        "isDeleted": {"$ne": True},
+        "ownerDeleted": {"$ne": True},
+    })
     return {"exists": user is not None}
 
 
@@ -278,4 +319,317 @@ async def reset_password(payload: schemas.ResetPasswordRequest):
     return {"message": "Password updated successfully."}
 
 
+class ProfileUpdateRequest(BaseModel):
+    firstName: str
+    lastName: str
+    businessName: str
+    email: str
+    businessType: Optional[str] = None
+
+@router.post("/update-profile")
+async def update_profile(
+    payload: ProfileUpdateRequest,
+    authorization: Optional[str] = Header(None)
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header"
+        )
+    token = authorization.split(" ", 1)[1]
+    try:
+        token_data = security.decodeToken(token)
+        user_id = token_data.get("sub")
+        if not user_id:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    db = getDatabase()
+
+    # Check if email is already taken by another user
+    existing_other = await db.users.find_one({"email": payload.email, "_id": {"$ne": ObjectId(user_id)}})
+    if existing_other:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered by another user"
+        )
+
+    # Update User document
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {
+            "firstName": payload.firstName,
+            "lastName": payload.lastName,
+            "businessName": payload.businessName,
+            "email": payload.email
+        }}
+    )
+
+    # Update or create Business document associated with this user
+    business = await db.businesses.find_one({"ownerUserId": user_id})
+    if business:
+        await db.businesses.update_one(
+            {"ownerUserId": user_id},
+            {"$set": {
+                "name": payload.businessName,
+                "businessType": payload.businessType
+            }}
+        )
+    else:
+        await db.businesses.insert_one({
+            "name": payload.businessName,
+            "ownerUserId": user_id,
+            "businessType": payload.businessType,
+            "createdAt": datetime.utcnow()
+        })
+
+    # Load updated user response
+    updated_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    updated_business = await db.businesses.find_one({"ownerUserId": user_id})
+
+    # Resolve tier
+    business_tier = "small"
+    if updated_business:
+        business_tier = normalize_business_tier(updated_business.get("classification") or "small")
+
+    updated_user_roles = updated_user.get("roles") or []
+    is_business_owner = (
+        (updated_business and str(updated_business.get("ownerUserId")) == user_id)
+        or updated_user.get("role") in ("owner", "user")
+        or "owner" in updated_user_roles
+    )
+
+    user_response = {
+        "_id": str(updated_user["_id"]),
+        "email": updated_user["email"],
+        "firstName": updated_user["firstName"],
+        "lastName": updated_user["lastName"],
+        "businessName": updated_user.get("businessName") or (updated_business.get("name") if updated_business else ""),
+        "businessTier": business_tier,
+        "businessType": updated_business.get("businessType") if updated_business else None,
+        "dashboardPath": f"/dashboard/{business_tier}",
+        "role": "owner" if is_business_owner else (updated_user.get("role") or "employee"),
+        "roles": ["owner", "user"] if is_business_owner else updated_user_roles,
+        "branchId": updated_user.get("branchId"),
+        "isActive": updated_user.get("isActive", True),
+    }
+
+    return {
+        "message": "Profile updated successfully.",
+        "user": user_response
+    }
+
+
 # Note: login endpoint intentionally omitted per request; implement separately when needed.
+
+
+@router.delete("/delete-account")
+async def delete_account(
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Soft-deletes the owner account:
+      - Marks the owner as isDeleted=True, stores deletedAt timestamp.
+      - Generates a recovery token valid for 30 days.
+      - Marks all staff under this business as isActive=False, ownerDeleted=True.
+    Data (business, branches, products) is preserved for the recovery window.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header"
+        )
+    token = authorization.split(" ", 1)[1]
+    try:
+        token_data = security.decodeToken(token)
+        user_id = token_data.get("sub")
+        if not user_id:
+            raise ValueError("Missing sub in token")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    db = getDatabase()
+
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        user = None
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found"
+        )
+
+    if user.get("isDeleted", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is already deleted."
+        )
+
+    # Generate a 30-day recovery token
+    recovery_token = security.createPurposeToken(
+        user_id,
+        "account_recovery",
+        expires_minutes=60 * 24 * 30  # 30 days
+    )
+    deleted_at = datetime.utcnow()
+
+    try:
+        # 1. Soft-delete the owner account
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "isDeleted": True,
+                "isActive": False,
+                "deletedAt": deleted_at,
+                "recoveryToken": recovery_token,
+            }}
+        )
+
+        # 2. Lock all staff (non-owner) accounts under this business
+        business = await db.businesses.find_one({"ownerUserId": user_id})
+        if business:
+            business_id = business["_id"]
+            await db.users.update_many(
+                {
+                    "businessId": business_id,
+                    "role": {"$ne": "owner"}
+                },
+                {"$set": {
+                    "isActive": False,
+                    "ownerDeleted": True,
+                    "ownerDeletedAt": deleted_at,
+                }}
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Failed to delete account", "error": str(exc)}
+        )
+
+    return {
+        "message": "Account soft-deleted. You have 30 days to recover it.",
+        "recoveryToken": recovery_token,
+    }
+
+
+@router.post("/recover-account")
+async def recover_account(payload: dict):
+    """
+    Reactivates a soft-deleted owner account using the recovery token.
+    Also re-enables all staff accounts that were locked due to owner deletion.
+    """
+    recovery_token = payload.get("recoveryToken", "")
+    if not recovery_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recovery token is required."
+        )
+
+    # Validate the recovery token
+    try:
+        data = security.decodeTokenWithPurpose(recovery_token, "account_recovery")
+        user_id = data.get("sub")
+        if not user_id:
+            raise ValueError("Missing sub")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired recovery token. The 30-day recovery window may have passed."
+        )
+
+    db = getDatabase()
+
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        user = None
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found."
+        )
+
+    if not user.get("isDeleted", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is not in a deleted state."
+        )
+
+    # Verify the stored token matches
+    if user.get("recoveryToken") != recovery_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recovery token does not match."
+        )
+
+    try:
+        # 1. Restore the owner account
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "isDeleted": False,
+                "isActive": True,
+            }, "$unset": {
+                "deletedAt": "",
+                "recoveryToken": "",
+            }}
+        )
+
+        # 2. Re-enable all staff that were locked due to this owner's deletion
+        business = await db.businesses.find_one({"ownerUserId": user_id})
+        if business:
+            await db.users.update_many(
+                {"businessId": business["_id"], "ownerDeleted": True},
+                {"$set": {"isActive": True}, "$unset": {"ownerDeleted": "", "ownerDeletedAt": ""}}
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Recovery failed", "error": str(exc)}
+        )
+
+    # Issue a new login token so the user is immediately signed back in
+    access_token = security.createAccessToken(user_id)
+    business = await db.businesses.find_one({"ownerUserId": user_id})
+    from app.services.dashboard_profiles import normalize_business_tier
+    business_tier = "small"
+    if business:
+        business_tier = normalize_business_tier(business.get("classification") or "small")
+
+    recovered_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    recovered_user_roles = recovered_user.get("roles") or []
+    is_business_owner = (
+        (business and str(business.get("ownerUserId")) == user_id)
+        or recovered_user.get("role") in ("owner", "user")
+        or "owner" in recovered_user_roles
+    )
+    user_response = {
+        "_id": str(recovered_user["_id"]),
+        "email": recovered_user["email"],
+        "firstName": recovered_user["firstName"],
+        "lastName": recovered_user["lastName"],
+        "businessName": recovered_user.get("businessName", ""),
+        "businessTier": business_tier,
+        "dashboardPath": f"/dashboard/{business_tier}",
+        "role": "owner" if is_business_owner else (recovered_user.get("role") or "employee"),
+        "roles": ["owner", "user"] if is_business_owner else recovered_user_roles,
+        "branchId": recovered_user.get("branchId"),
+        "isActive": True,
+    }
+
+    return {
+        "message": "Account recovered successfully. Welcome back!",
+        "accessToken": access_token,
+        "tokenType": "bearer",
+        "user": user_response,
+    }

@@ -48,6 +48,10 @@ async def get_current_user_id(authorization: Optional[str] = Header(None)) -> st
 
 async def get_business_id(user_id: str, db) -> str:
     """Look up the business document for this user."""
+    if ObjectId.is_valid(user_id):
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if user and "businessId" in user and user["businessId"]:
+            return str(user["businessId"])
     business = await db.businesses.find_one({"ownerUserId": user_id})
     if not business:
         raise HTTPException(
@@ -107,6 +111,7 @@ async def initiate_payment(
             customer_email=request.customer_email,
             customer_phone=request.customer_phone,
             customer_name=request.customer_name,
+            business_name=request.business_name,
             order_id=order_id,
             items=request.items,
             metadata={
@@ -139,6 +144,7 @@ async def initiate_payment(
             "customer_email": request.customer_email,
             "customer_phone": request.customer_phone,
             "description": request.description,
+            "business_name": request.business_name,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
             "metadata": order_response["notes"]
@@ -516,25 +522,32 @@ async def get_payment_stats(
             pct_sign = "+" if pct >= 0 else ""
             comparison_note = f"{pct_sign}{pct:.1f}% vs yesterday"
         else:
-            comparison_note = "+12.4% vs yesterday" if daily_revenue > 0 else "0% vs yesterday"
+            comparison_note = "+100.0% vs yesterday" if daily_revenue > 0 else "0.0% vs yesterday"
             
+        # Calculate last 7 days daily sales dynamically
+        last_7_days_sales = []
+        for i in range(7):
+            day_start = today_start - timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+            day_revenue = sum(t["amount"] for t in merged_transactions if day_start <= t["created_at"] < day_end)
+            last_7_days_sales.append({
+                "day": day_start.strftime("%a"),
+                "revenue": float(day_revenue)
+            })
+        last_7_days_sales.reverse()
+
         return {
             "sales_count": total_count,
             "sales_revenue": total_revenue,
             "daily_sales": daily_revenue,
             "daily_count": daily_count,
-            "comparison_note": comparison_note
+            "comparison_note": comparison_note,
+            "last_7_days_sales": last_7_days_sales
         }
         
     except Exception as e:
         logger.error(f"Error fetching stats: {str(e)}")
-        return {
-            "sales_count": 14,
-            "sales_revenue": 42800.0,
-            "daily_sales": 1420.0,
-            "daily_count": 2,
-            "comparison_note": "+12.4% vs yesterday"
-        }
+        raise
 
 
 # ── Transaction History ───────────────────────────────────────────────────────

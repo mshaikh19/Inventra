@@ -7,6 +7,7 @@ import {
   getTierDisplayName,
   getUserDisplayName,
   normalizeBusinessTier,
+  userHasOwnerAccess,
 } from "../utils/dashboard";
 import { getBranchNetwork, getBranchInventory, getUserBranches, recordBranchSale } from "../utils/branches";
 import {
@@ -15,18 +16,8 @@ import {
   saveScopedInventoryProducts,
 } from "../utils/inventory";
 
-function buildFallbackBranches(branchNames) {
-  return branchNames.map((branchName, index) => ({
-    branch_id: `fallback-${index + 1}`,
-    branch_name: branchName,
-    branch_code: `BR${String(index + 1).padStart(3, "0")}`,
-    status: "Active",
-  }));
-}
-
 export default function BillingPOS({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
-  const fallbackBranches = React.useMemo(() => buildFallbackBranches(getBranchNetwork(normalizedTier)), [normalizedTier]);
 
   const userSession = React.useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -48,10 +39,10 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   const tierAccent     = normalizedTier === "medium" ? "#D97706" : normalizedTier === "large" ? "#059669" : "#0284C7";
   const tierAccentSoft = normalizedTier === "medium" ? "rgba(217,119,6,0.1)" : normalizedTier === "large" ? "rgba(5,150,105,0.1)" : "rgba(2,132,199,0.1)";
 
-  const [branchOptions, setBranchOptions] = React.useState(fallbackBranches);
+  const [branchOptions, setBranchOptions] = React.useState([]);
   const [selectedBranchId, setSelectedBranchId] = React.useState(() => {
-    if (typeof window === "undefined") return fallbackBranches[0]?.branch_id || "";
-    return sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch") || fallbackBranches[0]?.branch_id || "";
+    if (typeof window === "undefined") return "";
+    return sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch") || "";
   });
   const [isBranchLoading, setIsBranchLoading] = React.useState(true);
   const [isInventorySyncing, setIsInventorySyncing] = React.useState(false);
@@ -87,7 +78,17 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         const data = await getUserBranches();
         if (cancelled) return;
 
-        const branches = Array.isArray(data?.branches) && data.branches.length > 0 ? data.branches : fallbackBranches;
+        let branches = Array.isArray(data?.branches) && data.branches.length > 0 ? data.branches : [];
+        
+        // Scope to assigned branch if user is a branch manager or employee
+        const userBranchId = userHasOwnerAccess(userSession?.user) ? null : userSession?.user?.branchId;
+        if (userBranchId) {
+          const userBranch = branches.find(b => b.branch_id === userBranchId);
+          if (userBranch) {
+            branches = [userBranch];
+          }
+        }
+
         setBranchOptions(branches);
 
         const storedBranch = sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch");
@@ -101,7 +102,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         }
       } catch {
         if (!cancelled) {
-          setBranchOptions(fallbackBranches);
+          setBranchOptions([]);
         }
       } finally {
         if (!cancelled) {
@@ -114,7 +115,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
     return () => {
       cancelled = true;
     };
-  }, [fallbackBranches]);
+  }, [userSession]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -255,14 +256,23 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
 
         <div className="flex flex-col gap-2 sm:hidden w-full">
           <div className="block w-full">
-            <BranchDropdown
-              branches={branchOptions}
-              selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
-              onSelect={handleBranchChange}
-              loading={isBranchLoading}
-              syncing={isInventorySyncing}
-              statusText={inventoryStatus}
-            />
+            {userHasOwnerAccess(userSession?.user) ? (
+              <BranchDropdown
+                branches={branchOptions}
+                selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
+                onSelect={handleBranchChange}
+                loading={isBranchLoading}
+                syncing={isInventorySyncing}
+                statusText={inventoryStatus}
+              />
+            ) : branchOptions[0] ? (
+              <div className="w-full rounded-2xl border border-emerald-500/20 bg-slate-950/80 px-4 py-3 relative overflow-hidden">
+                <span className="absolute left-0 top-0 h-full w-1 bg-emerald-500" />
+                <span className="block text-sm font-black text-white">
+                  {branchOptions[0].branch_name}
+                </span>
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{userDisplayName}</div>
@@ -281,15 +291,24 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         <div className="hidden sm:flex items-center gap-2 sm:gap-3 flex-wrap justify-between w-full lg:gap-6 lg:px-6">
           <div className="block w-full sm:w-auto flex-1 min-w-0" />
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
-            <div className="w-[220px] md:w-64 lg:w-72 mr-2 lg:mr-4">
-              <BranchDropdown
-                branches={branchOptions}
-                selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
-                onSelect={handleBranchChange}
-                loading={isBranchLoading}
-                syncing={isInventorySyncing}
-                statusText={inventoryStatus}
-              />
+            <div className="w-[280px] md:w-80 lg:w-96 mr-2 lg:mr-4">
+              {userHasOwnerAccess(userSession?.user) ? (
+                <BranchDropdown
+                  branches={branchOptions}
+                  selectedBranchId={selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId}
+                  onSelect={handleBranchChange}
+                  loading={isBranchLoading}
+                  syncing={isInventorySyncing}
+                  statusText={inventoryStatus}
+                />
+              ) : branchOptions[0] ? (
+                <div className="w-full rounded-2xl border border-emerald-500/20 bg-slate-950/80 px-4 py-3 relative overflow-hidden">
+                  <span className="absolute left-0 top-0 h-full w-1 bg-emerald-500" />
+                  <span className="block text-sm font-black text-white">
+                    {branchOptions[0].branch_name}
+                  </span>
+                </div>
+              ) : null}
             </div>
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{userDisplayName}</div>
             <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.08)" }} />

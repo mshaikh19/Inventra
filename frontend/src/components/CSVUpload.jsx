@@ -16,25 +16,31 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
     setIsDragOver(false);
   };
 
-  const simulateParse = (name) => {
-    setFileName(name);
+  const parseFile = (file) => {
+    setFileName(file.name);
     setUploadState("uploading");
     setErrorMessage("");
     setProgress(0);
 
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setUploadState("success");
-          
-          // Trigger data refresh callback
-          if (onUploadComplete) onUploadComplete();
-          return 100;
-        }
-        return prev + 8;
-      });
-    }, 150);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result;
+      // Basic CSV parsing: split lines and commas
+      const lines = text.trim().split("\n");
+      if (lines.length > 0) {
+        setProgress(100);
+        setUploadState("success");
+        if (onUploadComplete) onUploadComplete(lines);
+      } else {
+        setErrorMessage("The uploaded CSV file appears to be empty.");
+        setUploadState("idle");
+      }
+    };
+    reader.onerror = () => {
+      setErrorMessage("Failed to read the file. Please try again.");
+      setUploadState("idle");
+    };
+    reader.readAsText(file);
   };
 
   const handleDrop = (e) => {
@@ -43,7 +49,7 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
     
     const file = e.dataTransfer.files[0];
     if (file && file.name.endsWith(".csv")) {
-      simulateParse(file.name);
+      parseFile(file);
     } else {
       setErrorMessage("Please upload a .csv file to continue.");
       setUploadState("idle");
@@ -53,7 +59,7 @@ export default function CSVUpload({ onUploadComplete, tierAccent, tierAccentSoft
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file && file.name.endsWith(".csv")) {
-      simulateParse(file.name);
+      parseFile(file);
     }
   };
 

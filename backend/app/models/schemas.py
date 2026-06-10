@@ -25,17 +25,17 @@ class UserBase(BaseModel):
 
 
 class BusinessMetrics(BaseModel):
-    """Ordinal answers from the guided Step-2 question set (all optional except locations & bizType)."""
-    scale:      Optional[int] = None   # Q1: 0=just me, 1=2-10, 2=11-50, 3=50+
-    volume:     Optional[int] = None   # Q2: 0=few, 1=moderate, 2=busy, 3=very high
-    complexity: Optional[int] = None   # Q3: 0=<50 SKUs, 1=50-500, 2=500-5k, 3=5k+
-    locations:  int = 0                # Q4: 0=1 store, 1=2-5, 2=6-20, 3=20+
-    bizType:    str = "other"          # Q5: retail|grocery|pharmacy|apparel|other
+    """ Details needed for determining the business size and the type"""
+    scale:      Optional[int] = None        # Q1: 0=just me, 1=2-10, 2=11-50, 3=50+
+    volume:     Optional[int] = None        # Q2: 0=few, 1=moderate, 2=busy, 3=very high
+    complexity: Optional[int] = None        # Q3: 0=<50 SKUs, 1=50-500, 2=500-5k, 3=5k+
+    locations:  int = 0                     # Q4: 0=1 store, 1=2-5, 2=6-20, 3=20+
+    businessType:    str = "other"          # Q5: retail|grocery|pharmacy|apparel|other
 
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
-    # Optional business onboarding metrics
+
     inventorySize: Optional[int] = 0
     transactionsLast30d: Optional[int] = 0
     branches: Optional[int] = 1
@@ -52,10 +52,14 @@ class UserLogin(BaseModel):
 
 class UserResponse(UserBase):
     id: Optional[str] = Field(None, alias="_id")
-    businessTier:    Optional[str] = None    # ML-classified tier returned on signup
+    businessTier:    Optional[str] = None
     dashboardPath:   Optional[str] = None
     mlConfidence:    Optional[float] = None
     signalQuality:   Optional[float] = None
+    role:            Optional[str] = "user"
+    roles:           Optional[List[str]] = None
+    branchId:        Optional[str] = None
+    isActive:        Optional[bool] = True
 
     class Config:
         populate_by_name = True
@@ -68,9 +72,42 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
-# ── ML Classification models ─────────────────────────────────────────────────
+class EmployeeCreate(BaseModel):
+    email: EmailStr
+    firstName: str
+    lastName: str
+    password: str = Field(..., min_length=6)
+    role: str = "employee"
+    branchId: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class EmployeeUpdate(BaseModel):
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = Field(None, min_length=6)
+    role: Optional[str] = None
+    branchId: Optional[str] = None
+    phone: Optional[str] = None
+    isActive: Optional[bool] = None
+
+
+class EmployeeResponse(BaseModel):
+    id: Optional[str] = Field(None, alias="_id")
+    email: EmailStr
+    firstName: str
+    lastName: str
+    role: str
+    branchId: Optional[str] = None
+    phone: Optional[str] = None
+    isActive: bool = True
+    createdAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+
 class ClassifyRequest(BaseModel):
-    """Ordinal feature vector sent to the ML classify endpoint."""
     scale:      Optional[int] = None
     volume:     Optional[int] = None
     complexity: Optional[int] = None
@@ -79,7 +116,6 @@ class ClassifyRequest(BaseModel):
 
 
 class ClassifyResponse(BaseModel):
-    """ML classification result returned to the frontend."""
     classification: BusinessSize
     confidence:     float
     signalQuality:  float
@@ -87,21 +123,17 @@ class ClassifyResponse(BaseModel):
     message:        str
 
 
-# Password reset models
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-
 
 class ResetPasswordRequest(BaseModel):
     token: str
     newPassword: str = Field(..., min_length=6)
 
-
 class ResetPasswordResponse(BaseModel):
     message: str
 
-
-# ── Notifications ────────────────────────────────────────────────────────────
+# Notifications sent to the user
 class NotificationType(str, Enum):
     LOW_STOCK = "low_stock"
     EXPIRY = "expiry"
@@ -123,7 +155,6 @@ class NotificationCreate(BaseModel):
     source: str = "system"
     is_read: bool = False
     meta: Optional[Dict] = None
-
 
 class NotificationResponse(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
@@ -174,7 +205,9 @@ class BranchCreate(BaseModel):
     # Contact & operations
     phone:          str = Field(..., min_length=7)
     manager_name:   str = Field(..., min_length=2)
-    employee_count: int = Field(default=1, ge=1)
+    manager_email:  Optional[EmailStr] = None
+    manager_password: Optional[str] = Field(None, min_length=6)
+    employee_count: int = Field(default=0, ge=0)
     working_hours:  str = Field(default="9AM-9PM")
     opening_date:   Optional[date] = None
 
@@ -184,20 +217,20 @@ class BranchCreate(BaseModel):
 
 
 class BranchResponse(BaseModel):
-    id:           Optional[str] = Field(None, alias="_id")
-    branch_id:    str           # e.g. "BR001"
-    business_id:  str
-    branch_name:  str
-    branch_code:  str
-    branch_type:  BranchType
-    address:      str
-    city:         str
-    state:        str
-    pincode:      str
-    latitude:     Optional[float] = None
-    longitude:    Optional[float] = None
-    phone:        str
-    manager_name: str
+    id:             Optional[str] = Field(None, alias="_id")
+    branch_id:      str
+    business_id:    str
+    branch_name:    str
+    branch_code:    str
+    branch_type:    BranchType
+    address:        str
+    city:           str
+    state:          str
+    pincode:        str
+    latitude:       Optional[float] = None
+    longitude:      Optional[float] = None
+    phone:          str
+    manager_name:   str
     employee_count: int
     working_hours:  str
     opening_date:   Optional[date] = None
@@ -222,14 +255,14 @@ class BranchUpdate(BaseModel):
     longitude:      Optional[float]      = None
     phone:          Optional[str]        = None
     manager_name:   Optional[str]        = None
+    manager_email:  Optional[EmailStr]   = None
+    manager_password: Optional[str]      = Field(None, min_length=6)
     employee_count: Optional[int]        = None
     working_hours:  Optional[str]        = None
     opening_date:   Optional[date]       = None
     gstin:          Optional[str]        = None
     status:         Optional[BranchStatus] = None
 
-
-# ── Inventory Module ─────────────────────────────────────────────────────────
 class InventoryItemBase(BaseModel):
     product_name: str = Field(..., min_length=1, max_length=200)
     category: str = Field(default="Uncategorized", min_length=1, max_length=100)
@@ -255,6 +288,9 @@ class InventoryItemBase(BaseModel):
     product_image: Optional[str] = None
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class InventoryItemCreate(InventoryItemBase):
@@ -287,12 +323,18 @@ class InventoryItemUpdate(BaseModel):
     hsn_code: Optional[str] = None
     gst_rate: Optional[float] = None
 
+    class Config:
+        populate_by_name = True
+
 
 class InventoryItemResponse(InventoryItemBase):
     id: Optional[str] = Field(None, alias="_id")
     branch_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class PaymentStatus(str, Enum):
@@ -321,6 +363,9 @@ class OrderItem(BaseModel):
     gst_rate: Optional[float] = None
     total: float
 
+    class Config:
+        populate_by_name = True
+
 
 class PaymentInitiateRequest(BaseModel):
     amount: float = Field(..., gt=0)
@@ -331,7 +376,11 @@ class PaymentInitiateRequest(BaseModel):
     customer_email: str
     customer_phone: str
     branch_id: Optional[str] = None
+    business_name: Optional[str] = None
     payment_mode: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class PaymentInitiateResponse(BaseModel):
@@ -342,12 +391,18 @@ class PaymentInitiateResponse(BaseModel):
     currency: str = "INR"
     timeout: int = 900
 
+    class Config:
+        populate_by_name = True
+
 
 class PaymentVerifyRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
     order_id: str
+
+    class Config:
+        populate_by_name = True
 
 
 class PaymentVerifyResponse(BaseModel):
@@ -357,6 +412,9 @@ class PaymentVerifyResponse(BaseModel):
     amount: float
     payment_id: str
 
+    class Config:
+        populate_by_name = True
+
 
 class TransactionRecord(BaseModel):
     transaction_id: str
@@ -365,7 +423,7 @@ class TransactionRecord(BaseModel):
     user_id: str
     razorpay_order_id: str
     razorpay_payment_id: Optional[str] = None
-    amount: float
+    amount: float     
     currency: str = "INR"
     status: PaymentStatus
     payment_method: Optional[PaymentMethod] = None
@@ -383,11 +441,17 @@ class TransactionRecord(BaseModel):
     refund_reason: Optional[str] = None
     metadata: Optional[Dict] = None
 
+    class Config:
+        populate_by_name = True
+
 
 class RefundRequest(BaseModel):
     transaction_id: str
     refund_amount: Optional[float] = None
     reason: str
+
+    class Config:
+        populate_by_name = True
 
 
 class RefundResponse(BaseModel):
@@ -395,6 +459,9 @@ class RefundResponse(BaseModel):
     message: str
     refund_id: Optional[str] = None
     refund_amount: Optional[float] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class InvoiceData(BaseModel):
@@ -413,3 +480,7 @@ class InvoiceData(BaseModel):
     transaction_id: str
     invoice_date: datetime
     due_date: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+

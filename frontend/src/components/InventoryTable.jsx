@@ -1,56 +1,9 @@
 import React, { useMemo, useState } from "react";
+import CustomDropdown from "./CustomDropdown";
 
 
 
-const BRANCHES_BY_TIER = {
 
-  small: ["Main Store"],
-
-  medium: ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot"],
-
-  large: ["Mumbai Hub", "Delhi Branch", "Bangalore Branch", "Pune Depot", "New York Hub", "London Branch", "Tokyo Depot", "Singapore Hub"],
-
-};
-
-
-
-const BRANCH_RATIOS_BY_TIER = {
-
-  small: { "Main Store": 1 },
-
-  medium: {
-
-    "Mumbai Hub": 0.4,
-
-    "Delhi Branch": 0.15,
-
-    "Bangalore Branch": 0.25,
-
-    "Pune Depot": 0.2,
-
-  },
-
-  large: {
-
-    "Mumbai Hub": 0.28,
-
-    "Delhi Branch": 0.12,
-
-    "Bangalore Branch": 0.18,
-
-    "Pune Depot": 0.14,
-
-    "New York Hub": 0.1,
-
-    "London Branch": 0.06,
-
-    "Tokyo Depot": 0.07,
-
-    "Singapore Hub": 0.05,
-
-  },
-
-};
 
 
 
@@ -86,7 +39,7 @@ const getBranchAllocation = (product, branchNames, ratios) => {
 
 
 
-export default function InventoryTable({ products, onUpdateProducts, tier = "small", tierAccent, tierAccentSoft }) {
+export default function InventoryTable({ products, onUpdateProducts, tier = "small", tierAccent, tierAccentSoft, branchesList = [] }) {
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -106,27 +59,30 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
     name: "",
 
-    category: "Dairy",
+    category: "",
 
-    stock: 20,
+    stock: 0,
 
-    price: 50,
+    price: 0,
 
-    reorderLevel: 10,
+    reorderLevel: 0,
 
     sold: 0,
 
-    expiryDate: "2026-06-30"
+    expiryDate: ""
 
   });
 
 
 
-  const normalizedTier = BRANCHES_BY_TIER[tier] ? tier : "small";
+  const branchNames = branchesList.length > 0
+    ? branchesList.map(b => b.branch_name)
+    : ["Default"];
 
-  const branchNames = BRANCHES_BY_TIER[normalizedTier];
-
-  const branchRatios = BRANCH_RATIOS_BY_TIER[normalizedTier];
+  const branchRatios = {};
+  branchNames.forEach((name, i) => {
+    branchRatios[name] = 1 / branchNames.length;
+  });
 
 
 
@@ -392,55 +348,34 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
         <div>
 
-          <select 
-
-            value={selectedCategory} 
-
-            onChange={handleCategoryChange}
-
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-450 text-slate-800 font-semibold text-sm outline-none transition-all cursor-pointer"
-
-          >
-
-            <option value="all">All Categories</option>
-
-            {categories.filter(c => c !== "all").map(c => (
-
-              <option key={c} value={c}>{c}</option>
-
-            ))}
-
-          </select>
+          <CustomDropdown
+            value={selectedCategory}
+            onChange={(val) => setSelectedCategory(val)}
+            options={[
+              { value: "all", label: "All Categories" },
+              ...categories.filter(c => c !== "all").map(c => ({ value: c, label: c }))
+            ]}
+            theme={tier === "large" ? "emerald" : tier === "medium" ? "purple" : "sky"}
+            buttonClassName="rounded-xl font-semibold"
+          />
 
         </div>
 
         <div>
 
-          <select
-
+          <CustomDropdown
             value={selectedBranch}
-
-            onChange={(e) => {
-
-              setSelectedBranch(e.target.value);
-
+            onChange={(val) => {
+              setSelectedBranch(val);
               setEditingId(null);
-
             }}
-
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-450 text-slate-800 font-semibold text-sm outline-none transition-all cursor-pointer"
-
-          >
-
-            <option value="all">All Branches - Consolidated</option>
-
-            {branchNames.map(branchName => (
-
-              <option key={branchName} value={branchName}>{branchName}</option>
-
-            ))}
-
-          </select>
+            options={[
+              { value: "all", label: "All Branches - Consolidated" },
+              ...branchNames.map(b => ({ value: b, label: b }))
+            ]}
+            theme={tier === "large" ? "emerald" : tier === "medium" ? "purple" : "sky"}
+            buttonClassName="rounded-xl font-semibold"
+          />
 
         </div>
 
@@ -888,27 +823,19 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
                   <label className="text-[10px] font-black uppercase tracking-wider text-slate-450">Category</label>
 
-                  <select 
-
+                  <CustomDropdown
                     value={newProduct.category}
-
-                    onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
-
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-400 text-slate-800 outline-none cursor-pointer"
-
-                  >
-
-                    <option value="Dairy">Dairy</option>
-
-                    <option value="Bakery">Bakery</option>
-
-                    <option value="Snacks">Snacks</option>
-
-                    <option value="Beverages">Beverages</option>
-
-                    <option value="Other">Other</option>
-
-                  </select>
+                    onChange={(val) => setNewProduct({ ...newProduct, category: val })}
+                    options={[
+                      { value: "Dairy", label: "Dairy" },
+                      { value: "Bakery", label: "Bakery" },
+                      { value: "Snacks", label: "Snacks" },
+                      { value: "Beverages", label: "Beverages" },
+                      { value: "Other", label: "Other" },
+                    ]}
+                    theme={tier === "large" ? "emerald" : tier === "medium" ? "purple" : "sky"}
+                    buttonClassName="rounded-xl"
+                  />
 
                 </div>
 
