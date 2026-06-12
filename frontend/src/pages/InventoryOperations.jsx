@@ -868,6 +868,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
   );
 
   const handleBack = () => {
+    sessionStorage.setItem("inventra_dashboard_section", "tasks");
     const fallbackTier = normalizeBusinessTier(
       getDashboardTierFromUser(userSession?.user) || normalizedTier,
     );
