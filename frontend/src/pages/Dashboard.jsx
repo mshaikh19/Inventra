@@ -12,6 +12,7 @@ import {
 } from "../utils/dashboard";
 import { addBranchToNetwork, getUserBranches, createBranch, updateBranch, deactivateBranch, getBranchInventory } from "../utils/branches";
 import { getEmployees } from "../utils/employees";
+import { getTasks, updateTask } from "../utils/tasks";
 import { toast } from "react-toastify";
 import InventoryTable from "../components/inventoryTable";
 import CSVUpload from "../components/csvUpload";
@@ -22,14 +23,28 @@ import CustomDropdown from "../components/CustomDropdown";
 import NotificationDropdown from "../components/notificationDropdown";
 import { useNotifications } from "../contexts/notificationContext";
 import { loadScopedInventoryProducts, saveScopedInventoryProducts, normalizeInventoryProducts } from "../utils/inventory";
+import {
+  isEmployeeUser,
+  getEmployeeEnvironment,
+  getEmployeeQuickActions,
+  getEmployeeAccessLabel,
+} from "../utils/employeeWorkspace";
 
 const getRoleDisplayName = (role) => {
   if (!role || role === "owner" || role === "user") return "SYSTEM OWNER";
-  if (role === "manager") return "BRANCH MANAGER";
-  if (role === "warehouse_manager") return "WAREHOUSE MANAGER";
-  if (role === "franchise_manager") return "FRANCHISE MANAGER";
-  if (role === "depot_manager") return "DEPOT MANAGER";
-  if (role === "store_manager") return "STORE MANAGER";
+  const r = String(role).trim().toLowerCase();
+  if (r === "manager") return "BRANCH MANAGER";
+  if (r === "warehouse_manager") return "WAREHOUSE MANAGER";
+  if (r === "franchise_manager") return "FRANCHISE MANAGER";
+  if (r === "depot_manager") return "DEPOT MANAGER";
+  if (r === "store_manager") return "STORE MANAGER";
+  if (r === "store_employee") return "STORE STAFF";
+  if (r === "warehouse_employee") return "WAREHOUSE STAFF";
+  if (r === "franchise_employee") return "FRANCHISE STAFF";
+  if (r === "depot_employee") return "DEPOT STAFF";
+  if (r === "employee") return "STAFF MEMBER";
+  if (r.endsWith("_manager")) return r.replace(/_/g, " ").toUpperCase();
+  if (r.endsWith("_employee")) return r.replace(/_/g, " ").toUpperCase();
   return String(role).toUpperCase().replace("_", " ");
 };
 
@@ -451,26 +466,23 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
 
   const userBranchId = isOwner ? null : userSession?.user?.branchId;
 
-  const visibleTabs = useMemo(() => {
-    if (isOwner) {
-      const tabs = [...WORKSPACE_TABS];
-      tabs.splice(4, 0, { key: "employees", label: "Manage Staff", icon: "👥" });
-      return tabs;
-    }
-    return [
-      { key: "overview", label: "Branch Overview", icon: "🏠" },
-      { key: "inventory", label: "Inventory Desk", icon: "📦" },
-      { key: "billing", label: "Billing POS", icon: "🧾" },
-      { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
-      { key: "employees", label: "Staff", icon: "👥" },
-      { key: "profile", label: "Profile", icon: "👤" },
-    ];
-  }, [isOwner]);
+  // visibleTabs is defined below branchesList to prevent ReferenceError.
 
   const [activeSection, setActiveSection] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = sessionStorage.getItem("inventra_dashboard_section");
       if (saved) return saved;
+      try {
+        const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+        if (rawUser) {
+          const user = JSON.parse(rawUser);
+          if (isEmployeeUser(user) && !userHasOwnerAccess(user)) {
+            return "tasks";
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
     return "overview";
   });
@@ -478,9 +490,18 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   useEffect(() => {
     const validKeys = visibleTabs.map(t => t.key);
     if (!validKeys.includes(activeSection)) {
-      setActiveSection(validKeys[0]);
+      const defaultKey = validKeys[0];
+      if (defaultKey) {
+        if (defaultKey === "billing") {
+          setActiveTab(getBillingPosTab(normalizedTier));
+        } else if (defaultKey === "inventory") {
+          setActiveTab(getInventoryOpsTab(normalizedTier));
+        } else {
+          setActiveSection(defaultKey);
+        }
+      }
     }
-  }, [visibleTabs, activeSection]);
+  }, [visibleTabs, activeSection, setActiveTab, normalizedTier]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -593,6 +614,123 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     if (typeof window === "undefined") return false;
     return !!localStorage.getItem("inventra_branches_list");
   });
+
+  const isManager = useMemo(() => {
+    if (isOwner) return false;
+    const role = String(userSession?.user?.role || "").trim().toLowerCase();
+    const roles = Array.isArray(userSession?.user?.roles)
+      ? userSession.user.roles.map(r => String(r || "").trim().toLowerCase())
+      : [];
+    return role === "manager" || role.endsWith("_manager") || roles.includes("manager");
+  }, [isOwner, userSession]);
+
+  const isEmployee = useMemo(() => {
+    if (isOwner || isManager) return false;
+    return isEmployeeUser(userSession?.user);
+  }, [isOwner, isManager, userSession]);
+
+  const userBranch = useMemo(() => {
+    if (!userBranchId) return null;
+    return branchesList?.find(b => b.branch_id === userBranchId) || branchesList?.[0];
+  }, [branchesList, userBranchId]);
+
+  const branchType = userBranch?.branch_type || "Store";
+
+  const employeeEnvironment = useMemo(() => {
+    if (!isEmployee) return null;
+    return getEmployeeEnvironment(userSession?.user, userBranch);
+  }, [isEmployee, userSession, userBranch]);
+
+  const employeeQuickActions = useMemo(() => {
+    if (!isEmployee || !employeeEnvironment) return [];
+    return getEmployeeQuickActions(employeeEnvironment, normalizedTier, setActiveTab);
+  }, [isEmployee, employeeEnvironment, normalizedTier, setActiveTab]);
+
+  const visibleTabs = useMemo(() => {
+    if (isOwner) {
+      const tabs = [...WORKSPACE_TABS];
+      tabs.splice(4, 0, { key: "employees", label: "Manage Staff", icon: "👥" });
+      return tabs;
+    }
+    if (isManager) {
+      return [
+        { key: "overview", label: "Branch Overview", icon: "🏠" },
+        { key: "inventory", label: "Inventory Desk", icon: "📦" },
+        { key: "billing", label: "Billing POS", icon: "🧾" },
+        { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
+        { key: "employees", label: "Staff", icon: "👥" },
+        { key: "profile", label: "Profile", icon: "👤" },
+      ];
+    }
+    if (isEmployee) {
+      const isWarehouseOrDepot =
+        branchType.toLowerCase() === "warehouse" ||
+        branchType.toLowerCase() === "depot" ||
+        branchType.toLowerCase() === "factory";
+      if (isWarehouseOrDepot) {
+        return [
+          { key: "inventory", label: "Inventory Desk", icon: "📦" },
+          { key: "tasks", label: "My Tasks", icon: "📋" },
+          { key: "profile", label: "Profile", icon: "👤" },
+        ];
+      } else {
+        return [
+          { key: "billing", label: "Billing POS", icon: "🧾" },
+          { key: "tasks", label: "My Tasks", icon: "📋" },
+          { key: "profile", label: "Profile", icon: "👤" },
+        ];
+      }
+    }
+    return [];
+  }, [isOwner, isManager, isEmployee, branchType]);
+
+  const [employeeTasks, setEmployeeTasks] = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
+  const fetchEmployeeTasks = async () => {
+    if (!isEmployee) return;
+    setLoadingTasks(true);
+    try {
+      const data = await getTasks();
+      setEmployeeTasks(data || []);
+    } catch (err) {
+      console.warn("Failed to fetch employee tasks:", err);
+      toast.error(err.message || "Failed to load tasks");
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  const handleToggleTaskStatus = async (taskId, currentStatus) => {
+    const nextStatus = currentStatus === "completed" ? "pending" : "completed";
+    setEmployeeTasks(prev =>
+      prev.map(t => {
+        const id = t._id || t.id;
+        if (id === taskId) {
+          return {
+            ...t,
+            status: nextStatus,
+            completed_at: nextStatus === "completed" ? new Date().toISOString() : null
+          };
+        }
+        return t;
+      })
+    );
+    try {
+      await updateTask(taskId, { status: nextStatus });
+      toast.success(nextStatus === "completed" ? "Task marked as completed!" : "Task marked as pending.");
+    } catch (err) {
+      console.warn("Failed to update task status:", err);
+      toast.error(err.message || "Failed to update task");
+      fetchEmployeeTasks();
+    }
+  };
+
+  useEffect(() => {
+    if (isEmployee && activeSection === "tasks") {
+      fetchEmployeeTasks();
+    }
+  }, [isEmployee, activeSection]);
 
   // Sync branches from DB on mount
   useEffect(() => {
@@ -1727,14 +1865,20 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
           <div className="rounded-[28px] border border-slate-100 bg-white px-5 py-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">Business Control</span>
-                <h2 className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{config.label}</h2>
+                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-400">
+                  {isEmployee ? "Employee Workspace" : "Business Control"}
+                </span>
+                <h2 className="text-lg font-black text-slate-900 mt-0.5 leading-tight">
+                  {isEmployee ? (employeeEnvironment?.label || "My Branch Desk") : config.label}
+                </h2>
               </div>
               <span className="inline-flex items-center rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-wider text-white shadow-sm" style={{ background: config.shell }}>
                 {tierBadgeLabel}
               </span>
             </div>
-            <p className="mt-3 text-[11px] font-medium leading-relaxed text-slate-500">{config.summary}</p>
+            <p className="mt-3 text-[11px] font-medium leading-relaxed text-slate-500">
+              {isEmployee ? (employeeEnvironment?.blurb || "Complete assigned duties and use your branch tools.") : config.summary}
+            </p>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
@@ -1745,9 +1889,24 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               </div>
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Access</div>
-                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">{config.profile.access}</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">
+                  {isEmployee
+                    ? getEmployeeAccessLabel(employeeEnvironment, normalizedTier)
+                    : isManager
+                    ? "Branch-scoped operations"
+                    : config.profile.access}
+                </div>
               </div>
             </div>
+
+            {isEmployee && userBranch && (
+              <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Assigned Branch</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">
+                  {employeeEnvironment?.icon} {userBranch.branch_name} · {userBranch.branch_type}
+                </div>
+              </div>
+            )}
           </div>
 
           <nav className="mt-4 space-y-2.5">
@@ -1792,21 +1951,47 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             })}
           </nav>
 
-          <div className="mt-4 rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
-            <details className="group" open>
-              <summary className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-500 cursor-pointer list-none flex justify-between items-center hover:text-slate-900 transition-colors">
-                <span>Tier Specific Plugins</span>
-                <span className="text-[8px] transition-transform duration-300 group-open:rotate-180">▼</span>
-              </summary>
-              <div className="mt-3.5 flex flex-wrap gap-2">
-                {tierFeatures.map((f, i) => (
-                  <div key={i} className="min-w-0 flex-1 basis-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold text-slate-600 leading-snug">
-                    {f}
+          {!isEmployee && (
+            <div className="mt-4 rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_10px_25px_rgba(15,23,42,0.04)]">
+              <details className="group" open>
+                <summary className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-500 cursor-pointer list-none flex justify-between items-center hover:text-slate-900 transition-colors">
+                  <span>Tier Specific Plugins</span>
+                  <span className="text-[8px] transition-transform duration-300 group-open:rotate-180">▼</span>
+                </summary>
+                <div className="mt-3.5 flex flex-wrap gap-2">
+                  {tierFeatures.map((f, i) => (
+                    <div key={i} className="min-w-0 flex-1 basis-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold text-slate-600 leading-snug">
+                      {f}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+
+          {isEmployee && employeeQuickActions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {employeeQuickActions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  onClick={action.onClick}
+                  className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-xl text-lg" style={{ background: `${action.accent}14` }}>
+                      {action.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-black text-slate-900 group-hover:text-slate-950">{action.label}</span>
+                      <span className="block text-[10px] font-semibold text-slate-500 mt-0.5">{action.description}</span>
+                    </div>
+                    <span className="ml-auto text-slate-300 group-hover:text-slate-500 transition-colors">→</span>
                   </div>
-                ))}
-              </div>
-            </details>
-          </div>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mt-4 space-y-3.5">
             <div className="rounded-[24px] border border-slate-100 bg-slate-950 p-4 text-white shadow-[0_12px_25px_rgba(15,23,42,0.12)]">
@@ -2415,6 +2600,177 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             />
           )}
 
+          {activeSection === "tasks" && (
+            <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white p-5 md:p-6 shadow-[0_14px_44px_rgba(15,23,42,0.06)] text-left">
+              {/* Header */}
+              <div className="absolute right-10 top-0 h-1.5 w-24 rounded-b-full" style={{ backgroundColor: config.accent }} />
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">Employee Workspace</span>
+                  <h2 className="text-3xl font-black tracking-tight mt-1">My Duty Checklist</h2>
+                  <p className="text-xs font-semibold text-slate-500 leading-relaxed mt-2 max-w-xl">
+                    {employeeEnvironment?.blurb || "Inspect your active branch assignments and check off completed duties."}
+                  </p>
+                  {userBranch && (
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-2">
+                      {employeeEnvironment?.icon} {userBranch.branch_name} · {userBranch.branch_type} · {tierDisplayName} tier
+                    </p>
+                  )}
+                </div>
+                <button
+                  id="btn-refresh-tasks"
+                  onClick={fetchEmployeeTasks}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-slate-700 hover:border-slate-350 hover:text-slate-900 transition-all cursor-pointer flex items-center gap-2"
+                >
+                  <svg className={`w-3.5 h-3.5 ${loadingTasks ? "animate-spin" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Sync Tasks
+                </button>
+              </div>
+
+              {employeeQuickActions.length > 0 && (
+                <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {employeeQuickActions.map((action) => (
+                    <button
+                      key={action.key}
+                      type="button"
+                      onClick={action.onClick}
+                      className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 text-left hover:border-slate-300 hover:bg-white hover:shadow-sm transition-all cursor-pointer group"
+                    >
+                      <span
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-xl"
+                        style={{ background: `${action.accent}18` }}
+                      >
+                        {action.icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block text-sm font-black text-slate-900">{action.label}</span>
+                        <span className="block text-[11px] font-semibold text-slate-500 mt-0.5">{action.description}</span>
+                      </div>
+                      <span className="text-slate-300 group-hover:text-slate-500 transition-colors shrink-0">→</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {loadingTasks ? (
+                <div className="py-20 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 border-t-slate-800 animate-spin" />
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Retrieving assignments…</span>
+                </div>
+              ) : employeeTasks.length === 0 ? (
+                <div className="py-16 text-center border border-dashed border-slate-200 rounded-3xl bg-slate-50/50">
+                  <div className="text-3xl mb-3">✨</div>
+                  <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">All Clear!</h4>
+                  <p className="text-xs text-slate-400 font-semibold mt-1">No pending tasks or duties assigned for your role.</p>
+                </div>
+              ) : (
+                <div className="space-y-3.5">
+                  <div className="flex flex-wrap gap-3 mb-1">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-amber-700">
+                      ⏳ {employeeTasks.filter((t) => t.status !== "completed").length} Pending
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                      ✓ {employeeTasks.filter((t) => t.status === "completed").length} Completed
+                    </span>
+                  </div>
+                  {employeeTasks.map((task) => {
+                    const isCompleted = task.status === "completed";
+                    const taskId = task._id || task.id;
+                    const priorityColorMap = {
+                      low: "bg-slate-50 text-slate-600 border-slate-200",
+                      medium: "bg-amber-50 text-amber-700 border-amber-200",
+                      high: "bg-rose-50 text-rose-700 border-rose-200"
+                    };
+                    const badgeClass = priorityColorMap[task.priority?.toLowerCase()] || priorityColorMap.medium;
+
+                    return (
+                      <div
+                        key={taskId}
+                        id={`task-card-${taskId}`}
+                        className={`group relative overflow-hidden rounded-[20px] border p-4 transition-all duration-300 ${
+                          isCompleted
+                            ? "bg-slate-50/70 border-slate-100/80 opacity-70"
+                            : "bg-white border-slate-200/80 hover:border-slate-350 hover:shadow-[0_8px_20px_rgba(0,0,0,0.02)]"
+                        }`}
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* Custom Toggle Switch */}
+                          <button
+                            id={`task-toggle-${taskId}`}
+                            onClick={() => handleToggleTaskStatus(taskId, task.status)}
+                            className={`mt-0.5 w-6 h-6 rounded-lg border flex items-center justify-center transition-all duration-200 shrink-0 cursor-pointer ${
+                              isCompleted
+                                ? "bg-emerald-500 border-emerald-500 text-white"
+                                : "bg-white border-slate-300 hover:border-slate-400 group-hover:scale-105"
+                            }`}
+                          >
+                            {isCompleted && (
+                              <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                              </svg>
+                            )}
+                          </button>
+
+                          {/* Task details */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4
+                                id={`task-title-${taskId}`}
+                                className={`text-sm font-black leading-tight ${
+                                  isCompleted ? "text-slate-400 line-through decoration-slate-300" : "text-slate-900"
+                                }`}
+                              >
+                                {task.title}
+                              </h4>
+                              <span className={`px-2 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-wider ${badgeClass}`}>
+                                {task.priority || "medium"}
+                              </span>
+                            </div>
+
+                            {task.description && (
+                              <p
+                                id={`task-desc-${taskId}`}
+                                className={`mt-1.5 text-xs font-semibold leading-relaxed ${
+                                  isCompleted ? "text-slate-400 line-through decoration-slate-200" : "text-slate-500"
+                                }`}
+                              >
+                                {task.description}
+                              </p>
+                            )}
+
+                            {/* Meta information */}
+                            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                              <span>
+                                ⏰ Assigned: {new Date(task.created_at || Date.now()).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit"
+                                })}
+                              </span>
+                              {isCompleted && task.completed_at && (
+                                <span className="text-emerald-600 font-black">
+                                  ✓ Done: {new Date(task.completed_at).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit"
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeSection === "profile" && (
             <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_0.7fr] gap-6 text-left">
               {/* ── LEFT DESK: Identity & Active Branch Nodes ── */}
@@ -2463,7 +2819,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
 
                   <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs font-semibold text-slate-500 leading-normal">
                     <p className="max-w-md">
-                      ✨ {isOwner ? config.profile.role : getRoleDisplayName(userProfile?.role || userSession?.user?.role)}. You possess full operations permissions, ledger scopes, and forecasting triggers for your {!isOwner ? "branch" : "enterprise"}.
+                      {isEmployee ? (
+                        <>✨ {getRoleDisplayName(userProfile?.role || userSession?.user?.role)} at <strong>{userBranch?.branch_name || "your branch"}</strong>. You can complete assigned tasks and access {employeeEnvironment?.primaryTab === "billing" ? "POS checkout" : "inventory desk"} tools for your location.</>
+                      ) : isManager ? (
+                        <>✨ {getRoleDisplayName(userProfile?.role || userSession?.user?.role)}. You manage staff, assign tasks, and oversee operations for your assigned branch.</>
+                      ) : (
+                        <>✨ {config.profile.role}. You possess full operations permissions, ledger scopes, and forecasting triggers for your enterprise.</>
+                      )}
                     </p>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -2477,7 +2839,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">
                     <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Access Scope</span>
                     <div className="mt-2 text-base font-black text-slate-900 flex items-center gap-1.5">
-                      🔑 <span style={{ color: config.accent }}>Full scope Access</span>
+                      🔑 <span style={{ color: config.accent }}>
+                        {isEmployee
+                          ? getEmployeeAccessLabel(employeeEnvironment, normalizedTier)
+                          : isManager
+                          ? "Branch Operations"
+                          : "Full scope Access"}
+                      </span>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-sm">

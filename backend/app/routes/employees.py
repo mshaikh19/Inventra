@@ -46,20 +46,20 @@ async def get_business_id(user_id: str, db) -> str:
     return str(business["_id"])
 
 
-async def enforce_owner_only(user_id: str, db) -> None:
-    """Ensure the user is the business owner."""
+async def enforce_owner_or_manager(user_id: str, db, employee_branch_id: Optional[str] = None, target_employee_id: Optional[str] = None) -> dict:
+    """Ensure the user is the business owner OR the manager of the target branch."""
     if not ObjectId.is_valid(user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Only the Business Owner can manage staff."
+            detail="Forbidden: Invalid user ID format."
         )
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Only the Business Owner can manage staff."
+            detail="Forbidden: User not found."
         )
-    
+        
     user_roles = user.get("roles") or []
     is_owner = (
         user.get("role") in ("owner", "user")
@@ -70,11 +70,56 @@ async def enforce_owner_only(user_id: str, db) -> None:
         if business:
             is_owner = True
             
-    if not is_owner:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Only the Business Owner can manage staff."
-        )
+    if is_owner:
+        return {"role": "owner", "user": user}
+        
+    is_manager = "manager" in user_roles or user.get("role") == "manager" or str(user.get("role")).endswith("_manager")
+    if is_manager:
+        manager_branch_id = user.get("branchId")
+        if not manager_branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Manager is not assigned to any branch."
+            )
+            
+        # If we are creating an employee:
+        if employee_branch_id is not None and employee_branch_id != manager_branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Managers can only manage staff of their own branch."
+            )
+            
+        # If we are updating/deactivating an employee:
+        if target_employee_id is not None:
+            if not ObjectId.is_valid(target_employee_id):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid employee ID format")
+            target = await db.users.find_one({"_id": ObjectId(target_employee_id)})
+            if not target:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target employee not found")
+            if target.get("branchId") != manager_branch_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Forbidden: Managers can only manage staff of their own branch."
+                )
+            target_role = target.get("role", "")
+            target_roles = target.get("roles") or []
+            is_target_manager_or_owner = (
+                target_role in ("owner", "user", "manager") or
+                "owner" in target_roles or "manager" in target_roles or
+                target_role.endswith("_manager")
+            )
+            if is_target_manager_or_owner:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Forbidden: Managers cannot modify other manager or owner accounts."
+                )
+                
+        return {"role": "manager", "user": user}
+        
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Forbidden: Only Business Owners and Branch Managers can manage staff."
+    )
 
 
 def _serialize_employee(doc: dict) -> dict:
@@ -102,7 +147,15 @@ async def create_employee(
     db = Depends(getDatabase)
 ):
     user_id = await get_current_user_id(authorization)
-    await enforce_owner_only(user_id, db)
+    auth_info = await enforce_owner_or_manager(user_id, db, employee_branch_id=employee.branchId)
+    
+    # Managers cannot register other managers or owners
+    if auth_info["role"] == "manager":
+        if employee.role != "employee":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Managers can only register standard employees."
+            )
     business_id = await get_business_id(user_id, db)
 
     # Check if email is already registered
@@ -201,7 +254,7 @@ async def list_employees(
     if owner_user_id and ObjectId.is_valid(owner_user_id):
         query["_id"] = {"$ne": ObjectId(owner_user_id)}
 
-    # Non-owners (managers) can only see employees of their own branch
+    # Only owners and managers may list staff; employees are blocked
     user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
     if user_doc:
         user_role = str(user_doc.get("role", "")).lower()
@@ -211,7 +264,17 @@ async def list_employees(
             "owner" in user_roles or
             str(user_doc.get("_id")) == str(owner_user_id) if owner_user_id else False
         )
-        if not is_owner_user and user_doc.get("branchId"):
+        is_manager_user = (
+            not is_owner_user and (
+                user_role == "manager" or user_role.endswith("_manager") or "manager" in user_roles
+            )
+        )
+        if not is_owner_user and not is_manager_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Only owners and branch managers can view staff directory.",
+            )
+        if is_manager_user and user_doc.get("branchId"):
             query["branchId"] = user_doc["branchId"]
 
     cursor = db.users.find(query)
@@ -238,7 +301,15 @@ async def update_employee(
     db = Depends(getDatabase)
 ):
     user_id = await get_current_user_id(authorization)
-    await enforce_owner_only(user_id, db)
+    auth_info = await enforce_owner_or_manager(user_id, db, target_employee_id=employee_id, employee_branch_id=updates.branchId)
+    
+    # Managers cannot change/elevate roles to manager or owner
+    if auth_info["role"] == "manager":
+        if updates.role is not None and updates.role != "employee":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Managers can only assign standard employee roles."
+            )
     business_id = await get_business_id(user_id, db)
 
     if not ObjectId.is_valid(employee_id):
@@ -367,7 +438,7 @@ async def deactivate_employee(
     db = Depends(getDatabase)
 ):
     user_id = await get_current_user_id(authorization)
-    await enforce_owner_only(user_id, db)
+    auth_info = await enforce_owner_or_manager(user_id, db, target_employee_id=employee_id)
     business_id = await get_business_id(user_id, db)
 
     if not ObjectId.is_valid(employee_id):

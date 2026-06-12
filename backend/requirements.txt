@@ -11,6 +11,6 @@ pandas
 scikit-learn
 numpy
 requests
-pydantic-email-validator
+email-validator
 jinja2
 
