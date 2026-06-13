@@ -429,6 +429,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   const tierFeatures = TIER_FEATURES[normalizedTier] || TIER_FEATURES.small;
   const tierDisplayName = getTierDisplayName(normalizedTier);
 
+  const { notifications } = useNotifications();
+
   const userSession = useMemo(() => {
     if (typeof window === "undefined") return null;
     for (const storage of [localStorage, sessionStorage]) {

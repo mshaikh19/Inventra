@@ -477,34 +477,36 @@ export default function ManageEmployees({ setActiveTab }) {
     <div className="min-h-screen bg-[#F6FAF8] text-slate-950 font-sans">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-emerald-100 bg-white/95 backdrop-blur-xl shadow-sm">
-        <div className="flex items-center justify-between gap-4 px-6 md:px-12 py-3.5">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-4 px-4 sm:px-6 md:px-12 py-3.5">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={() => setActiveTab(getDashboardTabFromUser(userSession?.user))}
-              className="flex items-center gap-2 text-slate-500 hover:text-slate-950 transition-colors"
+              className="flex items-center gap-1.5 text-slate-500 hover:text-slate-950 transition-colors shrink-0"
+              aria-label="Back to Dashboard"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
-              <span className="text-[10px] font-black uppercase tracking-[0.18em]">Dashboard</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.18em] hidden sm:inline">Dashboard</span>
             </button>
-            <div className="hidden sm:block w-px h-7 bg-slate-200" />
-            <div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em] text-emerald-700">Enterprise Resources</span>
-              <h3 className="text-base md:text-lg font-black leading-tight">Staff & Authentication</h3>
+            <div className="hidden sm:block w-px h-7 bg-slate-200 shrink-0" />
+            <div className="min-w-0">
+              <span className="text-[8px] font-black uppercase tracking-[0.22em] text-emerald-700 hidden md:block leading-none mb-1">Enterprise Resources</span>
+              <h3 className="text-sm md:text-lg font-black leading-tight truncate">Staff & Authentication</h3>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 shrink-0">
             <span className="hidden md:inline text-[10px] font-bold text-slate-400 uppercase tracking-widest">{userDisplayName}</span>
             {isOwner && (
               <button
                 onClick={openAddModal}
-                className="rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all hover:scale-[1.02] flex items-center gap-1.5 shadow-md shadow-emerald-100"
+                className="rounded-xl px-3 sm:px-4 py-2 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all hover:scale-[1.02] flex items-center gap-1.5 shadow-md shadow-emerald-100"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
-                Add Staff
+                <span className="hidden sm:inline">Add Staff</span>
+                <span className="sm:hidden">Staff</span>
               </button>
             )}
           </div>
@@ -672,10 +674,10 @@ export default function ManageEmployees({ setActiveTab }) {
             </div>
 
             {/* Filter Group */}
-            <div className="flex flex-wrap items-center gap-3">
+            <div className={`grid ${isOwner ? "grid-cols-2" : "grid-cols-1"} md:flex md:items-center gap-3 w-full md:w-auto`}>
 
               {/* Filter by Role */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Role</span>
                 <CustomDropdown
                   value={roleFilter}
@@ -687,14 +689,14 @@ export default function ManageEmployees({ setActiveTab }) {
                   ]}
                   theme="emerald"
                   size="sm"
-                  buttonClassName="font-bold"
-                  className="min-w-[130px]"
+                  buttonClassName="font-bold w-full"
+                  className="w-full min-w-0 md:min-w-[130px]"
                 />
               </div>
 
               {/* Filter by Branch */}
               {isOwner && (
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
                   <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch</span>
                   <CustomDropdown
                     value={branchFilter}
@@ -705,8 +707,8 @@ export default function ManageEmployees({ setActiveTab }) {
                     ]}
                     theme="emerald"
                     size="sm"
-                    buttonClassName="font-bold max-w-[200px]"
-                    className="min-w-[160px]"
+                    buttonClassName="font-bold w-full"
+                    className="w-full min-w-0 md:min-w-[160px]"
                   />
                 </div>
               )}
@@ -790,8 +792,108 @@ export default function ManageEmployees({ setActiveTab }) {
               </div>
             )
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-sm border-collapse">
+            <>
+              {/* Mobile Card View (shown on small devices, hidden on medium and larger) */}
+              <div className="md:hidden space-y-4">
+                {filteredEmployees.map((emp) => (
+                  <div key={emp._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm space-y-4 relative">
+                    {/* Top Row: Avatar + Name & Status */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center font-black text-sm text-white shrink-0 ${
+                          emp.role === "owner"
+                            ? "bg-slate-900 shadow-sm"
+                            : (emp.role === "manager" || emp.role?.endsWith("_manager"))
+                            ? "bg-amber-500 shadow-sm"
+                            : "bg-emerald-500 shadow-sm"
+                        }`}>
+                          {emp.firstName?.[0]?.toUpperCase() || ""}{emp.lastName?.[0]?.toUpperCase() || ""}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="block font-black text-slate-900 leading-tight truncate">{emp.firstName} {emp.lastName}</span>
+                          <span className="block text-[10px] font-bold text-slate-400 mt-1">{emp.phone || "No phone added"}</span>
+                        </div>
+                      </div>
+
+                      {/* Status */}
+                      <div className="shrink-0">
+                        {emp.role === "owner" ? (
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                            Active
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleActive(emp)}
+                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 ${emp.isActive
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
+                                : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700"
+                              }`}
+                            title={`Click to ${emp.isActive ? "Deactivate" : "Activate"}`}
+                          >
+                            {emp.isActive ? "Active" : "Inactive"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-slate-100" />
+
+                    {/* Middle Details Grid */}
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Role</span>
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider mt-1 ${
+                          emp.role === "owner"
+                            ? "bg-slate-900 text-white"
+                            : (emp.role === "manager" || emp.role?.endsWith("_manager"))
+                            ? "bg-amber-50 border border-amber-200 text-amber-700"
+                            : "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                        }`}>
+                          {getRoleLabel(emp.role)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Location</span>
+                        <span className="block font-bold text-slate-700 mt-1 truncate">{getBranchName(emp.branchId)}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Email Address</span>
+                        <span className="block font-mono text-[11px] text-slate-500 mt-0.5 break-all">{emp.email}</span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Row Actions */}
+                    {isOwner && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => openEditModal(emp)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-wider text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                          </svg>
+                          Edit
+                        </button>
+                        {emp.role !== "owner" && (
+                          <button
+                            onClick={() => handleDeactivate(emp._id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:border-rose-350 hover:bg-rose-100 cursor-pointer"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                            </svg>
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View (hidden on small devices, shown on medium and larger) */}
+              <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-100 bg-white">
+                <table className="w-full text-left text-sm border-collapse">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400 font-black">
                   <tr>
                     <th className="px-5 py-4">Name / Contact</th>
@@ -899,7 +1001,7 @@ export default function ManageEmployees({ setActiveTab }) {
                 </tbody>
               </table>
             </div>
-          )}
+          </>)}
         </section>
       </main>
 

@@ -274,17 +274,19 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
               </div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{userDisplayName}</div>
+          <div className="inline-flex items-center justify-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 shadow-[0_2px_8px_rgba(0,0,0,0.15)] flex-wrap max-w-full">
+            <span className="text-[10px] font-black text-slate-300 uppercase tracking-wider truncate max-w-[140px]">{userDisplayName}</span>
+            <span className="inline-block w-1 h-1 rounded-full bg-slate-700 shrink-0" />
             <span
-              className="rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white"
+              className="rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shrink-0 shadow-sm"
               style={{ background: tierAccent }}
             >
               {tierBadgeLabel}
             </span>
-            <div className="text-[10px] font-bold text-slate-500">
+            <span className="inline-block w-1 h-1 rounded-full bg-slate-700 shrink-0" />
+            <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap shrink-0">
               {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-            </div>
+            </span>
           </div>
         </div>
 
