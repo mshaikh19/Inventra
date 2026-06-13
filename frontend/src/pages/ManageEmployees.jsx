@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
 import { getEmployees, createEmployee, updateEmployee, deactivateEmployee } from "../utils/employees";
+import { getTasks, createTask, deleteTask, updateTask } from "../utils/tasks";
 import { getUserBranches } from "../utils/branches";
 import { getUserDisplayName, getDashboardTabFromUser, userHasOwnerAccess } from "../utils/dashboard";
+import {
+  getEmployeeRoleForBranchType,
+  getTaskRoleOptions,
+  getTaskTemplatesForBranch,
+  isEmployeeUser,
+} from "../utils/employeeWorkspace";
 import CustomDropdown from "../components/CustomDropdown";
 
 // Supported Countries with country codes and flags
@@ -23,13 +30,12 @@ function StepDot({ n, current, label }) {
   return (
     <div className="flex flex-col items-center gap-1.5 w-24 flex-shrink-0 relative">
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${
-          done
+        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${done
             ? "bg-emerald-500 text-white shadow-[0_3px_10px_rgba(16,185,129,0.2)]"
             : active
-            ? "bg-slate-900 text-white ring-4 ring-slate-900/10 shadow-[0_3px_10px_rgba(15,23,42,0.1)]"
-            : "bg-slate-100 text-slate-500 border border-slate-200"
-        }`}
+              ? "bg-slate-900 text-white ring-4 ring-slate-900/10 shadow-[0_3px_10px_rgba(15,23,42,0.1)]"
+              : "bg-slate-100 text-slate-500 border border-slate-200"
+          }`}
       >
         {done ? (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
@@ -102,11 +108,26 @@ export default function ManageEmployees({ setActiveTab }) {
   const [phonePrefixOpen, setPhonePrefixOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Task Management States
+  const [activeSubTab, setActiveSubTab] = useState("directory");
+  const [tasks, setTasks] = useState([]);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskFormData, setTaskFormData] = useState({
+    title: "",
+    description: "",
+    role: "employee",
+    assigned_to: "",
+    branch_id: "",
+    priority: "medium"
+  });
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [taskFilterPriority, setTaskFilterPriority] = useState("all");
+  const [taskFilterStatus, setTaskFilterStatus] = useState("all");
+
   const inp = (field) =>
-    `w-full border ${
-      modalErrors[field]
-        ? "border-rose-500 bg-rose-50/40 focus:ring-4 focus:ring-rose-900/5 focus:border-rose-500"
-        : "border-slate-200 bg-slate-50/50 focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white"
+    `w-full border ${modalErrors[field]
+      ? "border-rose-500 bg-rose-50/40 focus:ring-4 focus:ring-rose-900/5 focus:border-rose-500"
+      : "border-slate-200 bg-slate-50/50 focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white"
     } text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none transition-all`;
 
   const ErrMsg = ({ field }) =>
@@ -191,9 +212,26 @@ export default function ManageEmployees({ setActiveTab }) {
 
   const userDisplayName = getUserDisplayName(userSession?.user, "Owner");
   const isOwner = userHasOwnerAccess(userSession?.user);
+  const isManager = React.useMemo(() => {
+    if (!userSession?.user || isOwner) return false;
+    const role = String(userSession.user.role || "").trim().toLowerCase();
+    const roles = Array.isArray(userSession.user.roles)
+      ? userSession.user.roles.map(r => String(r || "").trim().toLowerCase())
+      : [];
+    return role === "manager" || role.endsWith("_manager") || roles.includes("manager");
+  }, [userSession, isOwner]);
+
+  // Block employees from staff management
+  useEffect(() => {
+    if (userSession?.user && isEmployeeUser(userSession.user)) {
+      toast.info("Staff management is available to managers and owners only.");
+      setActiveTab(getDashboardTabFromUser(userSession.user));
+    }
+  }, [userSession, setActiveTab]);
 
   // Load data
   useEffect(() => {
+    if (userSession?.user && isEmployeeUser(userSession.user)) return;
     fetchData();
   }, []);
 
@@ -239,6 +277,15 @@ export default function ManageEmployees({ setActiveTab }) {
         availableBranches = availableBranches.filter(b => b.branch_id === user.branchId);
       }
       setBranches(availableBranches);
+
+      // Fetch Tasks
+      try {
+        const taskData = await getTasks();
+        setTasks(taskData || []);
+      } catch (err) {
+        console.warn("Failed to load tasks:", err);
+      }
+
       try {
         localStorage.setItem("inventra_employees_list", JSON.stringify(empData));
         if (branchData.branches) {
@@ -254,6 +301,115 @@ export default function ManageEmployees({ setActiveTab }) {
     }
   };
 
+  const resolveDefaultTaskRole = (branchId) => {
+    const branch = branches.find((b) => b.branch_id === branchId);
+    return getEmployeeRoleForBranchType(branch?.branch_type || "Store");
+  };
+
+  const openTaskModal = () => {
+    const defaultBranchId = isOwner ? "" : (userSession?.user?.branchId || "");
+    setTaskFormData({
+      title: "",
+      description: "",
+      role: defaultBranchId ? resolveDefaultTaskRole(defaultBranchId) : "employee",
+      assigned_to: "",
+      branch_id: defaultBranchId,
+      priority: "medium",
+    });
+    setIsTaskModalOpen(true);
+  };
+
+  const applyTaskTemplate = (template) => {
+    setTaskFormData((prev) => ({
+      ...prev,
+      title: template.title,
+      description: template.description,
+      priority: template.priority || "medium",
+    }));
+  };
+
+  const handleToggleTaskStatus = async (taskId, currentStatus) => {
+    const nextStatus = currentStatus === "completed" ? "pending" : "completed";
+    const backupTasks = [...tasks];
+    setTasks((prev) =>
+      prev.map((t) => {
+        const id = t._id || t.id;
+        if (id === taskId) {
+          return { ...t, status: nextStatus, completed_at: nextStatus === "completed" ? new Date().toISOString() : null };
+        }
+        return t;
+      }),
+    );
+    try {
+      await updateTask(taskId, { status: nextStatus });
+      toast.success(nextStatus === "completed" ? "Task marked complete" : "Task reopened");
+    } catch (err) {
+      setTasks(backupTasks);
+      toast.error(err.message || "Failed to update task");
+    }
+  };
+
+  const handleCreateTask = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!taskFormData.title.trim()) {
+      toast.error("Task title is required");
+      return;
+    }
+    const finalBranchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
+    if (!finalBranchId) {
+      toast.error("Branch location is required for tasks");
+      return;
+    }
+
+    setTaskSubmitting(true);
+    try {
+      const payload = {
+        title: taskFormData.title.trim(),
+        description: taskFormData.description.trim() || undefined,
+        role: taskFormData.role,
+        assigned_to: taskFormData.assigned_to || undefined,
+        branch_id: finalBranchId,
+        priority: taskFormData.priority
+      };
+      await createTask(payload);
+      toast.success("Task assigned successfully!");
+      setIsTaskModalOpen(false);
+      fetchData();
+    } catch (err) {
+      toast.error(err.message || "Failed to assign task");
+    } finally {
+      setTaskSubmitting(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!window.confirm("Are you sure you want to delete this task?")) return;
+    const backupTasks = [...tasks];
+    setTasks(prev => prev.filter(t => t._id !== taskId && t.id !== taskId));
+    try {
+      await deleteTask(taskId);
+      toast.success("Task deleted successfully");
+      fetchData();
+    } catch (err) {
+      setTasks(backupTasks);
+      toast.error(err.message || "Failed to delete task");
+    }
+  };
+
+  const filteredAssignees = React.useMemo(() => {
+    const targetBranchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
+    if (!targetBranchId) return [];
+    return employees.filter(emp => emp.branchId === targetBranchId && emp.role !== "owner");
+  }, [employees, taskFormData.branch_id, isOwner, userSession]);
+
+  const filteredTasks = React.useMemo(() => {
+    return tasks.filter((task) => {
+      const matchesPriority = taskFilterPriority === "all" || task.priority === taskFilterPriority;
+      const matchesStatus = taskFilterStatus === "all" || task.status === taskFilterStatus;
+      return matchesPriority && matchesStatus;
+    });
+  }, [tasks, taskFilterPriority, taskFilterStatus]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -267,7 +423,7 @@ export default function ManageEmployees({ setActiveTab }) {
       email: "",
       password: "",
       role: "employee",
-      branchId: "",
+      branchId: isOwner ? "" : (userSession?.user?.branchId || ""),
       phone: "",
       phone_country_code: "+91",
       phone_number: "",
@@ -292,7 +448,7 @@ export default function ManageEmployees({ setActiveTab }) {
       firstName: emp.firstName,
       lastName: emp.lastName,
       email: emp.email,
-      password: "", 
+      password: "",
       role: emp.role,
       branchId: emp.branchId || "",
       phone: emp.phone || "",
@@ -343,7 +499,7 @@ export default function ManageEmployees({ setActiveTab }) {
               <div className="min-w-0 flex-1 pr-8 text-left">
                 <div className="font-heading text-[0.86rem] font-extrabold tracking-[-0.02em] text-emerald-700">Staff Registered</div>
                 <div className="mt-0.5 text-[0.78rem] font-semibold text-emerald-950/85">
-                  Successfully added {formData.firstName} as ${(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "Branch Manager" : "Employee"}.
+                  Successfully added {formData.firstName} as {(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "Branch Manager" : "Employee"}.
                 </div>
                 <div className="mt-2 text-[0.74rem] bg-emerald-100/50 border border-emerald-200 p-2 rounded-xl text-emerald-900 font-bold select-all flex justify-between items-center gap-2">
                   <span>Temp Password: <span className="font-mono font-black">{finalPassword}</span></span>
@@ -473,6 +629,10 @@ export default function ManageEmployees({ setActiveTab }) {
     return branch ? branch.branch_name : "General / All";
   };
 
+  if (userSession?.user && isEmployeeUser(userSession.user)) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-[#F6FAF8] text-slate-950 font-sans">
       {/* Header */}
@@ -500,13 +660,12 @@ export default function ManageEmployees({ setActiveTab }) {
             {isOwner && (
               <button
                 onClick={openAddModal}
-                className="rounded-xl px-3 sm:px-4 py-2 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all hover:scale-[1.02] flex items-center gap-1.5 shadow-md shadow-emerald-100"
+                className="rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all hover:scale-[1.02] flex items-center gap-1.5 shadow-md shadow-emerald-100"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
-                <span className="hidden sm:inline">Add Staff</span>
-                <span className="sm:hidden">Staff</span>
+                Add Staff
               </button>
             )}
           </div>
@@ -515,957 +674,1069 @@ export default function ManageEmployees({ setActiveTab }) {
 
       <main className="px-6 md:px-12 py-6 max-w-7xl mx-auto space-y-6">
 
-        {/* Analytics Cards */}
-        <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          {/* Total Registered */}
-          <div className="rounded-2xl border bg-white border-slate-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between">
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Total Registered</span>
-              <span className="block text-3xl font-black mt-1 text-slate-700">{totalStaff}</span>
-            </div>
-            <span className="text-3xl">👤</span>
-          </div>
+        {/* Sub-tab Bar */}
+        <div className="flex border-b border-slate-200 mb-6">
+          <button
+            onClick={() => setActiveSubTab("directory")}
+            className={`pb-3.5 px-6 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeSubTab === "directory"
+                ? "border-emerald-600 text-emerald-700 font-black"
+                : "border-transparent text-slate-400 hover:text-slate-700 font-bold"
+              }`}
+          >
+            👥 Staff Directory
+          </button>
+          <button
+            onClick={() => setActiveSubTab("tasks")}
+            className={`pb-3.5 px-6 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeSubTab === "tasks"
+                ? "border-emerald-600 text-emerald-700 font-black"
+                : "border-transparent text-slate-400 hover:text-slate-700 font-bold"
+              }`}
+          >
+            📋 Tasks Board
+          </button>
+        </div>
 
-          {/* Positions Allocated */}
-          <div className="rounded-2xl border bg-white border-sky-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-sky-50/40">
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Positions Allocated</span>
-              <span className="block text-3xl font-black mt-1 text-sky-600">{allocatedStaffCount}</span>
-              <span className="block text-[9px] font-bold text-slate-400 mt-1">across {branches.length} branch{branches.length !== 1 ? 'es' : ''}</span>
-            </div>
-            <span className="text-3xl">🏢</span>
-          </div>
-
-          {/* Unregistered */}
-          <div className={`rounded-2xl border bg-white p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between ${missingAccountsCount > 0 ? 'border-amber-200 bg-amber-50/40' : 'border-slate-100'}`}>
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Unregistered</span>
-              <span className={`block text-3xl font-black mt-1 ${missingAccountsCount > 0 ? 'text-amber-600' : 'text-slate-300'}`}>{missingAccountsCount}</span>
-              <span className="block text-[9px] font-bold text-slate-400 mt-1">{missingAccountsCount > 0 ? 'missing credentials' : 'all accounted for'}</span>
-            </div>
-            <span className="text-3xl">{missingAccountsCount > 0 ? '🔓' : '🔒'}</span>
-          </div>
-
-          {/* Active Managers */}
-          <div className="rounded-2xl border bg-white border-amber-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-amber-50/50">
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Active Managers</span>
-              <span className="block text-3xl font-black mt-1 text-amber-600">{activeManagers}</span>
-            </div>
-            <span className="text-3xl">🎯</span>
-          </div>
-
-          {/* Active Employees */}
-          <div className="rounded-2xl border bg-white border-emerald-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-emerald-50/50">
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Active Employees</span>
-              <span className="block text-3xl font-black mt-1 text-emerald-600">{activeEmployees}</span>
-            </div>
-            <span className="text-3xl">✅</span>
-          </div>
-
-          {/* Deactivated */}
-          <div className="rounded-2xl border bg-white border-rose-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-rose-50/50">
-            <div>
-              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Deactivated</span>
-              <span className="block text-3xl font-black mt-1 text-rose-600">{suspendedCount}</span>
-            </div>
-            <span className="text-3xl">🚫</span>
-          </div>
-        </section>
-
-        {/* Mismatch Warning Alert Banner */}
-        {showMismatchWarning && (
-          <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-[0_4px_24px_rgba(245,158,11,0.08)] overflow-hidden">
-            {/* Top accent bar */}
-            <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500" />
-            <div className="p-6">
-              <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center">
-
-                {/* Icon + Text */}
-                <div className="flex gap-4 items-start flex-1">
-                  <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-2xl shadow-lg shadow-amber-100">
-                    🚨
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Action Required
-                      </span>
-                    </div>
-                    <h4 className="text-base font-black text-slate-900 leading-snug">
-                      {missingAccountsCount} Staff Member{missingAccountsCount !== 1 ? 's' : ''} Cannot Access the System
-                    </h4>
-                    <p className="text-sm font-semibold text-slate-600 leading-relaxed max-w-2xl">
-                      Your branch configuration allocates <span className="font-black text-slate-900">{allocatedStaffCount} team positions</span>, but only{" "}
-                      <span className="font-black text-slate-900">{totalStaff} login account{totalStaff !== 1 ? 's' : ''}</span> exist in the system.
-                      These {missingAccountsCount} unregistered member{missingAccountsCount !== 1 ? 's' : ''} will be locked out until credentials are created.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Progress Visual */}
-                <div className="shrink-0 flex flex-col items-center lg:items-end gap-3 w-full lg:w-auto">
-                  <div className="flex items-center gap-6 bg-white/70 rounded-2xl border border-amber-100 px-5 py-3.5 shadow-sm">
-                    <div className="text-center">
-                      <span className="block text-2xl font-black text-emerald-600">{totalStaff}</span>
-                      <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Registered</span>
-                    </div>
-                    <div className="w-px h-10 bg-slate-200" />
-                    <div className="text-center">
-                      <span className="block text-2xl font-black text-amber-600">{missingAccountsCount}</span>
-                      <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Missing</span>
-                    </div>
-                    <div className="w-px h-10 bg-slate-200" />
-                    <div className="text-center">
-                      <span className="block text-2xl font-black text-slate-700">{allocatedStaffCount}</span>
-                      <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Allocated</span>
-                    </div>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="w-full lg:w-[240px]">
-                    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                      <span>Credentialed</span>
-                      <span>{totalStaff}/{allocatedStaffCount}</span>
-                    </div>
-                    <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-700"
-                        style={{ width: `${Math.min(100, Math.round((totalStaff / Math.max(1, allocatedStaffCount)) * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={openAddModal}
-                    className="w-full lg:w-auto rounded-xl bg-slate-900 hover:bg-slate-800 px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] shadow-sm cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    Create Missing Credentials
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Filters and List */}
-        <section className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-6">
-
-          {/* Search and Filters Bar */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-
-            {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z" />
-                </svg>
-              </span>
-              <input
-                type="text"
-                placeholder="Search staff by name or email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm font-semibold outline-none focus:border-emerald-500 focus:bg-white transition-all text-slate-800 placeholder-slate-400"
-              />
-            </div>
-
-            {/* Filter Group */}
-            <div className={`grid ${isOwner ? "grid-cols-2" : "grid-cols-1"} md:flex md:items-center gap-3 w-full md:w-auto`}>
-
-              {/* Filter by Role */}
-              <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Role</span>
-                <CustomDropdown
-                  value={roleFilter}
-                  onChange={setRoleFilter}
-                  options={[
-                    { value: "all", label: "All Roles" },
-                    { value: "manager", label: "Branch Managers" },
-                    { value: "employee", label: "Employees / Staff" },
-                  ]}
-                  theme="emerald"
-                  size="sm"
-                  buttonClassName="font-bold w-full"
-                  className="w-full min-w-0 md:min-w-[130px]"
-                />
-              </div>
-
-              {/* Filter by Branch */}
-              {isOwner && (
-                <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch</span>
-                  <CustomDropdown
-                    value={branchFilter}
-                    onChange={setBranchFilter}
-                    options={[
-                      { value: "all", label: "All Branches" },
-                      ...branches.map(b => ({ value: b.branch_id, label: b.branch_name })),
-                    ]}
-                    theme="emerald"
-                    size="sm"
-                    buttonClassName="font-bold w-full"
-                    className="w-full min-w-0 md:min-w-[160px]"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Directory Table */}
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600" />
-              <span className="text-xs font-black uppercase tracking-wider text-slate-400">Loading staff records...</span>
-            </div>
-          ) : filteredEmployees.length === 0 ? (
-            allocatedStaffCount > 0 ? (
-              /* Allocated but no accounts — high priority notice */
-              <div className="rounded-3xl border-2 border-dashed border-amber-200 bg-gradient-to-br from-amber-50/60 to-orange-50/30 p-8 text-center">
-                <div className="flex flex-col items-center gap-5 max-w-lg mx-auto">
-                  <div className="relative">
-                    <div className="w-20 h-20 bg-gradient-to-br from-amber-100 to-orange-100 rounded-3xl flex items-center justify-center text-4xl shadow-md border border-amber-200">
-                      🪪
-                    </div>
-                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs shadow-md border-2 border-white">
-                      {allocatedStaffCount}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      Positions Unfilled
-                    </span>
-                    <h4 className="text-xl font-black text-slate-900 tracking-tight leading-snug">
-                      Staff Positions Allocated,<br />But No Accounts Exist Yet
-                    </h4>
-                    <p className="text-sm font-semibold text-slate-600 leading-relaxed">
-                      Your branches have <span className="font-black text-amber-700">{allocatedStaffCount} declared team positions</span>, but zero
-                      login credentials have been created. Your staff will not be able to access Inventra until you register their accounts.
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
-                    <button
-                      onClick={openAddModal}
-                      className="rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wider text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-lg hover:scale-[1.02] cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                      </svg>
-                      Create First Account
-                    </button>
-                  </div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Start with a Branch Manager to delegate inventory access
-                  </p>
-                </div>
-              </div>
-            ) : (
-              /* Completely empty — onboarding notice */
-              <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50/30 p-8 text-center">
-                <div className="flex flex-col items-center gap-5 max-w-md mx-auto">
-                  <div className="w-20 h-20 bg-slate-100 rounded-3xl flex items-center justify-center text-4xl shadow-inner border border-slate-200">
-                    🤝
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="text-xl font-black text-slate-800 tracking-tight">
-                      No Staff Accounts Yet
-                    </h4>
-                    <p className="text-sm font-semibold text-slate-500 leading-relaxed">
-                      Register your first team member to grant secure access to Inventra.
-                      Managers get full branch control, while employees are scoped to the Billing POS.
-                    </p>
-                  </div>
-                  <button
-                    onClick={openAddModal}
-                    className="rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md hover:scale-[1.02] cursor-pointer flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    Register First Staff Member
-                  </button>
-                </div>
-              </div>
-            )
-          ) : (
-            <>
-              {/* Mobile Card View (shown on small devices, hidden on medium and larger) */}
-              <div className="md:hidden space-y-4">
-                {filteredEmployees.map((emp) => (
-                  <div key={emp._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm space-y-4 relative">
-                    {/* Top Row: Avatar + Name & Status */}
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-10 w-10 rounded-full flex items-center justify-center font-black text-sm text-white shrink-0 ${
-                          emp.role === "owner"
-                            ? "bg-slate-900 shadow-sm"
-                            : (emp.role === "manager" || emp.role?.endsWith("_manager"))
-                            ? "bg-amber-500 shadow-sm"
-                            : "bg-emerald-500 shadow-sm"
-                        }`}>
-                          {emp.firstName?.[0]?.toUpperCase() || ""}{emp.lastName?.[0]?.toUpperCase() || ""}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block font-black text-slate-900 leading-tight truncate">{emp.firstName} {emp.lastName}</span>
-                          <span className="block text-[10px] font-bold text-slate-400 mt-1">{emp.phone || "No phone added"}</span>
-                        </div>
-                      </div>
-
-                      {/* Status */}
-                      <div className="shrink-0">
-                        {emp.role === "owner" ? (
-                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
-                            Active
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleToggleActive(emp)}
-                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 ${emp.isActive
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
-                                : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700"
-                              }`}
-                            title={`Click to ${emp.isActive ? "Deactivate" : "Activate"}`}
-                          >
-                            {emp.isActive ? "Active" : "Inactive"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="h-px bg-slate-100" />
-
-                    {/* Middle Details Grid */}
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Role</span>
-                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider mt-1 ${
-                          emp.role === "owner"
-                            ? "bg-slate-900 text-white"
-                            : (emp.role === "manager" || emp.role?.endsWith("_manager"))
-                            ? "bg-amber-50 border border-amber-200 text-amber-700"
-                            : "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                        }`}>
-                          {getRoleLabel(emp.role)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Location</span>
-                        <span className="block font-bold text-slate-700 mt-1 truncate">{getBranchName(emp.branchId)}</span>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Email Address</span>
-                        <span className="block font-mono text-[11px] text-slate-500 mt-0.5 break-all">{emp.email}</span>
-                      </div>
-                    </div>
-
-                    {/* Bottom Row Actions */}
-                    {isOwner && (
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-3">
-                        <button
-                          onClick={() => openEditModal(emp)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-wider text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
-                          </svg>
-                          Edit
-                        </button>
-                        {emp.role !== "owner" && (
-                          <button
-                            onClick={() => handleDeactivate(emp._id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:border-rose-350 hover:bg-rose-100 cursor-pointer"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                            </svg>
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Desktop Table View (hidden on small devices, shown on medium and larger) */}
-              <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-100 bg-white">
-                <table className="w-full text-left text-sm border-collapse">
-                <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400 font-black">
-                  <tr>
-                    <th className="px-5 py-4">Name / Contact</th>
-                    <th className="px-5 py-4">Email</th>
-                    <th className="px-5 py-4">Role</th>
-                    <th className="px-5 py-4">Assigned Location</th>
-                    <th className="px-5 py-4 text-center">Status</th>
-                    <th className="px-5 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
-                  {filteredEmployees.map((emp) => (
-                    <tr key={emp._id} className="hover:bg-slate-50/50 transition-colors group">
-
-                      {/* Name / Avatar */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`h-9 w-9 rounded-full flex items-center justify-center font-black text-xs text-white ${
-                            emp.role === "owner"
-                              ? "bg-slate-900 shadow-sm shadow-slate-200"
-                              : (emp.role === "manager" || emp.role?.endsWith("_manager"))
-                              ? "bg-amber-500 shadow-sm shadow-amber-100"
-                              : "bg-emerald-500 shadow-sm shadow-emerald-100"
-                          }`}>
-                            {emp.firstName?.[0]?.toUpperCase() || ""}{emp.lastName?.[0]?.toUpperCase() || ""}
-                          </div>
-                          <div>
-                            <span className="block font-black text-slate-900 leading-none">{emp.firstName} {emp.lastName}</span>
-                            <span className="block text-[10px] font-bold text-slate-400 mt-1">{emp.phone || "No phone added"}</span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Email */}
-                      <td className="px-5 py-4 font-mono text-xs text-slate-500">{emp.email}</td>
-
-                      {/* Role Badge */}
-                      <td className="px-5 py-4">
-                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                          emp.role === "owner"
-                            ? "bg-slate-900 border border-slate-900 text-white"
-                            : (emp.role === "manager" || emp.role?.endsWith("_manager"))
-                            ? "bg-amber-50 border border-amber-200 text-amber-700"
-                            : "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                        }`}>
-                          {getRoleLabel(emp.role)}
-                        </span>
-                      </td>
-
-                      {/* Assigned Location */}
-                      <td className="px-5 py-4">
-                        <span className="font-bold text-slate-700">{getBranchName(emp.branchId)}</span>
-                        {emp.branchId && <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{emp.branchId}</span>}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-5 py-4 text-center">
-                        {emp.role === "owner" ? (
-                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
-                            Active
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleToggleActive(emp)}
-                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 ${emp.isActive
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
-                                : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700"
-                              }`}
-                            title={`Click to ${emp.isActive ? "Deactivate" : "Activate"}`}
-                          >
-                            {emp.isActive ? "Active" : "Inactive"}
-                          </button>
-                        )}
-                      </td>
-
-                      {/* Action buttons */}
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {isOwner && (
-                            <button
-                              onClick={() => openEditModal(emp)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
-                              title="Edit details"
-                            >
-                              <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
-                              </svg>
-                            </button>
-                          )}
-                          {emp.role !== "owner" && isOwner && (
-                            <button
-                              onClick={() => handleDeactivate(emp._id)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
-                              title="Delete staff"
-                            >
-                              <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>)}
-        </section>
-      </main>
-
-      {/* Centered Step Wizard Modal */}
-      {isModalOpen && (() => {
-        const STEPS = ["Identity", "Role & Access", "Location", "Review"];
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
-              {/* Decorative top colored line */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
-              
-              {/* Modal Header */}
-              <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
+        {activeSubTab === "directory" ? (
+          <>
+            {/* Analytics Cards */}
+            <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+              {/* Total Registered */}
+              <div className="rounded-2xl border bg-white border-slate-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between">
                 <div>
-                  <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700">
-                    {editingEmployee ? "Staff Access Modifier" : "Staff Registration Desk"}
-                  </span>
-                  <h3 className="text-xl font-black text-slate-950 mt-1">
-                    {editingEmployee ? `Modify Access for ${formData.firstName}` : "Register New Staff Member"}
-                  </h3>
-                  <p className="text-xs font-semibold text-slate-500 mt-1 leading-relaxed">
-                    {editingEmployee
-                      ? "Update operational roles, assign branch visibility, or reset authorization passwords."
-                      : "Create secure login credentials, designate access roles, and assign localized branch permissions."
-                    }
-                  </p>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Total Registered</span>
+                  <span className="block text-3xl font-black mt-1 text-slate-700">{totalStaff}</span>
                 </div>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="rounded-xl bg-slate-100 hover:bg-slate-200 px-3.5 py-2 text-xs font-black text-slate-600 hover:text-slate-900 cursor-pointer transition-all shrink-0"
-                >
-                  Close
-                </button>
+                <span className="text-3xl">👤</span>
               </div>
 
-              {/* Progress Steps Indicator */}
-              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/60">
-                <div className="flex items-start justify-between w-full max-w-[560px] mx-auto">
-                  {STEPS.map((label, i) => (
-                    <React.Fragment key={label}>
-                      <StepDot n={i + 1} current={modalStep} label={label} />
-                      {i < STEPS.length - 1 && <StepConnector done={modalStep > i + 1} />}
-                    </React.Fragment>
-                  ))}
+              {/* Positions Allocated */}
+              <div className="rounded-2xl border bg-white border-sky-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-sky-50/40">
+                <div>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Positions Allocated</span>
+                  <span className="block text-3xl font-black mt-1 text-sky-600">{allocatedStaffCount}</span>
+                  <span className="block text-[9px] font-bold text-slate-400 mt-1">across {branches.length} branch{branches.length !== 1 ? 'es' : ''}</span>
                 </div>
+                <span className="text-3xl">🏢</span>
               </div>
 
-              {/* Form Content */}
-              <div className="p-6">
-                {/* Step 1: Personal Details */}
-                {modalStep === 1 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Personal Identity Details</h4>
-                      <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
-                    </div>
+              {/* Unregistered */}
+              <div className={`rounded-2xl border bg-white p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between ${missingAccountsCount > 0 ? 'border-amber-200 bg-amber-50/40' : 'border-slate-100'}`}>
+                <div>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Unregistered</span>
+                  <span className={`block text-3xl font-black mt-1 ${missingAccountsCount > 0 ? 'text-amber-600' : 'text-slate-300'}`}>{missingAccountsCount}</span>
+                  <span className="block text-[9px] font-bold text-slate-400 mt-1">{missingAccountsCount > 0 ? 'missing credentials' : 'all accounted for'}</span>
+                </div>
+                <span className="text-3xl">{missingAccountsCount > 0 ? '🔓' : '🔒'}</span>
+              </div>
 
-                    <div className="grid grid-cols-2 gap-6">
-                      {/* Left: Name fields */}
-                      <div className="space-y-4">
-                        <div>
-                          <Label>First Name <span className="text-rose-500">*</span></Label>
-                          <input
-                            type="text"
-                            name="firstName"
-                            value={formData.firstName}
-                            onChange={handleInputChange}
-                            placeholder="e.g. John"
-                            className={inp("firstName")}
-                            autoFocus
-                          />
-                          <ErrMsg field="firstName" />
-                        </div>
-                        <div>
-                          <Label>Last Name <span className="text-rose-500">*</span></Label>
-                          <input
-                            type="text"
-                            name="lastName"
-                            value={formData.lastName}
-                            onChange={handleInputChange}
-                            placeholder="e.g. Doe"
-                            className={inp("lastName")}
-                          />
-                          <ErrMsg field="lastName" />
-                        </div>
+              {/* Active Managers */}
+              <div className="rounded-2xl border bg-white border-amber-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-amber-50/50">
+                <div>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Active Managers</span>
+                  <span className="block text-3xl font-black mt-1 text-amber-600">{activeManagers}</span>
+                </div>
+                <span className="text-3xl">🎯</span>
+              </div>
+
+              {/* Active Employees */}
+              <div className="rounded-2xl border bg-white border-emerald-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-emerald-50/50">
+                <div>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Active Employees</span>
+                  <span className="block text-3xl font-black mt-1 text-emerald-600">{activeEmployees}</span>
+                </div>
+                <span className="text-3xl">✅</span>
+              </div>
+
+              {/* Deactivated */}
+              <div className="rounded-2xl border bg-white border-rose-100 p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-center justify-between bg-rose-50/50">
+                <div>
+                  <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Deactivated</span>
+                  <span className="block text-3xl font-black mt-1 text-rose-600">{suspendedCount}</span>
+                </div>
+                <span className="text-3xl">🚫</span>
+              </div>
+            </section>
+
+            {/* Mismatch Warning Alert Banner */}
+            {showMismatchWarning && (
+              <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-[0_4px_24px_rgba(245,158,11,0.08)] overflow-hidden">
+                {/* Top accent bar */}
+                <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500" />
+                <div className="p-6">
+                  <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center">
+
+                    {/* Icon + Text */}
+                    <div className="flex gap-4 items-start flex-1">
+                      <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-505 flex items-center justify-center text-2xl shadow-lg shadow-amber-100">
+                        🚨
                       </div>
-
-                      {/* Right: Phone */}
-                      <div className="relative custom-phone-prefix-container">
-                        <Label>Phone Contact Number</Label>
-                        <div className="flex relative">
-                          <div className="absolute left-0 top-0 bottom-0 flex items-center z-10">
-                            <button
-                              type="button"
-                              onClick={() => setPhonePrefixOpen(!phonePrefixOpen)}
-                              className="h-full px-3 bg-slate-50/80 border-r border-slate-200 hover:bg-slate-100 rounded-l-xl text-slate-800 font-black text-xs flex items-center gap-1 transition-all cursor-pointer select-none"
-                            >
-                              <span>{COUNTRIES.find(c => c.code === formData.phone_country_code)?.flag || "🇮🇳"}</span>
-                              <span className="text-[11px] font-extrabold">{formData.phone_country_code}</span>
-                              <svg className={`w-2.5 h-2.5 text-slate-500 transition-transform ${phonePrefixOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                              </svg>
-                            </button>
-
-                            {phonePrefixOpen && (
-                              <div className="absolute left-0 top-full mt-1.5 w-44 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 z-50 animate-fade-in flex flex-col gap-0.5 max-h-48 overflow-y-auto">
-                                {COUNTRIES.map((c) => {
-                                  const isSelected = formData.phone_country_code === c.code;
-                                  return (
-                                    <button
-                                      key={c.name}
-                                      type="button"
-                                      onClick={() => {
-                                        setFormData(p => ({
-                                          ...p,
-                                          phone_country_code: c.code,
-                                          phone: (c.code + " " + p.phone_number).trim()
-                                        }));
-                                        setPhonePrefixOpen(false);
-                                      }}
-                                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex justify-between items-center ${
-                                        isSelected ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
-                                      }`}
-                                    >
-                                      <span className="flex items-center gap-1.5">
-                                        <span>{c.flag}</span>
-                                        <span>{c.name} ({c.code})</span>
-                                      </span>
-                                      {isSelected && <span className="text-emerald-450 font-black">✓</span>}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          <input
-                            type="tel"
-                            placeholder="98765 43210"
-                            value={formData.phone_number}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/[^\d\s\-]/g, "");
-                              setFormData(p => ({
-                                ...p,
-                                phone_number: val,
-                                phone: (p.phone_country_code + " " + val).trim()
-                              }));
-                            }}
-                            className={inp("phone") + " pl-[84px]"}
-                          />
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Action Required
+                          </span>
                         </div>
-                        <ErrMsg field="phone" />
-                        <p className="text-[10px] font-semibold text-slate-400 mt-2 leading-relaxed">
-                          Used for account recovery and branch contact. Optional but recommended.
+                        <h4 className="text-base font-black text-slate-900 leading-snug">
+                          {missingAccountsCount} Staff Member{missingAccountsCount !== 1 ? 's' : ''} Cannot Access the System
+                        </h4>
+                        <p className="text-sm font-semibold text-slate-600 leading-relaxed max-w-2xl">
+                          Your branch configuration allocates <span className="font-black text-slate-900">{allocatedStaffCount} team positions</span>, but only{" "}
+                          <span className="font-black text-slate-900">{totalStaff} login account{totalStaff !== 1 ? 's' : ''}</span> exist in the system.
+                          These {missingAccountsCount} unregistered member{missingAccountsCount !== 1 ? 's' : ''} will be locked out until credentials are created.
                         </p>
                       </div>
                     </div>
-                  </div>
-                )}
 
-                {/* Step 2: Role & System Access */}
-                {modalStep === 2 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Credentials & Access Roles</h4>
-                      <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-6">
-                      {/* Left: Email + Password */}
-                      <div className="space-y-4">
-                        <div>
-                          <Label>
-                            {(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "Manager Login Email" : "Staff Login Email"} <span className="text-rose-500">*</span>
-                          </Label>
-                          <input
-                            type="email"
-                            name="email"
-                            value={formData.email}
-                            onChange={handleInputChange}
-                            placeholder={(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "e.g. manager@company.com" : "e.g. cashier@company.com"}
-                            className={inp("email")}
-                            autoFocus
-                          />
-                          <ErrMsg field="email" />
+                    {/* Progress Visual */}
+                    <div className="shrink-0 flex flex-col items-center lg:items-end gap-3 w-full lg:w-auto">
+                      <div className="flex items-center gap-6 bg-white/70 rounded-2xl border border-amber-100 px-5 py-3.5 shadow-sm">
+                        <div className="text-center">
+                          <span className="block text-2xl font-black text-emerald-600">{totalStaff}</span>
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Registered</span>
                         </div>
-
-                        <div>
-                          <Label>
-                            {editingEmployee ? "Reset Password (Leave blank to keep current)" : "Access Password (Leave blank to generate automatically)"}
-                          </Label>
-                          <div className="relative">
-                            <input
-                              type={showPassword ? "text" : "password"}
-                              name="password"
-                              value={formData.password}
-                              onChange={handleInputChange}
-                              placeholder={editingEmployee ? "••••••••" : "Leave blank to auto-generate or min 6 chars"}
-                              className={inp("password") + " pr-10"}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                            >
-                              {showPassword ? (
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                                </svg>
-                              ) : (
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                          <ErrMsg field="password" />
+                        <div className="w-px h-10 bg-slate-200" />
+                        <div className="text-center">
+                          <span className="block text-2xl font-black text-amber-600">{missingAccountsCount}</span>
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Missing</span>
+                        </div>
+                        <div className="w-px h-10 bg-slate-200" />
+                        <div className="text-center">
+                          <span className="block text-2xl font-black text-slate-700">{allocatedStaffCount}</span>
+                          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">Allocated</span>
                         </div>
                       </div>
+                      {/* Progress bar */}
+                      <div className="w-full lg:w-[240px]">
+                        <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
+                          <span>Credentialed</span>
+                          <span>{totalStaff}/{allocatedStaffCount}</span>
+                        </div>
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-700"
+                            style={{ width: `${Math.min(100, Math.round((totalStaff / Math.max(1, allocatedStaffCount)) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={openAddModal}
+                        className="w-full lg:w-auto rounded-xl bg-slate-900 hover:bg-slate-800 px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] shadow-sm cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Create Missing Credentials
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                      {/* Right: Role selection */}
-                      <div>
-                        <Label>Select Role Assignment <span className="text-rose-500">*</span></Label>
-                        <div className="grid grid-cols-1 gap-3 mt-1.5">
-                          {formData.role === "owner" ? (
-                            <div className="p-4 rounded-2xl border-2 border-slate-900 bg-slate-900 text-white shadow-sm flex items-center gap-4">
-                              <span className="text-3xl shrink-0">👑</span>
+            {/* Filters and List */}
+            <section className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-6">
+
+              {/* Search and Filters Bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+
+                {/* Search Input */}
+                <div className="relative flex-1 max-w-md">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z" />
+                    </svg>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search staff by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm font-semibold outline-none focus:border-emerald-500 focus:bg-white transition-all text-slate-800 placeholder-slate-400"
+                  />
+                </div>
+
+                {/* Filter Group */}
+                <div className="flex flex-wrap items-center gap-3">
+
+                  {/* Filter by Role */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Role</span>
+                    <CustomDropdown
+                      value={roleFilter}
+                      onChange={setRoleFilter}
+                      options={[
+                        { value: "all", label: "All Roles" },
+                        { value: "manager", label: "Branch Managers" },
+                        { value: "employee", label: "Employees / Staff" },
+                      ]}
+                      theme="emerald"
+                      size="sm"
+                      buttonClassName="font-bold"
+                      className="min-w-[130px]"
+                    />
+                  </div>
+
+                  {/* Filter by Branch */}
+                  {isOwner && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch</span>
+                      <CustomDropdown
+                        value={branchFilter}
+                        onChange={setBranchFilter}
+                        options={[
+                          { value: "all", label: "All Branches" },
+                          ...branches.map(b => ({ value: b.branch_id, label: b.branch_name })),
+                        ]}
+                        theme="emerald"
+                        size="sm"
+                        buttonClassName="font-bold max-w-[200px]"
+                        className="min-w-[160px]"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Directory Table */}
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600" />
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-400">Loading staff records...</span>
+                </div>
+              ) : filteredEmployees.length === 0 ? (
+                allocatedStaffCount > 0 ? (
+                  /* Allocated but no accounts — high priority notice */
+                  <div className="rounded-3xl border-2 border-dashed border-amber-200 bg-gradient-to-br from-amber-50/60 to-orange-50/30 p-8 text-center">
+                    <div className="flex flex-col items-center gap-5 max-w-lg mx-auto">
+                      <div className="relative">
+                        <div className="w-20 h-20 bg-gradient-to-br from-amber-100 to-orange-100 rounded-3xl flex items-center justify-center text-4xl shadow-md border border-amber-200">
+                          🪪
+                        </div>
+                        <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white font-black text-xs shadow-md border-2 border-white">
+                          {allocatedStaffCount}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Positions Unfilled
+                        </span>
+                        <h4 className="text-xl font-black text-slate-900 tracking-tight leading-snug">
+                          Staff Positions Allocated,<br />But No Accounts Exist Yet
+                        </h4>
+                        <p className="text-sm font-semibold text-slate-600 leading-relaxed">
+                          Your branches have <span className="font-black text-amber-700">{allocatedStaffCount} declared team positions</span>, but zero
+                          login credentials have been created. Your staff will not be able to access Inventra until you register their accounts.
+                        </p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
+                        <button
+                          onClick={openAddModal}
+                          className="rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wider text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-lg hover:scale-[1.02] cursor-pointer flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                          </svg>
+                          Create First Account
+                        </button>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Start with a Branch Manager to delegate inventory access
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* Completely empty — onboarding notice */
+                  <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50/30 p-8 text-center">
+                    <div className="flex flex-col items-center gap-5 max-w-md mx-auto">
+                      <div className="w-20 h-20 bg-slate-100 rounded-3xl flex items-center justify-center text-4xl shadow-inner border border-slate-200">
+                        🤝
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-xl font-black text-slate-800 tracking-tight">
+                          No Staff Accounts Yet
+                        </h4>
+                        <p className="text-sm font-semibold text-slate-500 leading-relaxed">
+                          Register your first team member to grant secure access to Inventra.
+                          Managers get full branch control, while employees are scoped to the Billing POS.
+                        </p>
+                      </div>
+                      <button
+                        onClick={openAddModal}
+                        className="rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md hover:scale-[1.02] cursor-pointer flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Register First Staff Member
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400 font-black">
+                      <tr>
+                        <th className="px-5 py-4">Name / Contact</th>
+                        <th className="px-5 py-4">Email</th>
+                        <th className="px-5 py-4">Role</th>
+                        <th className="px-5 py-4">Assigned Location</th>
+                        <th className="px-5 py-4 text-center">Status</th>
+                        <th className="px-5 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
+                      {filteredEmployees.map((emp) => (
+                        <tr key={emp._id} className="hover:bg-slate-50/50 transition-colors group">
+
+                          {/* Name / Avatar */}
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`h-9 w-9 rounded-full flex items-center justify-center font-black text-xs text-white ${emp.role === "owner"
+                                  ? "bg-slate-900 shadow-sm shadow-slate-200"
+                                  : (emp.role === "manager" || emp.role?.endsWith("_manager"))
+                                    ? "bg-amber-500 shadow-sm shadow-amber-100"
+                                    : "bg-emerald-500 shadow-sm shadow-emerald-100"
+                                }`}>
+                                {emp.firstName?.[0]?.toUpperCase() || ""}{emp.lastName?.[0]?.toUpperCase() || ""}
+                              </div>
                               <div>
-                                <span className="text-xs font-black block">Business Owner</span>
-                                <span className="text-[9.5px] font-semibold mt-0.5 leading-snug text-slate-300 block">
-                                  Primary business owner. Full administrative rights.
-                                </span>
+                                <span className="block font-black text-slate-900 leading-none">{emp.firstName} {emp.lastName}</span>
+                                <span className="block text-[10px] font-bold text-slate-400 mt-1">{emp.phone || "No phone added"}</span>
                               </div>
                             </div>
-                          ) : (
-                            [
-                              { value: "employee", icon: "🧾", title: "Staff / Cashier", desc: "Locks permissions to branch POS checkout & billing operations." },
-                              ...(isOwner ? [{ value: "manager", icon: "🎯", title: "Branch Manager", desc: "Manage branch stock transfers, operations, and inventory scopes." }] : []),
-                            ].map((r) => {
-                              const isSelected = r.value === "manager"
-                                ? (formData.role === "manager" || formData.role?.endsWith("_manager"))
-                                : formData.role === r.value;
-                              return (
-                                <button
-                                  key={r.value}
-                                  type="button"
-                                  onClick={() => setFormData(p => ({ ...p, role: r.value }))}
-                                  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-center gap-4 ${
-                                    isSelected
-                                      ? "border-emerald-600 bg-emerald-50/70 text-emerald-900 shadow-sm"
-                                      : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
-                                  }`}
-                                >
-                                  <span className="text-3xl shrink-0">{r.icon}</span>
-                                  <div>
-                                    <span className="text-xs font-black block">{r.title}</span>
-                                    <span className="text-[9.5px] font-semibold mt-0.5 leading-snug text-slate-400 block">{r.desc}</span>
-                                  </div>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                          </td>
 
-                {/* Step 3: Location Assignment */}
-                {modalStep === 3 && (() => {
-                  const isManager = formData.role === "manager" || formData.role?.endsWith("_manager");
-                  return (
+                          {/* Email */}
+                          <td className="px-5 py-4 font-mono text-xs text-slate-500">{emp.email}</td>
+
+                          {/* Role Badge */}
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${emp.role === "owner"
+                                ? "bg-slate-900 border border-slate-900 text-white"
+                                : (emp.role === "manager" || emp.role?.endsWith("_manager"))
+                                  ? "bg-amber-50 border border-amber-200 text-amber-700"
+                                  : "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                              }`}>
+                              {getRoleLabel(emp.role)}
+                            </span>
+                          </td>
+
+                          {/* Assigned Location */}
+                          <td className="px-5 py-4">
+                            <span className="font-bold text-slate-700">{getBranchName(emp.branchId)}</span>
+                            {emp.branchId && <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{emp.branchId}</span>}
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-5 py-4 text-center">
+                            {emp.role === "owner" ? (
+                              <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-505">
+                                Active
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleActive(emp)}
+                                className={`inline-flex rounded-full border px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105 ${emp.isActive
+                                  ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
+                                  : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700"
+                                  }`}
+                                title={`Click to ${emp.isActive ? "Deactivate" : "Activate"}`}
+                              >
+                                {emp.isActive ? "Active" : "Inactive"}
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Action buttons */}
+                          <td className="px-5 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {isOwner && (
+                                <button
+                                  onClick={() => openEditModal(emp)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+                                  title="Edit details"
+                                >
+                                  <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                                  </svg>
+                                </button>
+                              )}
+                              {emp.role !== "owner" && isOwner && (
+                                <button
+                                  onClick={() => handleDeactivate(emp._id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                                  title="Delete staff"
+                                >
+                                  <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </main>
+
+        {/* Centered Step Wizard Modal */}
+        {isModalOpen && (() => {
+          const STEPS = ["Identity", "Role & Access", "Location", "Review"];
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
+                {/* Decorative top colored line */}
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
+
+                {/* Modal Header */}
+                <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700">
+                      {editingEmployee ? "Staff Access Modifier" : "Staff Registration Desk"}
+                    </span>
+                    <h3 className="text-xl font-black text-slate-950 mt-1">
+                      {editingEmployee ? `Modify Access for ${formData.firstName}` : "Register New Staff Member"}
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500 mt-1 leading-relaxed">
+                      {editingEmployee
+                        ? "Update operational roles, assign branch visibility, or reset authorization passwords."
+                        : "Create secure login credentials, designate access roles, and assign localized branch permissions."
+                      }
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsModalOpen(false)}
+                    className="rounded-xl bg-slate-100 hover:bg-slate-200 px-3.5 py-2 text-xs font-black text-slate-600 hover:text-slate-900 cursor-pointer transition-all shrink-0"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {/* Progress Steps Indicator */}
+                <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/60">
+                  <div className="flex items-start justify-between w-full max-w-[560px] mx-auto">
+                    {STEPS.map((label, i) => (
+                      <React.Fragment key={label}>
+                        <StepDot n={i + 1} current={modalStep} label={label} />
+                        {i < STEPS.length - 1 && <StepConnector done={modalStep > i + 1} />}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Form Content */}
+                <div className="p-6">
+                  {/* Step 1: Personal Details */}
+                  {modalStep === 1 && (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Local Branch Assignment</h4>
-                        <span className="text-[10px] font-bold text-slate-400">Select one location</span>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Personal Identity Details</h4>
+                        <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* General Option */}
-                        {!isManager && (
-                          <button
-                            type="button"
-                            onClick={() => setFormData(p => ({ ...p, branchId: "" }))}
-                            className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex gap-3 items-start ${
-                              formData.branchId === ""
-                                ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
-                                : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
-                            }`}
-                          >
-                            <span className="text-2xl shrink-0">🌍</span>
-                            <div>
-                              <span className="block text-xs font-black leading-tight">General Access</span>
-                              <span className="block text-[9.5px] font-semibold text-slate-400 mt-1 leading-snug">
-                                No location locks. All branches.
-                              </span>
+                      <div className="grid grid-cols-2 gap-6">
+                        {/* Left: Name fields */}
+                        <div className="space-y-4">
+                          <div>
+                            <Label>First Name <span className="text-rose-500">*</span></Label>
+                            <input
+                              type="text"
+                              name="firstName"
+                              value={formData.firstName}
+                              onChange={handleInputChange}
+                              placeholder="e.g. John"
+                              className={inp("firstName")}
+                              autoFocus
+                            />
+                            <ErrMsg field="firstName" />
+                          </div>
+                          <div>
+                            <Label>Last Name <span className="text-rose-500">*</span></Label>
+                            <input
+                              type="text"
+                              name="lastName"
+                              value={formData.lastName}
+                              onChange={handleInputChange}
+                              placeholder="e.g. Doe"
+                              className={inp("lastName")}
+                            />
+                            <ErrMsg field="lastName" />
+                          </div>
+                        </div>
+
+                        {/* Right: Phone */}
+                        <div className="relative custom-phone-prefix-container">
+                          <Label>Phone Contact Number</Label>
+                          <div className="flex relative">
+                            <div className="absolute left-0 top-0 bottom-0 flex items-center z-10">
+                              <button
+                                type="button"
+                                onClick={() => setPhonePrefixOpen(!phonePrefixOpen)}
+                                className="h-full px-3 bg-slate-50/80 border-r border-slate-200 hover:bg-slate-100 rounded-l-xl text-slate-800 font-black text-xs flex items-center gap-1 transition-all cursor-pointer select-none"
+                              >
+                                <span>{COUNTRIES.find(c => c.code === formData.phone_country_code)?.flag || "🇮🇳"}</span>
+                                <span className="text-[11px] font-extrabold">{formData.phone_country_code}</span>
+                                <svg className={`w-2.5 h-2.5 text-slate-500 transition-transform ${phonePrefixOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                                </svg>
+                              </button>
+
+                              {phonePrefixOpen && (
+                                <div className="absolute left-0 top-full mt-1.5 w-44 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 z-50 animate-fade-in flex flex-col gap-0.5 max-h-48 overflow-y-auto">
+                                  {COUNTRIES.map((c) => {
+                                    const isSelected = formData.phone_country_code === c.code;
+                                    return (
+                                      <button
+                                        key={c.name}
+                                        type="button"
+                                        onClick={() => {
+                                          setFormData(p => ({
+                                            ...p,
+                                            phone_country_code: c.code,
+                                            phone: (c.code + " " + p.phone_number).trim()
+                                          }));
+                                          setPhonePrefixOpen(false);
+                                        }}
+                                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex justify-between items-center ${isSelected ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                                          }`}
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          <span>{c.flag}</span>
+                                          <span>{c.name} ({c.code})</span>
+                                        </span>
+                                        {isSelected && <span className="text-emerald-450 font-black">✓</span>}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          </button>
-                        )}
 
-                        {/* Database Branches list */}
-                        {branches.map((b) => {
-                          const isSelected = formData.branchId === b.branch_id;
-                          return (
-                            <button
-                              key={b.branch_id}
-                              type="button"
-                              onClick={() => setFormData(p => ({ ...p, branchId: b.branch_id }))}
-                              className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex gap-3 items-start ${
-                                isSelected
-                                  ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
-                                  : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
-                              }`}
-                            >
-                              <span className="text-2xl shrink-0">{getBranchIcon(b.branch_type)}</span>
-                              <div className="min-w-0">
-                                <span className="block text-xs font-black leading-tight truncate">{b.branch_name}</span>
-                                <span className="block text-[9.5px] font-semibold text-slate-400 mt-1 leading-snug">
-                                  {b.branch_code || "BRN"} · {b.branch_type || "Store"}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
+                            <input
+                              type="tel"
+                              placeholder="98765 43210"
+                              value={formData.phone_number}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/[^\d\s\-]/g, "");
+                                setFormData(p => ({
+                                  ...p,
+                                  phone_number: val,
+                                  phone: (p.phone_country_code + " " + val).trim()
+                                }));
+                              }}
+                              className={inp("phone") + " pl-[84px]"}
+                            />
+                          </div>
+                          <ErrMsg field="phone" />
+                          <p className="text-[10px] font-semibold text-slate-400 mt-2 leading-relaxed">
+                            Used for account recovery and branch contact. Optional but recommended.
+                          </p>
+                        </div>
                       </div>
-                      <ErrMsg field="branchId" />
                     </div>
-                  );
-                })()}
+                  )}
 
-                {/* Step 4: Summary Review */}
-                {modalStep === 4 && (() => {
-                  const assignedBranch = branches.find(b => b.branch_id === formData.branchId);
-                  const isManager = formData.role === "manager" || formData.role?.endsWith("_manager");
-                  const managerPerms = ["Full inventory management", "Branch stock transfers", "Employee directory access", "Financial reports & analytics"];
-                  const employeePerms = ["Billing POS checkout", "Barcode scanner access", "Sales receipts & invoices"];
-                  return (
-                    <div className="space-y-3">
+                  {/* Step 2: Role & System Access */}
+                  {modalStep === 2 && (
+                    <div className="space-y-4">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Review & Confirm</h4>
-                        <span className="text-[10px] font-bold text-slate-400">All set? Double-check before saving.</span>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Credentials & Access Roles</h4>
+                        <span className="text-[10px] font-bold text-slate-400">* Required fields</span>
                       </div>
 
-                      {/* Two-column layout */}
-                      <div className="grid grid-cols-2 gap-3">
-
-                        {/* LEFT: Identity + Branch */}
-                        <div className="space-y-3">
-                          {/* Identity Card */}
-                          <div className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center gap-3">
-                            <div className={`h-12 w-12 shrink-0 rounded-xl flex items-center justify-center font-black text-base text-white shadow-md ${isManager ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-emerald-400 to-emerald-600"}`}>
-                              {formData.firstName?.[0]?.toUpperCase()}{formData.lastName?.[0]?.toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-black text-slate-900 text-sm leading-tight">{formData.firstName} {formData.lastName}</p>
-                              <p className="text-[10px] font-mono text-slate-500 mt-0.5 truncate">{formData.email}</p>
-                              <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formData.phone || "No phone added"}</p>
-                            </div>
-                            <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider border ${isManager ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-800"}`}>
-                              {isManager ? "Manager" : "Employee"}
-                            </span>
+                      <div className="grid grid-cols-2 gap-6">
+                        {/* Left: Email + Password */}
+                        <div className="space-y-4">
+                          <div>
+                            <Label>
+                              {(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "Manager Login Email" : "Staff Login Email"} <span className="text-rose-500">*</span>
+                            </Label>
+                            <input
+                              type="email"
+                              name="email"
+                              value={formData.email}
+                              onChange={handleInputChange}
+                              placeholder={(formData.role === "manager" || formData.role?.endsWith("_manager")) ? "e.g. manager@company.com" : "e.g. cashier@company.com"}
+                              className={inp("email")}
+                              autoFocus
+                            />
+                            <ErrMsg field="email" />
                           </div>
 
-                          {/* Branch Assignment Card */}
-                          <div className="rounded-2xl border border-slate-100 bg-white p-4 flex-1">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Branch Assignment</p>
-                            {assignedBranch ? (
-                              <div className="flex items-start gap-3">
-                                <span className="text-2xl shrink-0 mt-0.5">{getBranchIcon(assignedBranch.branch_type)}</span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-black text-slate-900 text-sm leading-tight">{assignedBranch.branch_name}</p>
-                                  <div className="flex flex-wrap gap-1.5 mt-2">
-                                    <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
-                                      Code: {assignedBranch.branch_code || "BRN"}
-                                    </span>
-                                    <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
-                                      {assignedBranch.branch_type || "Store"}
-                                    </span>
-                                    {assignedBranch.city && (
-                                      <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
-                                        📍 {assignedBranch.city}
-                                      </span>
-                                    )}
-                                  </div>
+                          <div>
+                            <Label>
+                              {editingEmployee ? "Reset Password (Leave blank to keep current)" : "Access Password (Leave blank to generate automatically)"}
+                            </Label>
+                            <div className="relative">
+                              <input
+                                type={showPassword ? "text" : "password"}
+                                name="password"
+                                value={formData.password}
+                                onChange={handleInputChange}
+                                placeholder={editingEmployee ? "••••••••" : "Leave blank to auto-generate or min 6 chars"}
+                                className={inp("password") + " pr-10"}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                              >
+                                {showPassword ? (
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                            <ErrMsg field="password" />
+                          </div>
+                        </div>
+
+                        {/* Right: Role selection */}
+                        <div>
+                          <Label>Select Role Assignment <span className="text-rose-500">*</span></Label>
+                          <div className="grid grid-cols-1 gap-3 mt-1.5">
+                            {formData.role === "owner" ? (
+                              <div className="p-4 rounded-2xl border-2 border-slate-900 bg-slate-900 text-white shadow-sm flex items-center gap-4">
+                                <span className="text-3xl shrink-0">👑</span>
+                                <div>
+                                  <span className="text-xs font-black block">Business Owner</span>
+                                  <span className="text-[9.5px] font-semibold mt-0.5 leading-snug text-slate-300 block">
+                                    Primary business owner. Full administrative rights.
+                                  </span>
                                 </div>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-3">
-                                <span className="text-2xl">🌍</span>
-                                <div>
-                                  <p className="font-black text-slate-900 text-sm">General Access</p>
-                                  <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Not locked to any specific branch</p>
-                                </div>
-                              </div>
+                              [
+                                { value: "employee", icon: "🧾", title: "Staff / Cashier", desc: "Locks permissions to branch POS checkout & billing operations." },
+                                ...(isOwner ? [{ value: "manager", icon: "🎯", title: "Branch Manager", desc: "Manage branch stock transfers, operations, and inventory scopes." }] : []),
+                              ].map((r) => {
+                                const isSelected = r.value === "manager"
+                                  ? (formData.role === "manager" || formData.role?.endsWith("_manager"))
+                                  : formData.role === r.value;
+                                return (
+                                  <button
+                                    key={r.value}
+                                    type="button"
+                                    onClick={() => setFormData(p => ({ ...p, role: r.value }))}
+                                    className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-center gap-4 ${isSelected
+                                        ? "border-emerald-600 bg-emerald-50/70 text-emerald-900 shadow-sm"
+                                        : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
+                                      }`}
+                                  >
+                                    <span className="text-3xl shrink-0">{r.icon}</span>
+                                    <div>
+                                      <span className="text-xs font-black block">{r.title}</span>
+                                      <span className="text-[9.5px] font-semibold mt-0.5 leading-snug text-slate-400 block">{r.desc}</span>
+                                    </div>
+                                  </button>
+                                );
+                              })
                             )}
-                          </div>
-                        </div>
-
-                        {/* RIGHT: Role & Access */}
-                        <div className={`rounded-2xl border p-4 flex flex-col ${isManager ? "border-amber-100 bg-amber-50/40" : "border-emerald-100 bg-emerald-50/30"}`}>
-                          <div className="flex items-center gap-3 mb-3">
-                            <span className="text-2xl">{isManager ? "🎯" : "🧾"}</span>
-                            <div>
-                              <p className="text-sm font-black text-slate-900">{isManager ? "Branch Manager" : "Staff / Cashier"}</p>
-                              <p className="text-[10px] font-semibold text-slate-500">{isManager ? "Full operational access" : "POS-scoped access only"}</p>
-                            </div>
-                          </div>
-                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Access Permissions</p>
-                          <div className="space-y-2 flex-1">
-                            {(isManager ? managerPerms : employeePerms).map(perm => (
-                              <div key={perm} className="flex items-center gap-2">
-                                <span className={`w-4 h-4 shrink-0 rounded-full flex items-center justify-center text-[9px] font-black text-white ${isManager ? "bg-amber-400" : "bg-emerald-400"}`}>✓</span>
-                                <span className="text-xs font-semibold text-slate-700">{perm}</span>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center gap-2">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Password</span>
-                            <span className="text-xs font-bold text-slate-600">
-                               {editingEmployee ? (formData.password ? "🔄 Resetting" : "✓ Unchanged") : (formData.password ? "🔒 Custom password set" : "⚡ Will be auto-generated")}
-                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
-                  );
-                })()}
-              </div>
+                  )}
 
-              {/* Modal Footer Controls */}
-              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={handlePrevStep}
-                  disabled={modalStep === 1 || submitting}
-                  className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-slate-700 transition-all cursor-pointer disabled:opacity-40"
-                >
-                  Back
-                </button>
-                {modalStep < 4 ? (
+                  {/* Step 3: Location Assignment */}
+                  {modalStep === 3 && (() => {
+                    const isManagerRole = formData.role === "manager" || formData.role?.endsWith("_manager");
+                    if (!isOwner) {
+                      const myBranch = branches.find(b => b.branch_id === userSession?.user?.branchId);
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Local Branch Assignment</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Locked to your branch location</span>
+                          </div>
+                          <div className="p-4 rounded-2xl border-2 border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm flex gap-3 items-start max-w-md">
+                            <span className="text-2xl shrink-0">{myBranch ? getBranchIcon(myBranch.branch_type) : "🏪"}</span>
+                            <div>
+                              <span className="block text-xs font-black leading-tight">{myBranch?.branch_name || "Assigned Branch"}</span>
+                              <span className="block text-[9.5px] font-semibold text-slate-400 mt-1 leading-snug">
+                                {myBranch?.branch_code || "BRN"} · {myBranch?.branch_type || "Store"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Local Branch Assignment</h4>
+                          <span className="text-[10px] font-bold text-slate-400">Select one location</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                          {/* General Option */}
+                          {!isManagerRole && (
+                            <button
+                              type="button"
+                              onClick={() => setFormData(p => ({ ...p, branchId: "" }))}
+                              className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex gap-3 items-start ${formData.branchId === ""
+                                  ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
+                                  : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
+                                }`}
+                            >
+                              <span className="text-2xl shrink-0">🌍</span>
+                              <div>
+                                <span className="block text-xs font-black leading-tight">General Access</span>
+                                <span className="block text-[9.5px] font-semibold text-slate-400 mt-1 leading-snug">
+                                  No location locks. All branches.
+                                </span>
+                              </div>
+                            </button>
+                          )}
+
+                          {/* Database Branches list */}
+                          {branches.map((b) => {
+                            const isSelected = formData.branchId === b.branch_id;
+                            return (
+                              <button
+                                key={b.branch_id}
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, branchId: b.branch_id }))}
+                                className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex gap-3 items-start ${isSelected
+                                    ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
+                                    : "border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700"
+                                  }`}
+                              >
+                                <span className="text-2xl shrink-0">{getBranchIcon(b.branch_type)}</span>
+                                <div className="min-w-0">
+                                  <span className="block text-xs font-black leading-tight truncate">{b.branch_name}</span>
+                                  <span className="block text-[9.5px] font-semibold text-slate-400 mt-1 leading-snug">
+                                    {b.branch_code || "BRN"} · {b.branch_type || "Store"}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <ErrMsg field="branchId" />
+                      </div>
+                    );
+                  })()}
+
+                  {/* Step 4: Summary Review */}
+                  {modalStep === 4 && (() => {
+                    const assignedBranch = branches.find(b => b.branch_id === formData.branchId);
+                    const isManager = formData.role === "manager" || formData.role?.endsWith("_manager");
+                    const managerPerms = ["Full inventory management", "Branch stock transfers", "Employee directory access", "Financial reports & analytics"];
+                    const employeePerms = ["Billing POS checkout", "Barcode scanner access", "Sales receipts & invoices"];
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Review & Confirm</h4>
+                          <span className="text-[10px] font-bold text-slate-400">All set? Double-check before saving.</span>
+                        </div>
+
+                        {/* Two-column layout */}
+                        <div className="grid grid-cols-2 gap-3">
+
+                          {/* LEFT: Identity + Branch */}
+                          <div className="space-y-3">
+                            {/* Identity Card */}
+                            <div className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center gap-3">
+                              <div className={`h-12 w-12 shrink-0 rounded-xl flex items-center justify-center font-black text-base text-white shadow-md ${isManager ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-emerald-400 to-emerald-600"}`}>
+                                {formData.firstName?.[0]?.toUpperCase()}{formData.lastName?.[0]?.toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-black text-slate-900 text-sm leading-tight">{formData.firstName} {formData.lastName}</p>
+                                <p className="text-[10px] font-mono text-slate-500 mt-0.5 truncate">{formData.email}</p>
+                                <p className="text-[10px] font-bold text-slate-400 mt-0.5">{formData.phone || "No phone added"}</p>
+                              </div>
+                              <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider border ${isManager ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-800"}`}>
+                                {isManager ? "Manager" : "Employee"}
+                              </span>
+                            </div>
+
+                            {/* Branch Assignment Card */}
+                            <div className="rounded-2xl border border-slate-100 bg-white p-4 flex-1">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Branch Assignment</p>
+                              {assignedBranch ? (
+                                <div className="flex items-start gap-3">
+                                  <span className="text-2xl shrink-0 mt-0.5">{getBranchIcon(assignedBranch.branch_type)}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-black text-slate-900 text-sm leading-tight">{assignedBranch.branch_name}</p>
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                      <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
+                                        Code: {assignedBranch.branch_code || "BRN"}
+                                      </span>
+                                      <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
+                                        {assignedBranch.branch_type || "Store"}
+                                      </span>
+                                      {assignedBranch.city && (
+                                        <span className="inline-flex rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">
+                                          📍 {assignedBranch.city}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-2xl">🌍</span>
+                                  <div>
+                                    <p className="font-black text-slate-900 text-sm">General Access</p>
+                                    <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Not locked to any specific branch</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* RIGHT: Role & Access */}
+                          <div className={`rounded-2xl border p-4 flex flex-col ${isManager ? "border-amber-100 bg-amber-50/40" : "border-emerald-100 bg-emerald-50/30"}`}>
+                            <div className="flex items-center gap-3 mb-3">
+                              <span className="text-2xl">{isManager ? "🎯" : "🧾"}</span>
+                              <div>
+                                <p className="text-sm font-black text-slate-900">{isManager ? "Branch Manager" : "Staff / Cashier"}</p>
+                                <p className="text-[10px] font-semibold text-slate-500">{isManager ? "Full operational access" : "POS-scoped access only"}</p>
+                              </div>
+                            </div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Access Permissions</p>
+                            <div className="space-y-2 flex-1">
+                              {(isManager ? managerPerms : employeePerms).map(perm => (
+                                <div key={perm} className="flex items-center gap-2">
+                                  <span className={`w-4 h-4 shrink-0 rounded-full flex items-center justify-center text-[9px] font-black text-white ${isManager ? "bg-amber-400" : "bg-emerald-400"}`}>✓</span>
+                                  <span className="text-xs font-semibold text-slate-700">{perm}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center gap-2">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Password</span>
+                              <span className="text-xs font-bold text-slate-600">
+                                {editingEmployee ? (formData.password ? "🔄 Resetting" : "✓ Unchanged") : (formData.password ? "🔒 Custom password set" : "⚡ Will be auto-generated")}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Modal Footer Controls */}
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex justify-between gap-3">
                   <button
                     type="button"
-                    onClick={handleNextStep}
-                    className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md cursor-pointer"
+                    onClick={handlePrevStep}
+                    disabled={modalStep === 1 || submitting}
+                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-slate-700 transition-all cursor-pointer disabled:opacity-40"
                   >
-                    Next
+                    Back
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={submitting}
-                    className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md cursor-pointer disabled:opacity-60"
-                  >
-                    {submitting ? "Saving..." : editingEmployee ? "Update Credentials" : "Register Staff"}
-                  </button>
-                )}
+                  {modalStep < 4 ? (
+                    <button
+                      type="button"
+                      onClick={handleNextStep}
+                      className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md cursor-pointer"
+                    >
+                      Next
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={submitting}
+                      className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md cursor-pointer disabled:opacity-60"
+                    >
+                      {submitting ? "Saving..." : editingEmployee ? "Update Credentials" : "Register Staff"}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+          );
+        })()}
+
+        {/* Create Task Modal */}
+        {isTaskModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
+
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-slate-100 bg-slate-50/40 text-left">
+                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700 font-black">Task Assignment</span>
+                <h3 className="text-lg font-black text-slate-950 mt-1">Assign Operational Task</h3>
+                <p className="text-xs font-semibold text-slate-505 mt-1">Directly delegate task objectives to branch employees or specific roles.</p>
+              </div>
+
+              <form onSubmit={handleCreateTask} className="p-6 space-y-4 text-left">
+                {/* Quick templates */}
+                {(() => {
+                  const branchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
+                  const branch = branches.find((b) => b.branch_id === branchId);
+                  const templates = branchId ? getTaskTemplatesForBranch(branch?.branch_type) : [];
+                  if (!templates.length) return null;
+                  return (
+                    <div>
+                      <Label>Quick Templates</Label>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {templates.slice(0, 4).map((tpl) => (
+                          <button
+                            key={tpl.title}
+                            type="button"
+                            onClick={() => applyTaskTemplate(tpl)}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 transition-all cursor-pointer"
+                          >
+                            {tpl.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Title */}
+                <div>
+                  <Label>Task Title <span className="text-rose-500">*</span></Label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Restock front shelves"
+                    value={taskFormData.title}
+                    onChange={(e) => setTaskFormData(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full border border-slate-200 bg-slate-50/50 text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500"
+                    required
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <Label>Description</Label>
+                  <textarea
+                    placeholder="Provide instructions or checklist..."
+                    value={taskFormData.description}
+                    onChange={(e) => setTaskFormData(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full border border-slate-200 bg-slate-50/50 text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 h-20 resize-none"
+                  />
+                </div>
+
+                {/* Branch select for Owners */}
+                {isOwner ? (
+                  <div>
+                    <Label>Assign to Branch Location <span className="text-rose-500">*</span></Label>
+                    <CustomDropdown
+                      value={taskFormData.branch_id}
+                      onChange={(val) => setTaskFormData(prev => ({
+                        ...prev,
+                        branch_id: val,
+                        assigned_to: "",
+                        role: val ? resolveDefaultTaskRole(val) : "employee",
+                      }))}
+                      options={[
+                        { value: "", label: "Select Branch" },
+                        ...branches.map(b => ({ value: b.branch_id, label: `${b.branch_name} (${b.branch_type})` }))
+                      ]}
+                      theme="emerald"
+                      className="w-full"
+                      buttonClassName="font-bold"
+                    />
+                  </div>
+                ) : null}
+
+                {/* Grid: Role & Assignee */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Target Role */}
+                  <div>
+                    <Label>Target Staff Role</Label>
+                    <CustomDropdown
+                      value={taskFormData.role}
+                      onChange={(val) => setTaskFormData(prev => ({ ...prev, role: val }))}
+                      options={(() => {
+                        const branchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
+                        const branch = branches.find((b) => b.branch_id === branchId);
+                        return getTaskRoleOptions(branch?.branch_type, { includeManagers: isOwner });
+                      })()}
+                      theme="emerald"
+                      className="w-full"
+                      buttonClassName="font-bold"
+                    />
+                  </div>
+
+                  {/* Specific Assignee */}
+                  <div>
+                    <Label>Specific Employee Assignee</Label>
+                    <CustomDropdown
+                      value={taskFormData.assigned_to}
+                      onChange={(val) => setTaskFormData(prev => ({ ...prev, assigned_to: val }))}
+                      options={[
+                        { value: "", label: taskFormData.branch_id || !isOwner ? "All (Matching Role)" : "Select branch first" },
+                        ...filteredAssignees.map(emp => ({ value: emp._id || emp.id, label: `${emp.firstName} ${emp.lastName}` }))
+                      ]}
+                      theme="emerald"
+                      className="w-full"
+                      buttonClassName="font-bold"
+                      disabled={isOwner && !taskFormData.branch_id}
+                    />
+                  </div>
+                </div>
+
+                {/* Priority */}
+                <div>
+                  <Label>Priority Level</Label>
+                  <div className="flex gap-3 mt-1.5">
+                    {[
+                      { value: "low", label: "🔵 Low", desc: "Routine tasks" },
+                      { value: "medium", label: "🟡 Medium", desc: "Standard shift duties" },
+                      { value: "high", label: "🔴 High", desc: "Immediate attention" }
+                    ].map((p) => {
+                      const isSelected = taskFormData.priority === p.value;
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => setTaskFormData(prev => ({ ...prev, priority: p.value }))}
+                          className={`flex-1 p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer ${isSelected
+                              ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
+                              : "border-slate-200 bg-slate-50 hover:border-slate-350 text-slate-700"
+                            }`}
+                        >
+                          <span className="text-xs font-black block">{p.label}</span>
+                          <span className="text-[9px] font-semibold text-slate-400 block mt-0.5">{p.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsTaskModalOpen(false)}
+                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-slate-705 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={taskSubmitting}
+                    className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md cursor-pointer disabled:opacity-60"
+                  >
+                    {taskSubmitting ? "Assigning..." : "Assign Task"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        );
-      })()}
+        )}
     </div>
   );
 }
+

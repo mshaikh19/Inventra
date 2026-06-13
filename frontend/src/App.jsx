@@ -29,8 +29,8 @@ import {
   getDashboardTabFromUser,
   getDashboardTierFromPath,
   userHasOwnerAccess,
-
 } from "./utils/dashboard";
+import { isEmployeeUser, isManagerUser } from "./utils/employeeWorkspace";
 
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -223,6 +223,7 @@ function App() {
             guardedTab = "branch-setup";
           }
         } else {
+          const dashboardTab = getDashboardTabFromUser(user);
           if (
             activeTab === "signup" ||
             activeTab === "login" ||
@@ -230,7 +231,20 @@ function App() {
             activeTab === "branch-setup" ||
             activeTab === "home"
           ) {
-            guardedTab = getDashboardTabFromUser(user);
+            guardedTab = dashboardTab;
+          }
+          if (isEmployeeUser(user)) {
+            if (
+              guardedTab === "employees" ||
+              guardedTab === "branch-setup" ||
+              guardedTab.startsWith("branch-ops-")
+            ) {
+              guardedTab = dashboardTab;
+            }
+          } else if (!isOwner && isManagerUser(user)) {
+            if (guardedTab === "branch-setup") {
+              guardedTab = dashboardTab;
+            }
           }
         }
       } catch (e) {

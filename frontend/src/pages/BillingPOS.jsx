@@ -49,6 +49,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   const [inventoryStatus, setInventoryStatus] = React.useState("Loading branch inventory…");
 
   const handleBack = () => {
+    sessionStorage.setItem("inventra_dashboard_section", "tasks");
     const fallbackTier = normalizeBusinessTier(getDashboardTierFromUser(userSession?.user) || normalizedTier);
     setActiveTab(`dashboard-${fallbackTier}`);
   };

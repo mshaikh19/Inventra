@@ -48,6 +48,56 @@ async def get_business_id(user_id: str, db) -> str:
     return str(business["_id"])
 
 
+async def _get_user_access_context(user_id: str, db, business_id: str) -> dict:
+    """Resolve owner/manager/employee context for authorization checks."""
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user ID")
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    roles = [str(r or "").lower() for r in (user.get("roles") or [])]
+    role = str(user.get("role", "")).lower()
+    is_owner = role in ("owner", "user") or "owner" in roles
+    if not is_owner:
+        business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+        if business and str(business.get("ownerUserId")) == str(user_id):
+            is_owner = True
+    is_manager = not is_owner and (
+        role == "manager" or role.endswith("_manager") or "manager" in roles
+    )
+    return {
+        "user": user,
+        "is_owner": is_owner,
+        "is_manager": is_manager,
+        "is_employee": not is_owner and not is_manager,
+        "branch_id": user.get("branchId"),
+    }
+
+
+async def _enforce_owner_only(user_id: str, db, business_id: str) -> dict:
+    ctx = await _get_user_access_context(user_id, db, business_id)
+    if not ctx["is_owner"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Only business owners can perform this action.",
+        )
+    return ctx
+
+
+async def _enforce_branch_scope(user_id: str, db, business_id: str, branch_id: str) -> dict:
+    """Owners access all branches; managers/employees only their assigned branch."""
+    ctx = await _get_user_access_context(user_id, db, business_id)
+    if ctx["is_owner"]:
+        return ctx
+    if not ctx["branch_id"] or ctx["branch_id"] != branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You can only access your assigned branch.",
+        )
+    return ctx
+
+
 def _serialize_branch(doc: dict) -> dict:
     """Convert a MongoDB document into a safe serializable dict."""
     if doc is None:
@@ -112,7 +162,7 @@ async def _sync_branch_manager(
     elif branch_type_lower == "depot":
         role_name = "depot_manager"
     else:
-        role_name = "manager"
+        role_name = "store_manager"
 
     # Check if a manager with the exact same name and branch already exists
     existing = await db.users.find_one({
@@ -376,6 +426,7 @@ async def create_branch(
     db = getDatabase()
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
+    await _enforce_owner_only(user_id, db, business_id)
 
     business = await db.businesses.find_one({"_id": ObjectId(business_id)})
     business_name = (business or {}).get("name") or "Business"
@@ -445,8 +496,13 @@ async def list_branches(authorization: Optional[str] = Header(None)):
     db = getDatabase()
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
+    access = await _get_user_access_context(user_id, db, business_id)
 
-    cursor = db.branches.find({"business_id": business_id, "status": {"$ne": "Inactive"}}).sort("branch_id", 1)
+    branch_query = {"business_id": business_id, "status": {"$ne": "Inactive"}}
+    if not access["is_owner"] and access["branch_id"]:
+        branch_query["branch_id"] = access["branch_id"]
+
+    cursor = db.branches.find(branch_query).sort("branch_id", 1)
     branches = []
     async for doc in cursor:
         if not doc.get("manager_email"):
@@ -489,6 +545,8 @@ async def get_branch(branch_id: str, authorization: Optional[str] = Header(None)
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
 
+    await _enforce_branch_scope(user_id, db, business_id, doc.get("branch_id"))
+
     if not doc.get("manager_email"):
         existing_user = await db.users.find_one({
             "businessId": ObjectId(business_id),
@@ -510,6 +568,7 @@ async def get_branch_inventory(branch_id: str, authorization: Optional[str] = He
     business_id = await get_business_id(user_id, db)
 
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
+    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
 
     inventory = await db.inventories.find_one({"business_id": business_id, "branch_id": branch["branch_id"]})
     if not inventory:
@@ -562,6 +621,7 @@ async def create_inventory_item(branch_id: str, item: schemas.InventoryItemCreat
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
+    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query) or {
@@ -618,6 +678,7 @@ async def update_inventory_item(branch_id: str, item_id: str, updates: schemas.I
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
+    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query)
@@ -664,6 +725,7 @@ async def delete_inventory_item(branch_id: str, item_id: str, authorization: Opt
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
+    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query)
@@ -726,6 +788,7 @@ async def record_sale(branch_id: str, payload: SalePayload, authorization: Optio
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
+    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query)
@@ -806,6 +869,7 @@ async def update_branch(
     db = getDatabase()
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
+    await _enforce_owner_only(user_id, db, business_id)
 
     # Find the document
     if ObjectId.is_valid(branch_id):
@@ -877,6 +941,7 @@ async def deactivate_branch(branch_id: str, authorization: Optional[str] = Heade
     db = getDatabase()
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
+    await _enforce_owner_only(user_id, db, business_id)
 
     if ObjectId.is_valid(branch_id):
         query = {"_id": ObjectId(branch_id), "business_id": business_id}

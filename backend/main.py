@@ -12,6 +12,7 @@ from app.routes import branches
 from app.routes import payment
 from app.routes import notifications
 from app.routes import employees
+from app.routes import tasks
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -74,6 +75,7 @@ app.include_router(branches.router,   prefix="/api/v1/branches",  tags=["Branche
 app.include_router(payment.router,    prefix="/api/v1",           tags=["Payments"])
 app.include_router(notifications.router, prefix="/api/v1",       tags=["Notifications"])
 app.include_router(employees.router,   prefix="/api/v1/employees",  tags=["Employees"])
+app.include_router(tasks.router,       prefix="/api/v1/tasks",      tags=["Tasks"])
 
 @app.get("/")
 async def getRoot():

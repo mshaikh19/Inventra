@@ -484,3 +484,52 @@ class InvoiceData(BaseModel):
     class Config:
         populate_by_name = True
 
+
+# Task models
+class TaskPriority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
+class TaskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    role: str
+    assigned_to: Optional[str] = None
+    branch_id: str
+    priority: TaskPriority = TaskPriority.MEDIUM
+
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    role: Optional[str] = None
+    assigned_to: Optional[str] = None
+    priority: Optional[TaskPriority] = None
+    status: Optional[TaskStatus] = None
+
+
+class TaskResponse(BaseModel):
+    id: Optional[str] = Field(None, alias="_id")
+    title: str
+    description: Optional[str] = None
+    role: str
+    assigned_to: Optional[str] = None
+    branch_id: str
+    business_id: str
+    priority: TaskPriority
+    status: TaskStatus
+    assigned_by: str
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+
+
