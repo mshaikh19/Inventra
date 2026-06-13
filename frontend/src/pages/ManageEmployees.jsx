@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
 import { getEmployees, createEmployee, updateEmployee, deactivateEmployee } from "../utils/employees";
-import { getTasks, createTask, deleteTask, updateTask } from "../utils/tasks";
 import { getUserBranches } from "../utils/branches";
 import { getUserDisplayName, getDashboardTabFromUser, userHasOwnerAccess } from "../utils/dashboard";
 import {
   getEmployeeRoleForBranchType,
-  getTaskRoleOptions,
-  getTaskTemplatesForBranch,
   isEmployeeUser,
 } from "../utils/employeeWorkspace";
 import CustomDropdown from "../components/CustomDropdown";
@@ -108,21 +105,6 @@ export default function ManageEmployees({ setActiveTab }) {
   const [phonePrefixOpen, setPhonePrefixOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Task Management States
-  const [activeSubTab, setActiveSubTab] = useState("directory");
-  const [tasks, setTasks] = useState([]);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [taskFormData, setTaskFormData] = useState({
-    title: "",
-    description: "",
-    role: "employee",
-    assigned_to: "",
-    branch_id: "",
-    priority: "medium"
-  });
-  const [taskSubmitting, setTaskSubmitting] = useState(false);
-  const [taskFilterPriority, setTaskFilterPriority] = useState("all");
-  const [taskFilterStatus, setTaskFilterStatus] = useState("all");
 
   const inp = (field) =>
     `w-full border ${modalErrors[field]
@@ -278,13 +260,6 @@ export default function ManageEmployees({ setActiveTab }) {
       }
       setBranches(availableBranches);
 
-      // Fetch Tasks
-      try {
-        const taskData = await getTasks();
-        setTasks(taskData || []);
-      } catch (err) {
-        console.warn("Failed to load tasks:", err);
-      }
 
       try {
         localStorage.setItem("inventra_employees_list", JSON.stringify(empData));
@@ -301,114 +276,6 @@ export default function ManageEmployees({ setActiveTab }) {
     }
   };
 
-  const resolveDefaultTaskRole = (branchId) => {
-    const branch = branches.find((b) => b.branch_id === branchId);
-    return getEmployeeRoleForBranchType(branch?.branch_type || "Store");
-  };
-
-  const openTaskModal = () => {
-    const defaultBranchId = isOwner ? "" : (userSession?.user?.branchId || "");
-    setTaskFormData({
-      title: "",
-      description: "",
-      role: defaultBranchId ? resolveDefaultTaskRole(defaultBranchId) : "employee",
-      assigned_to: "",
-      branch_id: defaultBranchId,
-      priority: "medium",
-    });
-    setIsTaskModalOpen(true);
-  };
-
-  const applyTaskTemplate = (template) => {
-    setTaskFormData((prev) => ({
-      ...prev,
-      title: template.title,
-      description: template.description,
-      priority: template.priority || "medium",
-    }));
-  };
-
-  const handleToggleTaskStatus = async (taskId, currentStatus) => {
-    const nextStatus = currentStatus === "completed" ? "pending" : "completed";
-    const backupTasks = [...tasks];
-    setTasks((prev) =>
-      prev.map((t) => {
-        const id = t._id || t.id;
-        if (id === taskId) {
-          return { ...t, status: nextStatus, completed_at: nextStatus === "completed" ? new Date().toISOString() : null };
-        }
-        return t;
-      }),
-    );
-    try {
-      await updateTask(taskId, { status: nextStatus });
-      toast.success(nextStatus === "completed" ? "Task marked complete" : "Task reopened");
-    } catch (err) {
-      setTasks(backupTasks);
-      toast.error(err.message || "Failed to update task");
-    }
-  };
-
-  const handleCreateTask = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!taskFormData.title.trim()) {
-      toast.error("Task title is required");
-      return;
-    }
-    const finalBranchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
-    if (!finalBranchId) {
-      toast.error("Branch location is required for tasks");
-      return;
-    }
-
-    setTaskSubmitting(true);
-    try {
-      const payload = {
-        title: taskFormData.title.trim(),
-        description: taskFormData.description.trim() || undefined,
-        role: taskFormData.role,
-        assigned_to: taskFormData.assigned_to || undefined,
-        branch_id: finalBranchId,
-        priority: taskFormData.priority
-      };
-      await createTask(payload);
-      toast.success("Task assigned successfully!");
-      setIsTaskModalOpen(false);
-      fetchData();
-    } catch (err) {
-      toast.error(err.message || "Failed to assign task");
-    } finally {
-      setTaskSubmitting(false);
-    }
-  };
-
-  const handleDeleteTask = async (taskId) => {
-    if (!window.confirm("Are you sure you want to delete this task?")) return;
-    const backupTasks = [...tasks];
-    setTasks(prev => prev.filter(t => t._id !== taskId && t.id !== taskId));
-    try {
-      await deleteTask(taskId);
-      toast.success("Task deleted successfully");
-      fetchData();
-    } catch (err) {
-      setTasks(backupTasks);
-      toast.error(err.message || "Failed to delete task");
-    }
-  };
-
-  const filteredAssignees = React.useMemo(() => {
-    const targetBranchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
-    if (!targetBranchId) return [];
-    return employees.filter(emp => emp.branchId === targetBranchId && emp.role !== "owner");
-  }, [employees, taskFormData.branch_id, isOwner, userSession]);
-
-  const filteredTasks = React.useMemo(() => {
-    return tasks.filter((task) => {
-      const matchesPriority = taskFilterPriority === "all" || task.priority === taskFilterPriority;
-      const matchesStatus = taskFilterStatus === "all" || task.status === taskFilterStatus;
-      return matchesPriority && matchesStatus;
-    });
-  }, [tasks, taskFilterPriority, taskFilterStatus]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -673,31 +540,6 @@ export default function ManageEmployees({ setActiveTab }) {
       </header>
 
       <main className="px-6 md:px-12 py-6 max-w-7xl mx-auto space-y-6">
-
-        {/* Sub-tab Bar */}
-        <div className="flex border-b border-slate-200 mb-6">
-          <button
-            onClick={() => setActiveSubTab("directory")}
-            className={`pb-3.5 px-6 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeSubTab === "directory"
-                ? "border-emerald-600 text-emerald-700 font-black"
-                : "border-transparent text-slate-400 hover:text-slate-700 font-bold"
-              }`}
-          >
-            👥 Staff Directory
-          </button>
-          <button
-            onClick={() => setActiveSubTab("tasks")}
-            className={`pb-3.5 px-6 text-xs font-black uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeSubTab === "tasks"
-                ? "border-emerald-600 text-emerald-700 font-black"
-                : "border-transparent text-slate-400 hover:text-slate-700 font-bold"
-              }`}
-          >
-            📋 Tasks Board
-          </button>
-        </div>
-
-        {activeSubTab === "directory" ? (
-          <>
             {/* Analytics Cards */}
             <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
               {/* Total Registered */}
@@ -857,10 +699,10 @@ export default function ManageEmployees({ setActiveTab }) {
                 </div>
 
                 {/* Filter Group */}
-                <div className="flex flex-wrap items-center gap-3">
+                <div className={`grid ${isOwner ? "grid-cols-2" : "grid-cols-1"} md:flex md:items-center gap-3 w-full md:w-auto`}>
 
                   {/* Filter by Role */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Role</span>
                     <CustomDropdown
                       value={roleFilter}
@@ -872,14 +714,14 @@ export default function ManageEmployees({ setActiveTab }) {
                       ]}
                       theme="emerald"
                       size="sm"
-                      buttonClassName="font-bold"
-                      className="min-w-[130px]"
+                      buttonClassName="font-bold w-full"
+                      className="w-full min-w-0 md:min-w-[130px]"
                     />
                   </div>
 
                   {/* Filter by Branch */}
                   {isOwner && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-1.5 min-w-0 w-full md:w-auto">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Branch</span>
                       <CustomDropdown
                         value={branchFilter}
@@ -890,8 +732,8 @@ export default function ManageEmployees({ setActiveTab }) {
                         ]}
                         theme="emerald"
                         size="sm"
-                        buttonClassName="font-bold max-w-[200px]"
-                        className="min-w-[160px]"
+                        buttonClassName="font-bold w-full"
+                        className="w-full min-w-0 md:min-w-[160px]"
                       />
                     </div>
                   )}
@@ -1084,19 +926,19 @@ export default function ManageEmployees({ setActiveTab }) {
                 </div>
               )}
             </section>
-          </main>
+      </main>
 
         {/* Centered Step Wizard Modal */}
         {isModalOpen && (() => {
           const STEPS = ["Identity", "Role & Access", "Location", "Review"];
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-              <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
+              <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative">
                 {/* Decorative top colored line */}
-                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600 rounded-t-3xl" />
 
                 {/* Modal Header */}
-                <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40">
+                <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40 rounded-t-3xl">
                   <div>
                     <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700">
                       {editingEmployee ? "Staff Access Modifier" : "Staff Registration Desk"}
@@ -1531,7 +1373,7 @@ export default function ManageEmployees({ setActiveTab }) {
                 </div>
 
                 {/* Modal Footer Controls */}
-                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex justify-between gap-3">
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/40 flex justify-between gap-3 rounded-b-3xl">
                   <button
                     type="button"
                     onClick={handlePrevStep}
@@ -1563,179 +1405,6 @@ export default function ManageEmployees({ setActiveTab }) {
             </div>
           );
         })()}
-
-        {/* Create Task Modal */}
-        {isTaskModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
-
-              {/* Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-slate-100 bg-slate-50/40 text-left">
-                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-700 font-black">Task Assignment</span>
-                <h3 className="text-lg font-black text-slate-950 mt-1">Assign Operational Task</h3>
-                <p className="text-xs font-semibold text-slate-505 mt-1">Directly delegate task objectives to branch employees or specific roles.</p>
-              </div>
-
-              <form onSubmit={handleCreateTask} className="p-6 space-y-4 text-left">
-                {/* Quick templates */}
-                {(() => {
-                  const branchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
-                  const branch = branches.find((b) => b.branch_id === branchId);
-                  const templates = branchId ? getTaskTemplatesForBranch(branch?.branch_type) : [];
-                  if (!templates.length) return null;
-                  return (
-                    <div>
-                      <Label>Quick Templates</Label>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {templates.slice(0, 4).map((tpl) => (
-                          <button
-                            key={tpl.title}
-                            type="button"
-                            onClick={() => applyTaskTemplate(tpl)}
-                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 transition-all cursor-pointer"
-                          >
-                            {tpl.title}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Title */}
-                <div>
-                  <Label>Task Title <span className="text-rose-500">*</span></Label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Restock front shelves"
-                    value={taskFormData.title}
-                    onChange={(e) => setTaskFormData(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full border border-slate-200 bg-slate-50/50 text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500"
-                    required
-                  />
-                </div>
-
-                {/* Description */}
-                <div>
-                  <Label>Description</Label>
-                  <textarea
-                    placeholder="Provide instructions or checklist..."
-                    value={taskFormData.description}
-                    onChange={(e) => setTaskFormData(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full border border-slate-200 bg-slate-50/50 text-slate-900 placeholder:text-slate-400 px-4 py-2.5 rounded-xl font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 h-20 resize-none"
-                  />
-                </div>
-
-                {/* Branch select for Owners */}
-                {isOwner ? (
-                  <div>
-                    <Label>Assign to Branch Location <span className="text-rose-500">*</span></Label>
-                    <CustomDropdown
-                      value={taskFormData.branch_id}
-                      onChange={(val) => setTaskFormData(prev => ({
-                        ...prev,
-                        branch_id: val,
-                        assigned_to: "",
-                        role: val ? resolveDefaultTaskRole(val) : "employee",
-                      }))}
-                      options={[
-                        { value: "", label: "Select Branch" },
-                        ...branches.map(b => ({ value: b.branch_id, label: `${b.branch_name} (${b.branch_type})` }))
-                      ]}
-                      theme="emerald"
-                      className="w-full"
-                      buttonClassName="font-bold"
-                    />
-                  </div>
-                ) : null}
-
-                {/* Grid: Role & Assignee */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Target Role */}
-                  <div>
-                    <Label>Target Staff Role</Label>
-                    <CustomDropdown
-                      value={taskFormData.role}
-                      onChange={(val) => setTaskFormData(prev => ({ ...prev, role: val }))}
-                      options={(() => {
-                        const branchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
-                        const branch = branches.find((b) => b.branch_id === branchId);
-                        return getTaskRoleOptions(branch?.branch_type, { includeManagers: isOwner });
-                      })()}
-                      theme="emerald"
-                      className="w-full"
-                      buttonClassName="font-bold"
-                    />
-                  </div>
-
-                  {/* Specific Assignee */}
-                  <div>
-                    <Label>Specific Employee Assignee</Label>
-                    <CustomDropdown
-                      value={taskFormData.assigned_to}
-                      onChange={(val) => setTaskFormData(prev => ({ ...prev, assigned_to: val }))}
-                      options={[
-                        { value: "", label: taskFormData.branch_id || !isOwner ? "All (Matching Role)" : "Select branch first" },
-                        ...filteredAssignees.map(emp => ({ value: emp._id || emp.id, label: `${emp.firstName} ${emp.lastName}` }))
-                      ]}
-                      theme="emerald"
-                      className="w-full"
-                      buttonClassName="font-bold"
-                      disabled={isOwner && !taskFormData.branch_id}
-                    />
-                  </div>
-                </div>
-
-                {/* Priority */}
-                <div>
-                  <Label>Priority Level</Label>
-                  <div className="flex gap-3 mt-1.5">
-                    {[
-                      { value: "low", label: "🔵 Low", desc: "Routine tasks" },
-                      { value: "medium", label: "🟡 Medium", desc: "Standard shift duties" },
-                      { value: "high", label: "🔴 High", desc: "Immediate attention" }
-                    ].map((p) => {
-                      const isSelected = taskFormData.priority === p.value;
-                      return (
-                        <button
-                          key={p.value}
-                          type="button"
-                          onClick={() => setTaskFormData(prev => ({ ...prev, priority: p.value }))}
-                          className={`flex-1 p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer ${isSelected
-                              ? "border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm"
-                              : "border-slate-200 bg-slate-50 hover:border-slate-350 text-slate-700"
-                            }`}
-                        >
-                          <span className="text-xs font-black block">{p.label}</span>
-                          <span className="text-[9px] font-semibold text-slate-400 block mt-0.5">{p.desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Footer Buttons */}
-                <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsTaskModalOpen(false)}
-                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-slate-705 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={taskSubmitting}
-                    className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md cursor-pointer disabled:opacity-60"
-                  >
-                    {taskSubmitting ? "Assigning..." : "Assign Task"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
     </div>
   );
 }

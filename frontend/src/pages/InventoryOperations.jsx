@@ -1095,16 +1095,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <button
-              onClick={() => setActiveTab(getBillingPosTab(normalizedTier))}
-              className="flex items-center gap-1 sm:gap-2 rounded-xl bg-slate-950 px-2 sm:px-3.5 py-1.5 text-[9px] sm:text-[9.5px] font-black uppercase tracking-[0.12em] text-white hover:bg-slate-800 active:scale-95 transition-all duration-150 cursor-pointer shadow-sm"
-            >
-              <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3h-.75m0 0v16.5A2.25 2.25 0 0 0 5.25 21.75h13.5A2.25 2.25 0 0 0 21 19.5V3m-17.25 0h17.25M3 9h18M9 3v18m6-18v18" />
-              </svg>
-              <span className="hidden sm:inline">Billing POS</span>
-            </button>
-            <div className="w-px h-5 bg-slate-200 hidden md:block" />
+
             <span className="hidden md:inline text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">
               {userDisplayName}
             </span>

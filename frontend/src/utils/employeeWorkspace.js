@@ -21,13 +21,23 @@ export function isEmployeeUser(user) {
   const roles = Array.isArray(user.roles)
     ? user.roles.map((r) => String(r || "").trim().toLowerCase())
     : [];
-  if (role === "manager" || role.endsWith("_manager") || roles.includes("manager")) return false;
-  return (
-    role === "employee" ||
-    role.endsWith("_employee") ||
-    roles.includes("employee") ||
-    roles.some((r) => r.endsWith("_employee"))
-  );
+  if (role === "manager" || role.endsWith("_manager") || roles.includes("manager") || roles.some(r => r.endsWith("_manager"))) return false;
+  
+  const isEmployeeRole = (r) => {
+    const s = String(r || "").trim().toLowerCase();
+    return (
+      s === "employee" ||
+      s === "staff" ||
+      s === "cashier" ||
+      s === "clerk" ||
+      s.endsWith("_employee") ||
+      s.endsWith("_staff") ||
+      s.endsWith("_cashier") ||
+      s.endsWith("_clerk")
+    );
+  };
+
+  return isEmployeeRole(role) || roles.some(isEmployeeRole);
 }
 
 /** Whether the user is a branch manager. */
@@ -77,30 +87,7 @@ export function getEmployeeEnvironment(user, branch) {
 
 /** Quick-action buttons shown on the employee task board. */
 export function getEmployeeQuickActions(environment, tier, setActiveTab) {
-  const normalizedTier = normalizeBusinessTier(tier);
-  const actions = [];
-
-  if (environment.primaryTab === "billing") {
-    actions.push({
-      key: "pos",
-      label: "Open Billing POS",
-      description: "Process sales & generate GST invoices",
-      icon: "🧾",
-      accent: "#0284C7",
-      onClick: () => setActiveTab(getBillingPosTab(normalizedTier)),
-    });
-  } else {
-    actions.push({
-      key: "inventory",
-      label: "Open Inventory Desk",
-      description: "Stock adjustments, aisle intake & barcode scan",
-      icon: "📦",
-      accent: "#059669",
-      onClick: () => setActiveTab(getInventoryOpsTab(normalizedTier)),
-    });
-  }
-
-  return actions;
+  return [];
 }
 
 /** Suggested task templates managers can pick when assigning duties. */
@@ -156,12 +143,15 @@ export function getTaskRoleOptions(branchType, { includeManagers = true } = {}) 
   ];
   if (includeManagers) {
     const t = String(branchType || "Store").toLowerCase();
-    let managerRole = "store_manager";
-    if (t === "warehouse") managerRole = "warehouse_manager";
-    else if (t === "franchise") managerRole = "franchise_manager";
-    else if (t === "depot") managerRole = "depot_manager";
-    options.push({ value: managerRole, label: managerRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) });
-    options.push({ value: "manager", label: "Branch Managers (General)" });
+    if (t === "warehouse") {
+      options.push({ value: "manager", label: "Warehouse Manager" });
+    } else if (t === "franchise") {
+      options.push({ value: "manager", label: "Franchise Manager" });
+    } else if (t === "depot") {
+      options.push({ value: "manager", label: "Depot Manager" });
+    } else {
+      options.push({ value: "manager", label: "Branch Manager" });
+    }
   }
   return options;
 }

@@ -468,7 +468,95 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
 
   const userBranchId = isOwner ? null : userSession?.user?.branchId;
 
-  // visibleTabs is defined below branchesList to prevent ReferenceError.
+  const [branchesList, setBranchesList] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem("inventra_branches_list");
+      if (stored) {
+        let parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          if (!isOwner && userBranchId) {
+            parsed = parsed.filter(b => b.branch_id === userBranchId);
+          }
+          return parsed;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+
+  const isManager = useMemo(() => {
+    if (isOwner) return false;
+    const role = String(userSession?.user?.role || "").trim().toLowerCase();
+    const roles = Array.isArray(userSession?.user?.roles)
+      ? userSession.user.roles.map(r => String(r || "").trim().toLowerCase())
+      : [];
+    return role === "manager" || role.endsWith("_manager") || roles.includes("manager");
+  }, [isOwner, userSession]);
+
+  const isEmployee = useMemo(() => {
+    if (isOwner || isManager) return false;
+    return isEmployeeUser(userSession?.user);
+  }, [isOwner, isManager, userSession]);
+
+  const userBranch = useMemo(() => {
+    if (!userBranchId) return null;
+    return branchesList?.find(b => b.branch_id === userBranchId) || branchesList?.[0];
+  }, [branchesList, userBranchId]);
+
+  const branchType = userBranch?.branch_type || "Store";
+
+  const employeeEnvironment = useMemo(() => {
+    if (!isEmployee) return null;
+    return getEmployeeEnvironment(userSession?.user, userBranch);
+  }, [isEmployee, userSession, userBranch]);
+
+  const employeeQuickActions = useMemo(() => {
+    if (!isEmployee || !employeeEnvironment) return [];
+    return getEmployeeQuickActions(employeeEnvironment, normalizedTier, setActiveTab);
+  }, [isEmployee, employeeEnvironment, normalizedTier, setActiveTab]);
+
+  const visibleTabs = useMemo(() => {
+    if (isOwner) {
+      const tabs = [...WORKSPACE_TABS];
+      tabs.splice(4, 0, { key: "employees", label: "Manage Staff", icon: "👥" });
+      tabs.splice(5, 0, { key: "tasks-board", label: "Tasks Board", icon: "📋" });
+      return tabs;
+    }
+    if (isManager) {
+      return [
+        { key: "overview", label: "Branch Overview", icon: "🏠" },
+        { key: "inventory", label: "Inventory Desk", icon: "📦" },
+        { key: "billing", label: "Billing POS", icon: "🧾" },
+        { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
+        { key: "employees", label: "Staff", icon: "👥" },
+        { key: "tasks-board", label: "Tasks Board", icon: "📋" },
+        { key: "profile", label: "Profile", icon: "👤" },
+      ];
+    }
+    if (isEmployee) {
+      const isWarehouseOrDepot =
+        branchType.toLowerCase() === "warehouse" ||
+        branchType.toLowerCase() === "depot" ||
+        branchType.toLowerCase() === "factory";
+      if (isWarehouseOrDepot) {
+        return [
+          { key: "inventory", label: "Inventory Desk", icon: "📦" },
+          { key: "tasks", label: "My Tasks", icon: "📋" },
+          { key: "profile", label: "Profile", icon: "👤" },
+        ];
+      } else {
+        return [
+          { key: "billing", label: "Billing POS", icon: "🧾" },
+          { key: "tasks", label: "My Tasks", icon: "📋" },
+          { key: "profile", label: "Profile", icon: "👤" },
+        ];
+      }
+    }
+    return [];
+  }, [isOwner, isManager, isEmployee, branchType]);
 
   const [activeSection, setActiveSection] = useState(() => {
     if (typeof window !== "undefined") {
@@ -593,98 +681,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   }, [modalDropdownOpen, modalCountryDropdownOpen, modalPhonePrefixOpen]);
 
   const [branchNetwork, setBranchNetwork] = useState(() => []);
-  const [branchesList, setBranchesList] = useState(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = localStorage.getItem("inventra_branches_list");
-      if (stored) {
-        let parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          if (!isOwner && userBranchId) {
-            parsed = parsed.filter(b => b.branch_id === userBranchId);
-          }
-          return parsed;
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-    return [];
-  });
   const [expandedBranches, setExpandedBranches] = useState({});
   const [firstLoadDone, setFirstLoadDone] = useState(() => {
     if (typeof window === "undefined") return false;
     return !!localStorage.getItem("inventra_branches_list");
   });
-
-  const isManager = useMemo(() => {
-    if (isOwner) return false;
-    const role = String(userSession?.user?.role || "").trim().toLowerCase();
-    const roles = Array.isArray(userSession?.user?.roles)
-      ? userSession.user.roles.map(r => String(r || "").trim().toLowerCase())
-      : [];
-    return role === "manager" || role.endsWith("_manager") || roles.includes("manager");
-  }, [isOwner, userSession]);
-
-  const isEmployee = useMemo(() => {
-    if (isOwner || isManager) return false;
-    return isEmployeeUser(userSession?.user);
-  }, [isOwner, isManager, userSession]);
-
-  const userBranch = useMemo(() => {
-    if (!userBranchId) return null;
-    return branchesList?.find(b => b.branch_id === userBranchId) || branchesList?.[0];
-  }, [branchesList, userBranchId]);
-
-  const branchType = userBranch?.branch_type || "Store";
-
-  const employeeEnvironment = useMemo(() => {
-    if (!isEmployee) return null;
-    return getEmployeeEnvironment(userSession?.user, userBranch);
-  }, [isEmployee, userSession, userBranch]);
-
-  const employeeQuickActions = useMemo(() => {
-    if (!isEmployee || !employeeEnvironment) return [];
-    return getEmployeeQuickActions(employeeEnvironment, normalizedTier, setActiveTab);
-  }, [isEmployee, employeeEnvironment, normalizedTier, setActiveTab]);
-
-  const visibleTabs = useMemo(() => {
-    if (isOwner) {
-      const tabs = [...WORKSPACE_TABS];
-      tabs.splice(4, 0, { key: "employees", label: "Manage Staff", icon: "👥" });
-      return tabs;
-    }
-    if (isManager) {
-      return [
-        { key: "overview", label: "Branch Overview", icon: "🏠" },
-        { key: "inventory", label: "Inventory Desk", icon: "📦" },
-        { key: "billing", label: "Billing POS", icon: "🧾" },
-        { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
-        { key: "employees", label: "Staff", icon: "👥" },
-        { key: "profile", label: "Profile", icon: "👤" },
-      ];
-    }
-    if (isEmployee) {
-      const isWarehouseOrDepot =
-        branchType.toLowerCase() === "warehouse" ||
-        branchType.toLowerCase() === "depot" ||
-        branchType.toLowerCase() === "factory";
-      if (isWarehouseOrDepot) {
-        return [
-          { key: "inventory", label: "Inventory Desk", icon: "📦" },
-          { key: "tasks", label: "My Tasks", icon: "📋" },
-          { key: "profile", label: "Profile", icon: "👤" },
-        ];
-      } else {
-        return [
-          { key: "billing", label: "Billing POS", icon: "🧾" },
-          { key: "tasks", label: "My Tasks", icon: "📋" },
-          { key: "profile", label: "Profile", icon: "👤" },
-        ];
-      }
-    }
-    return [];
-  }, [isOwner, isManager, isEmployee, branchType]);
 
   const [employeeTasks, setEmployeeTasks] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -1226,15 +1227,27 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   // Save profile draft locally (and attempt backend update if available)
   const handleSaveProfile = async (e) => {
     e.preventDefault();
+    if (!profileDraft.firstName || !profileDraft.firstName.trim() || !profileDraft.lastName || !profileDraft.lastName.trim()) {
+      toast.error("First name and last name cannot be empty.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!profileDraft.email || !profileDraft.email.trim() || !emailRegex.test(profileDraft.email.trim())) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
     try {
       // Update local state and localStorage immediately for responsive UI
       const updated = {
         ...userProfile,
-        firstName: profileDraft.firstName || (userProfile && userProfile.firstName) || "",
-        lastName: profileDraft.lastName || (userProfile && userProfile.lastName) || "",
-        businessName: profileDraft.businessName || (userProfile && userProfile.businessName) || "",
-        email: profileDraft.email || (userProfile && userProfile.email) || "",
-        businessType: profileDraft.businessType || (userProfile && userProfile.businessType) || "other",
+        firstName: profileDraft.firstName.trim(),
+        lastName: profileDraft.lastName.trim(),
+        email: profileDraft.email.trim(),
+        ...(isOwner ? {
+          businessName: (profileDraft.businessName || "").trim(),
+          businessType: profileDraft.businessType || "other",
+        } : {}),
       };
       setUserProfile(updated);
       try {
@@ -1930,6 +1943,10 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       setActiveTab("employees");
                       return;
                     }
+                    if (tab.key === "tasks-board") {
+                      setActiveTab("tasks-board");
+                      return;
+                    }
                     setActiveSection(tab.key);
                   }}
                   className={`group w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-xs font-bold transition-all duration-200 active:scale-[0.98] cursor-pointer hover:scale-[1.005] ${
@@ -2067,6 +2084,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       setMobileSidebarOpen(false);
                       return;
                     }
+                    if (tab.key === "tasks-board") {
+                      setActiveTab("tasks-board");
+                      setMobileSidebarOpen(false);
+                      return;
+                    }
                     setActiveSection(tab.key);
                     setMobileSidebarOpen(false);
                   }}
@@ -2201,7 +2223,10 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {products.length === 0 ? (
                       <div className="col-span-2 bg-white border border-slate-200 rounded-3xl p-8 text-center text-xs font-semibold text-slate-500">
-                        📦 Add products in Inventory Operations to view category sales predictions and sparklines.
+                        {isEmployee 
+                          ? "📦 No products available in this branch's inventory."
+                          : "📦 Add products in Inventory Operations to view category sales predictions and sparklines."
+                        }
                       </div>
                     ) : (
                       [...products]
@@ -2845,8 +2870,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                         {isEmployee
                           ? getEmployeeAccessLabel(employeeEnvironment, normalizedTier)
                           : isManager
-                          ? "Branch Operations"
-                          : "Full scope Access"}
+                          ? `${tierDisplayName} · Branch Operations`
+                          : `${tierDisplayName} · Full Enterprise Scope`}
                       </span>
                     </div>
                   </div>
@@ -3191,15 +3216,17 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business / Company</span>
-                    <input
-                      value={profileDraft.businessName}
-                      onChange={(e) => setProfileDraft((p) => ({ ...p, businessName: e.target.value }))}
-                      placeholder="Business name"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                    />
-                  </label>
+                  {isOwner && (
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business / Company</span>
+                      <input
+                        value={profileDraft.businessName}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, businessName: e.target.value }))}
+                        placeholder="Business name"
+                        className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
+                      />
+                    </label>
+                  )}
 
                   <label className="block">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Email (login)</span>
@@ -3211,24 +3238,26 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business Category</span>
-                    <CustomDropdown
-                      value={profileDraft.businessType || "other"}
-                      onChange={(val) => setProfileDraft((p) => ({ ...p, businessType: val }))}
-                      options={[
-                        { value: "retail", label: "Retail" },
-                        { value: "grocery", label: "Grocery" },
-                        { value: "pharmacy", label: "Pharmacy" },
-                        { value: "apparel", label: "Apparel" },
-                        { value: "other", label: "Other" },
-                      ]}
-                      theme="emerald"
-                      className="mt-1"
-                      buttonClassName="font-bold"
-                      up={true}
-                    />
-                  </label>
+                  {isOwner && (
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Business Category</span>
+                      <CustomDropdown
+                        value={profileDraft.businessType || "other"}
+                        onChange={(val) => setProfileDraft((p) => ({ ...p, businessType: val }))}
+                        options={[
+                          { value: "retail", label: "Retail" },
+                          { value: "grocery", label: "Grocery" },
+                          { value: "pharmacy", label: "Pharmacy" },
+                          { value: "apparel", label: "Apparel" },
+                          { value: "other", label: "Other" },
+                        ]}
+                        theme="emerald"
+                        className="mt-1"
+                        buttonClassName="font-bold"
+                        up={true}
+                      />
+                    </label>
+                  )}
 
                   <div className="flex gap-3">
                     <button

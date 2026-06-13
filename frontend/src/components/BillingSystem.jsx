@@ -40,7 +40,7 @@ const calculateCartLine = (item, isInterstate) => {
   };
 };
 
-export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, userDisplayName, businessName = "Inventra Retail" }) {
+export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, userDisplayName, businessName = "Inventra Retail", isManagerOrOwner }) {
   const [activeBranch, setActiveBranch] = useState(selectedBranchLabel);
   
   const activeBranchDetails = useMemo(() => {
@@ -783,30 +783,39 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                   </svg>
                 </div>
 
-                <h3 className="text-sm font-black uppercase tracking-[0.24em] text-slate-800 leading-none">Catalog Ready for Intake</h3>
-                <div className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-[0.16em]">Local branch stock registry is empty</div>
+                <h3 className="text-sm font-black uppercase tracking-[0.24em] text-slate-800 leading-none">
+                  {isManagerOrOwner ? "Catalog Ready for Intake" : "Stock Registry Restricted"}
+                </h3>
+                <div className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-[0.16em]">
+                  {isManagerOrOwner ? "Local branch stock registry is empty" : "Inventory Access Denied"}
+                </div>
 
                 <p className="text-xs font-semibold text-slate-500 mt-5.5 max-w-md mx-auto leading-relaxed">
-                  To populate this sales terminal, register dynamic stock or scan products inside the <span className="font-black text-slate-800">Inventory Operations</span> command deck. Catalog data updates will automatically sync here.
+                  {isManagerOrOwner 
+                    ? <>To populate this sales terminal, register dynamic stock or scan products inside the <span className="font-black text-slate-800">Inventory Operations</span> command deck. Catalog data updates will automatically sync here.</>
+                    : "The local branch stock registry is empty. Access to configure or manage inventory is restricted to store managers or business owners. Please contact a manager to register inventory catalog items."
+                  }
                 </p>
 
-                <div className="mt-8">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof window !== "undefined" && selectedBranchLabel) {
-                        sessionStorage.setItem("inventra_inventory_branch", selectedBranchLabel);
-                      }
-                      if (typeof setActiveTab === "function") {
-                        setActiveTab(`inventory-ops-${tier || "small"}`);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] text-white transition-all hover:scale-[1.01] hover:brightness-110 active:scale-[0.99] cursor-pointer shadow-sm shadow-slate-200 select-none"
-                    style={{ background: tierAccent }}
-                  >
-                    Configure Stock Ledger ➜
-                  </button>
-                </div>
+                {isManagerOrOwner && (
+                  <div className="mt-8">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== "undefined" && selectedBranchLabel) {
+                          sessionStorage.setItem("inventra_inventory_branch", selectedBranchLabel);
+                        }
+                        if (typeof setActiveTab === "function") {
+                          setActiveTab(`inventory-ops-${tier || "small"}`);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] text-white transition-all hover:scale-[1.01] hover:brightness-110 active:scale-[0.99] cursor-pointer shadow-sm shadow-slate-200 select-none"
+                      style={{ background: tierAccent }}
+                    >
+                      Configure Stock Ledger ➜
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

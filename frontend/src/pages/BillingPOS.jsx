@@ -15,6 +15,7 @@ import {
   loadScopedInventoryProducts,
   saveScopedInventoryProducts,
 } from "../utils/inventory";
+import { isEmployeeUser, isManagerUser } from "../utils/employeeWorkspace";
 
 export default function BillingPOS({ tier = "small", setActiveTab }) {
   const normalizedTier = normalizeBusinessTier(tier);
@@ -341,6 +342,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
           selectedBranchLabel={selectedBranchLabel}
           userDisplayName={userDisplayName}
           businessName={businessName}
+          isManagerOrOwner={isManagerUser(userSession?.user) || userHasOwnerAccess(userSession?.user)}
         />
       </main>
     </div>

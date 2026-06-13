@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ToastContainer } from "react-toastify";
+import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/header";
 import BottomNav from "./components/BottomNav.jsx";
@@ -14,6 +14,7 @@ import BranchOperations from "./pages/BranchOperations.jsx";
 import InventoryOperations from "./pages/inventoryOperations";
 import BranchSetupWizard from "./pages/BranchSetupWizard.jsx";
 import ManageEmployees from "./pages/ManageEmployees";
+import ManageTasks from "./pages/ManageTasks";
 import {
   getBranchOpsPath,
   getBranchOpsTab,
@@ -31,6 +32,73 @@ import {
   userHasOwnerAccess,
 } from "./utils/dashboard";
 import { isEmployeeUser, isManagerUser } from "./utils/employeeWorkspace";
+
+function getGuardedTab(tab, user) {
+  const isOwner = userHasOwnerAccess(user);
+  const userId = user.id || user._id || user.email || "default";
+  const onboardingCompleted = !isOwner || localStorage.getItem(`inventra_onboarding_completed_${userId}`) === "true";
+
+  if (!onboardingCompleted) {
+    return "branch-setup";
+  }
+
+  const dashboardTab = getDashboardTabFromUser(user);
+  
+  // If trying to access auth/onboarding pages while logged in:
+  if (
+    tab === "signup" ||
+    tab === "login" ||
+    tab === "forgot" ||
+    tab === "branch-setup" ||
+    tab === "home"
+  ) {
+    return dashboardTab;
+  }
+
+  if (isEmployeeUser(user)) {
+    // Determine if warehouse/depot scoped
+    let isWarehouseOrDepot = false;
+    const branchId = user.branchId;
+    const role = String(user.role || "").trim().toLowerCase();
+    if (role.startsWith("warehouse_") || role.startsWith("depot_")) {
+      isWarehouseOrDepot = true;
+    } else if (branchId) {
+      try {
+        const storedBranches = localStorage.getItem("inventra_branches_list");
+        if (storedBranches) {
+          const branches = JSON.parse(storedBranches);
+          if (Array.isArray(branches)) {
+            const userBranch = branches.find(b => b.branch_id === branchId);
+            if (userBranch) {
+              const branchType = String(userBranch.branch_type || "").toLowerCase();
+              if (["warehouse", "depot", "factory"].includes(branchType)) {
+                isWarehouseOrDepot = true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (
+      tab === "employees" ||
+      tab === "tasks-board" ||
+      tab.startsWith("branch-ops-") ||
+      (isWarehouseOrDepot && tab.startsWith("billing-pos-")) ||
+      (!isWarehouseOrDepot && tab.startsWith("inventory-ops-"))
+    ) {
+      return dashboardTab;
+    }
+  } else if (!isOwner && isManagerUser(user)) {
+    if (tab === "branch-setup") {
+      return dashboardTab;
+    }
+  }
+
+  return tab;
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -52,6 +120,7 @@ function App() {
     else if (path === "/forgot") initialTab = "forgot";
     else if (path === "/branch-setup") initialTab = "branch-setup";
     else if (path === "/employees") initialTab = "employees";
+    else if (path === "/tasks-board") initialTab = "tasks-board";
 
     // Session & Onboarding Guarding during initialization
     const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
@@ -59,16 +128,7 @@ function App() {
     if (token && rawUser) {
       try {
         const user = JSON.parse(rawUser);
-        const userId = user.id || user._id || user.email || "default";
-        const isOwner = userHasOwnerAccess(user);
-        const onboardingCompleted = !isOwner || localStorage.getItem(`inventra_onboarding_completed_${userId}`) === "true";
-        if (!onboardingCompleted) {
-          return "branch-setup";
-        } else {
-          if (initialTab === "signup" || initialTab === "login" || initialTab === "forgot" || initialTab === "branch-setup" || initialTab === "home") {
-            return getDashboardTabFromUser(user);
-          }
-        }
+        return getGuardedTab(initialTab, user);
       } catch {
         // ignore JSON parse error
       }
@@ -76,6 +136,7 @@ function App() {
       const isProtectedRoute =
         initialTab === "branch-setup" ||
         initialTab === "employees" ||
+        initialTab === "tasks-board" ||
         initialTab.startsWith("dashboard-") ||
         initialTab.startsWith("billing-pos-") ||
         initialTab.startsWith("branch-ops-") ||
@@ -152,6 +213,8 @@ function App() {
       newTab = "branch-setup";
     } else if (path === "/employees") {
       newTab = "employees";
+    } else if (path === "/tasks-board") {
+      newTab = "tasks-board";
     } else if (path === "/") {
       const storageSources = [localStorage, sessionStorage];
       for (const storage of storageSources) {
@@ -191,6 +254,7 @@ function App() {
       const isProtectedRoute =
         newTab === "branch-setup" ||
         newTab === "employees" ||
+        newTab === "tasks-board" ||
         newTab.startsWith("dashboard-") ||
         newTab.startsWith("billing-pos-") ||
         newTab.startsWith("branch-ops-") ||
@@ -214,43 +278,59 @@ function App() {
     if (token && rawUser) {
       try {
         const user = JSON.parse(rawUser);
-        const userId = user.id || user._id || user.email || "default";
-        const isOwner = userHasOwnerAccess(user);
-        const onboardingCompleted = !isOwner || localStorage.getItem(`inventra_onboarding_completed_${userId}`) === "true";
-
-        if (!onboardingCompleted) {
-          if (activeTab !== "branch-setup") {
-            guardedTab = "branch-setup";
-          }
-        } else {
-          const dashboardTab = getDashboardTabFromUser(user);
-          if (
-            activeTab === "signup" ||
-            activeTab === "login" ||
-            activeTab === "forgot" ||
-            activeTab === "branch-setup" ||
-            activeTab === "home"
-          ) {
-            guardedTab = dashboardTab;
-          }
+        guardedTab = getGuardedTab(activeTab, user);
+        
+        if (guardedTab !== activeTab) {
+          // Check if this was a forbidden access attempt
+          const isOwner = userHasOwnerAccess(user);
+          let isForbidden = false;
           if (isEmployeeUser(user)) {
+            let isWarehouseOrDepot = false;
+            const branchId = user.branchId;
+            const role = String(user.role || "").trim().toLowerCase();
+            if (role.startsWith("warehouse_") || role.startsWith("depot_")) {
+              isWarehouseOrDepot = true;
+            } else if (branchId) {
+              try {
+                const storedBranches = localStorage.getItem("inventra_branches_list");
+                if (storedBranches) {
+                  const branches = JSON.parse(storedBranches);
+                  if (Array.isArray(branches)) {
+                    const userBranch = branches.find(b => b.branch_id === branchId);
+                    if (userBranch) {
+                      const branchType = String(userBranch.branch_type || "").toLowerCase();
+                      if (["warehouse", "depot", "factory"].includes(branchType)) {
+                        isWarehouseOrDepot = true;
+                      }
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
             if (
-              guardedTab === "employees" ||
-              guardedTab === "branch-setup" ||
-              guardedTab.startsWith("branch-ops-")
+              activeTab === "employees" ||
+              activeTab === "tasks-board" ||
+              activeTab.startsWith("branch-ops-") ||
+              (isWarehouseOrDepot && activeTab.startsWith("billing-pos-")) ||
+              (!isWarehouseOrDepot && activeTab.startsWith("inventory-ops-"))
             ) {
-              guardedTab = dashboardTab;
+              isForbidden = true;
             }
           } else if (!isOwner && isManagerUser(user)) {
-            if (guardedTab === "branch-setup") {
-              guardedTab = dashboardTab;
+            if (activeTab === "branch-setup") {
+              isForbidden = true;
             }
+          }
+
+          if (isForbidden) {
+            toast.error("Access Denied: You do not have permissions for this page.");
           }
         }
       } catch (e) {
         const isProtectedRoute =
           activeTab === "branch-setup" ||
           activeTab === "employees" ||
+          activeTab === "tasks-board" ||
           activeTab.startsWith("dashboard-") ||
           activeTab.startsWith("billing-pos-") ||
           activeTab.startsWith("branch-ops-") ||
@@ -263,6 +343,7 @@ function App() {
       const isProtectedRoute =
         activeTab === "branch-setup" ||
         activeTab === "employees" ||
+        activeTab === "tasks-board" ||
         activeTab.startsWith("dashboard-") ||
         activeTab.startsWith("billing-pos-") ||
         activeTab.startsWith("branch-ops-") ||
@@ -288,6 +369,8 @@ function App() {
       window.history.replaceState({}, "", "/branch-setup");
     } else if (activeTab === "employees") {
       window.history.replaceState({}, "", "/employees");
+    } else if (activeTab === "tasks-board") {
+      window.history.replaceState({}, "", "/tasks-board");
     } else if (isBillingPosTab) {
       window.history.replaceState({}, "", getBillingPosPath(activeBillingTier));
     } else if (isBranchOpsTab) {
@@ -359,6 +442,7 @@ function App() {
     activeTab !== "forgot" &&
     activeTab !== "branch-setup" &&
     activeTab !== "employees" &&
+    activeTab !== "tasks-board" &&
     !isDashboardTab &&
     !isBillingPosTab &&
     !isBranchOpsTab &&
@@ -430,6 +514,7 @@ function App() {
 
         {activeTab === "branch-setup" && <BranchSetupWizard setActiveTab={setActiveTab} />}
         {activeTab === "employees" && <ManageEmployees setActiveTab={setActiveTab} />}
+        {activeTab === "tasks-board" && <ManageTasks setActiveTab={setActiveTab} />}
 
         {activeTab === "forgot" && (
 
