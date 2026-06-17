@@ -149,12 +149,13 @@ async def create_employee(
     user_id = await get_current_user_id(authorization)
     auth_info = await enforce_owner_or_manager(user_id, db, employee_branch_id=employee.branchId)
     
-    # Managers cannot register other managers or owners
-    if auth_info["role"] == "manager":
-        if employee.role != "employee":
+    # Managers cannot register other managers or owners (but can register inventory managers and employees)
+    if auth_info["role"] == "manager" or str(auth_info.get("role", "")).endswith("_manager"):
+        allowed_roles = {"employee", "inventory_manager"}
+        if employee.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Managers can only register standard employees."
+                detail="Forbidden: Managers can only register standard employees and inventory managers."
             )
     business_id = await get_business_id(user_id, db)
 
@@ -189,6 +190,16 @@ async def create_employee(
                 else:
                     role_name = "store_manager"
                 roles_list = [role_name, "manager"]
+            elif employee.role == "inventory_manager":
+                if branch_type_lower == "warehouse":
+                    role_name = "warehouse_inventory_manager"
+                elif branch_type_lower == "franchise":
+                    role_name = "franchise_inventory_manager"
+                elif branch_type_lower == "depot":
+                    role_name = "depot_inventory_manager"
+                else:
+                    role_name = "store_inventory_manager"
+                roles_list = [role_name, "inventory_manager"]
             elif employee.role == "employee":
                 if branch_type_lower == "warehouse":
                     role_name = "warehouse_employee"
