@@ -64,13 +64,17 @@ async def _get_user_access_context(user_id: str, db, business_id: str) -> dict:
         if business and str(business.get("ownerUserId")) == str(user_id):
             is_owner = True
     is_manager = not is_owner and (
-        role == "manager" or role.endswith("_manager") or "manager" in roles
+        role == "manager" or role.endswith("_manager") and not role.endswith("inventory_manager") or "manager" in roles
+    )
+    is_inventory_manager = not is_owner and not is_manager and (
+        role == "inventory_manager" or role.endswith("_inventory_manager") or "inventory_manager" in roles
     )
     return {
         "user": user,
         "is_owner": is_owner,
         "is_manager": is_manager,
-        "is_employee": not is_owner and not is_manager,
+        "is_inventory_manager": is_inventory_manager,
+        "is_employee": not is_owner and not is_manager and not is_inventory_manager,
         "branch_id": user.get("branchId"),
     }
 
@@ -96,6 +100,31 @@ async def _enforce_branch_scope(user_id: str, db, business_id: str, branch_id: s
             detail="Forbidden: You can only access your assigned branch.",
         )
     return ctx
+
+
+async def _enforce_inventory_access(user_id: str, db, business_id: str, branch_id: str) -> dict:
+    """Owners and managers can access inventory; inventory_managers can access their branch inventory only."""
+    ctx = await _get_user_access_context(user_id, db, business_id)
+    if ctx["is_owner"]:
+        return ctx
+    if ctx["is_manager"]:
+        if not ctx["branch_id"] or ctx["branch_id"] != branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Managers can only access their assigned branch.",
+            )
+        return ctx
+    if ctx["is_inventory_manager"]:
+        if not ctx["branch_id"] or ctx["branch_id"] != branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Inventory managers can only access their assigned branch.",
+            )
+        return ctx
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Forbidden: Only owners, managers, and inventory managers can access inventory.",
+    )
 
 
 def _serialize_branch(doc: dict) -> dict:
@@ -568,7 +597,7 @@ async def get_branch_inventory(branch_id: str, authorization: Optional[str] = He
     business_id = await get_business_id(user_id, db)
 
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
-    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
+    await _enforce_inventory_access(user_id, db, business_id, branch["branch_id"])
 
     inventory = await db.inventories.find_one({"business_id": business_id, "branch_id": branch["branch_id"]})
     if not inventory:
@@ -621,7 +650,7 @@ async def create_inventory_item(branch_id: str, item: schemas.InventoryItemCreat
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
-    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
+    await _enforce_inventory_access(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query) or {
@@ -678,7 +707,7 @@ async def update_inventory_item(branch_id: str, item_id: str, updates: schemas.I
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
-    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
+    await _enforce_inventory_access(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query)
@@ -725,7 +754,7 @@ async def delete_inventory_item(branch_id: str, item_id: str, authorization: Opt
     user_id = await get_current_user_id(authorization)
     business_id = await get_business_id(user_id, db)
     branch = await _get_branch_for_inventory(branch_id, business_id, db)
-    await _enforce_branch_scope(user_id, db, business_id, branch["branch_id"])
+    await _enforce_inventory_access(user_id, db, business_id, branch["branch_id"])
 
     inventory_query = {"business_id": business_id, "branch_id": branch["branch_id"]}
     inventory = await db.inventories.find_one(inventory_query)
