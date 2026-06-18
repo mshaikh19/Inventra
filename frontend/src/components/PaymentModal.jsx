@@ -12,6 +12,7 @@ const PaymentModal = ({
   customerName,
   customerState,
   branchName,
+  branchId,
   paymentMode,
   businessName = "Inventra Retail",
   tierAccent = "#0284C7",
@@ -100,6 +101,22 @@ const PaymentModal = ({
           business_name: businessName,
           description: `${businessName} | Invoice ${invoiceNumber}`,
           payment_mode: paymentMode,       // ← Pass to root of payload for backend Pydantic schema
+          branch_id: branchId || null,
+          items: (items || []).map((item) => {
+            const itemPrice = Number(item.sellingPrice ?? item.price ?? 0);
+            const itemQty = Number(item.quantity) || 1;
+            const gst = Number(item.gstRate ?? item.gst_rate ?? item.gstPercentage ?? item.gst_percentage ?? 0);
+            return {
+              product_id: String(item.id || item.productId || "").trim(),
+              product_name: String(item.name || item.product_name || "").trim(),
+              quantity: itemQty,
+              price: itemPrice,
+              gst_percentage: gst,
+              hsn_code: item.hsnCode || item.hsn_code || null,
+              gst_rate: gst,
+              total: Number((itemPrice * itemQty).toFixed(2))
+            };
+          }),
           notes: {
             invoice_number: invoiceNumber,
             business_name: businessName,

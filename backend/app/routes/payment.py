@@ -193,8 +193,8 @@ async def verify_payment(
         # Verify signature
         is_valid = payment_service.verify_payment_signature(
             request.razorpay_order_id,
-            request.razorpay_payment_id,
-            request.razorpay_signature
+            request.razorpay_payment_id or "",
+            request.razorpay_signature or ""
         )
         
         if not is_valid:

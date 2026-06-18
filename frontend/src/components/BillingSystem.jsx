@@ -40,7 +40,7 @@ const calculateCartLine = (item, isInterstate) => {
   };
 };
 
-export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, userDisplayName, businessName = "Inventra Retail", isManagerOrOwner }) {
+export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, selectedBranchId, userDisplayName, businessName = "Inventra Retail", isManagerOrOwner }) {
   const [activeBranch, setActiveBranch] = useState(selectedBranchLabel);
   
   const activeBranchDetails = useMemo(() => {
@@ -1622,6 +1622,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
         customerName={customerName}
         customerState={customerState}
         branchName={selectedBranchLabel}
+        branchId={selectedBranchId}
         paymentMode={paymentMode}
         businessName={businessName}
         tierAccent={tierAccent}

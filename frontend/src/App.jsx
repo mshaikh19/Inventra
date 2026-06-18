@@ -31,7 +31,7 @@ import {
   getDashboardTierFromPath,
   userHasOwnerAccess,
 } from "./utils/dashboard";
-import { isEmployeeUser, isManagerUser } from "./utils/employeeWorkspace";
+import { isEmployeeUser, isManagerUser, isInventoryManagerUser } from "./utils/employeeWorkspace";
 
 function getGuardedTab(tab, user) {
   const isOwner = userHasOwnerAccess(user);
@@ -88,6 +88,16 @@ function getGuardedTab(tab, user) {
       tab.startsWith("branch-ops-") ||
       (isWarehouseOrDepot && tab.startsWith("billing-pos-")) ||
       (!isWarehouseOrDepot && tab.startsWith("inventory-ops-"))
+    ) {
+      return dashboardTab;
+    }
+  } else if (isInventoryManagerUser(user)) {
+    if (
+      tab === "employees" ||
+      tab === "tasks-board" ||
+      tab === "branch-setup" ||
+      tab.startsWith("branch-ops-") ||
+      tab.startsWith("billing-pos-")
     ) {
       return dashboardTab;
     }
@@ -313,6 +323,16 @@ function App() {
               activeTab.startsWith("branch-ops-") ||
               (isWarehouseOrDepot && activeTab.startsWith("billing-pos-")) ||
               (!isWarehouseOrDepot && activeTab.startsWith("inventory-ops-"))
+            ) {
+              isForbidden = true;
+            }
+          } else if (isInventoryManagerUser(user)) {
+            if (
+              activeTab === "employees" ||
+              activeTab === "tasks-board" ||
+              activeTab === "branch-setup" ||
+              activeTab.startsWith("branch-ops-") ||
+              activeTab.startsWith("billing-pos-")
             ) {
               isForbidden = true;
             }

@@ -149,12 +149,13 @@ async def create_employee(
     user_id = await get_current_user_id(authorization)
     auth_info = await enforce_owner_or_manager(user_id, db, employee_branch_id=employee.branchId)
     
-    # Managers cannot register other managers or owners
-    if auth_info["role"] == "manager":
-        if employee.role != "employee":
+    # Managers cannot register other managers or owners (but can register inventory managers and employees)
+    if auth_info["role"] == "manager" or str(auth_info.get("role", "")).endswith("_manager"):
+        allowed_roles = {"employee", "inventory_manager"}
+        if employee.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Managers can only register standard employees."
+                detail="Forbidden: Managers can only register standard employees and inventory managers."
             )
     business_id = await get_business_id(user_id, db)
 
@@ -189,6 +190,16 @@ async def create_employee(
                 else:
                     role_name = "store_manager"
                 roles_list = [role_name, "manager"]
+            elif employee.role == "inventory_manager":
+                if branch_type_lower == "warehouse":
+                    role_name = "warehouse_inventory_manager"
+                elif branch_type_lower == "franchise":
+                    role_name = "franchise_inventory_manager"
+                elif branch_type_lower == "depot":
+                    role_name = "depot_inventory_manager"
+                else:
+                    role_name = "store_inventory_manager"
+                roles_list = [role_name, "inventory_manager"]
             elif employee.role == "employee":
                 if branch_type_lower == "warehouse":
                     role_name = "warehouse_employee"
@@ -305,10 +316,10 @@ async def update_employee(
     
     # Managers cannot change/elevate roles to manager or owner
     if auth_info["role"] == "manager":
-        if updates.role is not None and updates.role != "employee":
+        if updates.role is not None and updates.role not in ["employee", "inventory_manager"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Managers can only assign standard employee roles."
+                detail="Forbidden: Managers can only assign standard employee and inventory manager roles."
             )
     business_id = await get_business_id(user_id, db)
 
@@ -353,9 +364,10 @@ async def update_employee(
     branch_to_check = update_data.get("branchId") if "branchId" in update_data else existing_employee.get("branchId")
     
     is_manager_role = role_to_check in ["manager", "warehouse_manager", "franchise_manager", "depot_manager", "store_manager"]
+    is_inventory_manager_role = role_to_check in ["inventory_manager", "warehouse_inventory_manager", "franchise_inventory_manager", "depot_inventory_manager", "store_inventory_manager"]
     is_employee_role = role_to_check in ["employee", "warehouse_employee", "franchise_employee", "depot_employee", "store_employee"]
     
-    if (is_manager_role or is_employee_role) and branch_to_check:
+    if (is_manager_role or is_inventory_manager_role or is_employee_role) and branch_to_check:
         branch_doc = await db.branches.find_one({"branch_id": branch_to_check, "business_id": business_id})
         if branch_doc:
             branch_type = branch_doc.get("branch_type", "Store")
@@ -374,6 +386,17 @@ async def update_employee(
                     role_name = "store_manager"
                 update_data["role"] = role_name
                 update_data["roles"] = [role_name, "manager"]
+            elif is_inventory_manager_role:
+                if branch_type_lower == "warehouse":
+                    role_name = "warehouse_inventory_manager"
+                elif branch_type_lower == "franchise":
+                    role_name = "franchise_inventory_manager"
+                elif branch_type_lower == "depot":
+                    role_name = "depot_inventory_manager"
+                else:
+                    role_name = "store_inventory_manager"
+                update_data["role"] = role_name
+                update_data["roles"] = [role_name, "inventory_manager"]
             else:
                 if branch_type_lower == "warehouse":
                     role_name = "warehouse_employee"
@@ -386,11 +409,11 @@ async def update_employee(
                 update_data["role"] = role_name
                 update_data["roles"] = [role_name, "employee"]
     elif "role" in update_data:
-        base_role = "manager" if is_manager_role else "employee"
+        base_role = "manager" if is_manager_role else "inventory_manager" if is_inventory_manager_role else "employee"
         update_data["role"] = base_role
         update_data["roles"] = [base_role]
     elif "branchId" in update_data and not branch_to_check:
-        base_role = "manager" if is_manager_role else "employee"
+        base_role = "manager" if is_manager_role else "inventory_manager" if is_inventory_manager_role else "employee"
         update_data["role"] = base_role
         update_data["roles"] = [base_role]
 
