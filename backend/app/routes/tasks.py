@@ -217,6 +217,16 @@ async def list_tasks(
     cursor = db.tasks.find(query).sort("created_at", -1)
     tasks = []
     async for doc in cursor:
+        # If the user is an employee (not owner and not manager), verify role compatibility.
+        # If their role has changed and is no longer compatible, the task disappears.
+        if not auth_info["is_owner"] and not auth_info["is_manager"]:
+            task_role = doc.get("role")
+            if task_role and not _employee_task_role_match(
+                auth_info["role"],
+                auth_info.get("roles") or [],
+                task_role
+            ):
+                continue
         tasks.append(_serialize_task(doc))
 
     return tasks
@@ -253,12 +263,20 @@ async def update_task(
         and not is_manager
         and task_doc.get("branch_id") == auth_info["branch_id"]
         and (
-            task_doc.get("assigned_to") == user_id
-            or _employee_task_role_match(
+            # The employee is assigned to the task and their current role matches the task's role
+            (task_doc.get("assigned_to") == user_id and (
+                not task_doc.get("role") or _employee_task_role_match(
+                    auth_info["role"],
+                    auth_info.get("roles") or [],
+                    task_doc.get("role"),
+                )
+            ))
+            # Or the task is unassigned but matches their role
+            or (not task_doc.get("assigned_to") and _employee_task_role_match(
                 auth_info["role"],
                 auth_info.get("roles") or [],
                 task_doc.get("role"),
-            )
+            ))
         )
     )
     

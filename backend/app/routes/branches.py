@@ -103,7 +103,7 @@ async def _enforce_branch_scope(user_id: str, db, business_id: str, branch_id: s
 
 
 async def _enforce_inventory_access(user_id: str, db, business_id: str, branch_id: str) -> dict:
-    """Owners and managers can access inventory; inventory_managers can access their branch inventory only."""
+    """Owners and managers can access inventory; inventory_managers/employees can access their branch inventory only."""
     ctx = await _get_user_access_context(user_id, db, business_id)
     if ctx["is_owner"]:
         return ctx
@@ -121,9 +121,16 @@ async def _enforce_inventory_access(user_id: str, db, business_id: str, branch_i
                 detail="Forbidden: Inventory managers can only access their assigned branch.",
             )
         return ctx
+    if ctx["is_employee"]:
+        if not ctx["branch_id"] or ctx["branch_id"] != branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Branch employees can only access their assigned branch.",
+            )
+        return ctx
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Forbidden: Only owners, managers, and inventory managers can access inventory.",
+        detail="Forbidden: Only owners, managers, inventory managers, and branch employees can access inventory.",
     )
 
 

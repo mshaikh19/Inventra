@@ -8,6 +8,7 @@ import {
   getUserDisplayName,
   normalizeBusinessTier,
   userHasOwnerAccess,
+  getInventoryOpsTab,
 } from "../utils/dashboard";
 import { getBranchNetwork, getBranchInventory, getUserBranches, recordBranchSale } from "../utils/branches";
 import {
@@ -43,7 +44,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   const [branchOptions, setBranchOptions] = React.useState([]);
   const [selectedBranchId, setSelectedBranchId] = React.useState(() => {
     if (typeof window === "undefined") return "";
-    return sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch") || "";
+    return sessionStorage.getItem("inventra_selected_branch") || sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch") || "";
   });
   const [isBranchLoading, setIsBranchLoading] = React.useState(true);
   const [isInventorySyncing, setIsInventorySyncing] = React.useState(false);
@@ -61,16 +62,16 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   );
   const selectedBranchKey = selectedBranch?.branch_id || selectedBranch?.branch_name || selectedBranchId || "default";
   const selectedBranchLabel = selectedBranch?.branch_name || selectedBranch?.branch_id || "Main Store";
-  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts([], selectedBranchKey));
+  const [products, setProducts] = React.useState(() => loadScopedInventoryProducts([], selectedBranchLabel));
 
   React.useEffect(() => {
     // Debounce saves to localStorage - wait 500ms after last change before saving
     const timer = setTimeout(() => {
-      saveScopedInventoryProducts(products, selectedBranchKey);
+      saveScopedInventoryProducts(products, selectedBranchLabel);
     }, 500);
     
     return () => clearTimeout(timer);
-  }, [products, selectedBranchKey]);
+  }, [products, selectedBranchLabel]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -93,14 +94,21 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
 
         setBranchOptions(branches);
 
-        const storedBranch = sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch");
+        const storedBranch = sessionStorage.getItem("inventra_selected_branch") || sessionStorage.getItem("inventra_billing_branch_id") || sessionStorage.getItem("inventra_billing_branch");
         const matchedBranch =
           branches.find((branch) => branch.branch_id === storedBranch || branch.branch_name === storedBranch) ||
           branches[0] ||
           null;
 
         if (matchedBranch) {
-          setSelectedBranchId(matchedBranch.branch_id || matchedBranch.branch_name);
+          const nextKey = matchedBranch.branch_id || matchedBranch.branch_name;
+          const branchName = matchedBranch.branch_name || nextKey;
+          setSelectedBranchId(nextKey);
+          try {
+            sessionStorage.setItem("inventra_selected_branch", branchName);
+            sessionStorage.setItem("inventra_billing_branch_id", nextKey);
+            sessionStorage.setItem("inventra_billing_branch", branchName);
+          } catch {}
         }
       } catch {
         if (!cancelled) {
@@ -126,11 +134,12 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
       if (!selectedBranch) return;
 
       const branchKey = selectedBranch.branch_id || selectedBranch.branch_name;
+      const branchName = selectedBranch.branch_name || branchKey;
       
       // Clear old products first so the screen shows loading state correctly
       setProducts([]);
       setIsInventorySyncing(true);
-      setInventoryStatus(`Loading ${selectedBranchLabel} inventory from database…`);
+      setInventoryStatus(`Loading ${branchName} inventory from database…`);
 
       try {
         const payload = await getBranchInventory(branchKey);
@@ -139,12 +148,12 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
         const nextProducts = hydrateInventoryProducts(payload, []);
         setProducts(nextProducts);
         setInventoryStatus(`Synced ${nextProducts.length} products from database.`);
-        saveScopedInventoryProducts(nextProducts, branchKey);
+        saveScopedInventoryProducts(nextProducts, branchName);
       } catch (error) {
         if (cancelled) return;
         
         // Load local storage cached products as dynamic fallback if network fails
-        const cachedProducts = loadScopedInventoryProducts([], branchKey);
+        const cachedProducts = loadScopedInventoryProducts([], branchName);
         setProducts(cachedProducts);
         setInventoryStatus(error?.message ? `${error.message} — using cached inventory.` : "Using cached inventory.");
       } finally {
@@ -163,10 +172,12 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
   const handleBranchChange = (branch) => {
     if (!branch) return;
     const nextKey = branch.branch_id || branch.branch_name;
+    const branchName = branch.branch_name || nextKey;
     setSelectedBranchId(nextKey);
     try {
+      sessionStorage.setItem("inventra_selected_branch", branchName);
       sessionStorage.setItem("inventra_billing_branch_id", nextKey);
-      sessionStorage.setItem("inventra_billing_branch", branch.branch_name || nextKey);
+      sessionStorage.setItem("inventra_billing_branch", branchName);
     } catch {
       // ignore storage errors
     }
@@ -230,12 +241,23 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
           <button
             type="button"
             onClick={handleBack}
-            className="flex items-center gap-2 text-slate-500 hover:text-white transition-colors duration-150"
+            className="flex items-center gap-2 text-slate-500 hover:text-white transition-colors duration-150 cursor-pointer"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
             <span className="text-[10px] font-black uppercase tracking-[0.18em]">Dashboard</span>
+          </button>
+
+          <div className="w-px h-5" style={{ background: "rgba(255,255,255,0.08)" }} />
+
+          <button
+            type="button"
+            onClick={() => setActiveTab && setActiveTab(getInventoryOpsTab(normalizedTier))}
+            className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors duration-150 border border-slate-800 rounded-xl px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] bg-slate-900/40 cursor-pointer hover:border-emerald-500/30"
+          >
+            <span>📦</span>
+            <span>Inventory Desk</span>
           </button>
 
           <div className="w-px h-5" style={{ background: "rgba(255,255,255,0.08)" }} />
@@ -340,6 +362,7 @@ export default function BillingPOS({ tier = "small", setActiveTab }) {
           setActiveTab={setActiveTab}
           tier={normalizedTier}
           selectedBranchLabel={selectedBranchLabel}
+          selectedBranchId={selectedBranch?.branch_id || selectedBranchId}
           userDisplayName={userDisplayName}
           businessName={businessName}
           isManagerOrOwner={isManagerUser(userSession?.user) || userHasOwnerAccess(userSession?.user)}

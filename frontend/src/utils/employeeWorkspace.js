@@ -96,9 +96,9 @@ export function isManagerUser(user) {
           .toLowerCase(),
       )
     : [];
-  return (
-    role === "manager" || role.endswith("_manager") || roles.includes("manager")
-  );
+  const hasManagerRole = role === "manager" || (role.endsWith("_manager") && !role.endsWith("_inventory_manager"));
+  const hasManagerInRoles = roles.includes("manager") || roles.some(r => r.endsWith("_manager") && !r.endsWith("_inventory_manager"));
+  return hasManagerRole || hasManagerInRoles;
 }
 
 /** Resolve operational environment from role + branch type. */
@@ -317,3 +317,61 @@ export function getEmployeeAccessLabel(environment, tier) {
   }
   return `${tierName} · Branch-scoped POS checkout`;
 }
+
+/** Check if the employee's current role matches the task's role. */
+export function employeeTaskRoleMatch(user, taskRole) {
+  if (!taskRole) return false;
+  const tRole = String(taskRole).trim().toLowerCase();
+  if (!user) return false;
+  const uRole = String(user.role || "").trim().toLowerCase();
+  const uRoles = Array.isArray(user.roles)
+    ? user.roles.map((r) => String(r || "").trim().toLowerCase())
+    : [];
+  
+  const normalizedRoles = new Set(uRoles);
+  normalizedRoles.add(uRole);
+
+  if (normalizedRoles.has(tRole)) {
+    return true;
+  }
+
+  // Generic "employee" tasks apply to any branch-specific employee role
+  if (tRole === "employee") {
+    const hasEmployee = normalizedRoles.has("employee") || uRole === "employee";
+    const hasAnyBranchEmployee = Array.from(normalizedRoles).some((r) => r.endsWith("_employee")) || uRole.endsWith("_employee");
+    return hasEmployee || hasAnyBranchEmployee;
+  }
+
+  // Typed employee task (e.g. store_employee) also matches generic employee users
+  if (tRole.endsWith("_employee")) {
+    return normalizedRoles.has("employee") || uRole === "employee";
+  }
+
+  // Legacy store managers created as plain "manager" match store_manager tasks
+  if (tRole === "store_manager") {
+    return normalizedRoles.has("manager") || uRole === "manager";
+  }
+
+  // Support for inventory manager generic/typed compatibility
+  if (tRole === "inventory_manager") {
+    const hasIM = normalizedRoles.has("inventory_manager") || uRole === "inventory_manager";
+    const hasAnyIM = Array.from(normalizedRoles).some((r) => r.endsWith("_inventory_manager")) || uRole.endsWith("_inventory_manager");
+    return hasIM || hasAnyIM;
+  }
+  if (tRole.endsWith("_inventory_manager")) {
+    return normalizedRoles.has("inventory_manager") || uRole === "inventory_manager";
+  }
+
+  // Support for manager generic/typed compatibility
+  if (tRole === "manager") {
+    const hasMgr = normalizedRoles.has("manager") || uRole === "manager";
+    const hasAnyMgr = Array.from(normalizedRoles).some((r) => r.endsWith("_manager") && !r.endsWith("_inventory_manager")) || (uRole.endsWith("_manager") && !uRole.endsWith("_inventory_manager"));
+    return hasMgr || hasAnyMgr;
+  }
+  if (tRole.endsWith("_manager") && !tRole.endsWith("_inventory_manager")) {
+    return normalizedRoles.has("manager") || uRole === "manager";
+  }
+
+  return false;
+}
+

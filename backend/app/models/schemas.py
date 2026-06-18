@@ -175,7 +175,7 @@ class NotificationResponse(BaseModel):
         populate_by_name = True
 
 
-# ── Branch Module ─────────────────────────────────────────────────────────────
+# Branch Module
 class BranchType(str, Enum):
     STORE     = "Store"
     WAREHOUSE = "Warehouse"
@@ -397,8 +397,8 @@ class PaymentInitiateResponse(BaseModel):
 
 class PaymentVerifyRequest(BaseModel):
     razorpay_order_id: str
-    razorpay_payment_id: str
-    razorpay_signature: str
+    razorpay_payment_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
     order_id: str
 
     class Config:

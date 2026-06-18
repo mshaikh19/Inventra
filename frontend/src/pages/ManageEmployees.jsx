@@ -15,6 +15,7 @@ import {
 import {
   getEmployeeRoleForBranchType,
   isEmployeeUser,
+  isInventoryManagerUser,
 } from "../utils/employeeWorkspace";
 import CustomDropdown from "../components/CustomDropdown";
 
@@ -249,9 +250,9 @@ export default function ManageEmployees({ setActiveTab }) {
     );
   }, [userSession, isOwner]);
 
-  // Block employees from staff management
+  // Block employees and inventory managers from staff management
   useEffect(() => {
-    if (userSession?.user && isEmployeeUser(userSession.user)) {
+    if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) {
       toast.info("Staff management is available to managers and owners only.");
       setActiveTab(getDashboardTabFromUser(userSession.user));
     }
@@ -259,7 +260,7 @@ export default function ManageEmployees({ setActiveTab }) {
 
   // Load data
   useEffect(() => {
-    if (userSession?.user && isEmployeeUser(userSession.user)) return;
+    if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) return;
     fetchData();
   }, []);
 
@@ -628,7 +629,7 @@ export default function ManageEmployees({ setActiveTab }) {
     return branch ? branch.branch_name : "General / All";
   };
 
-  if (userSession?.user && isEmployeeUser(userSession.user)) {
+  if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) {
     return null;
   }
 
@@ -1264,9 +1265,9 @@ export default function ManageEmployees({ setActiveTab }) {
           const STEPS = ["Identity", "Role & Access", "Location", "Review"];
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-              <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative">
+              <div className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
                 {/* Decorative top colored line */}
-                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600 rounded-t-3xl" />
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600" />
 
                 {/* Modal Header */}
                 <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/40 rounded-t-3xl">

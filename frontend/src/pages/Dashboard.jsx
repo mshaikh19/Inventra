@@ -36,9 +36,12 @@ import {
 } from "../utils/inventory";
 import {
   isEmployeeUser,
+  isInventoryManagerUser,
+  isManagerUser,
   getEmployeeEnvironment,
   getEmployeeQuickActions,
   getEmployeeAccessLabel,
+  employeeTaskRoleMatch,
 } from "../utils/employeeWorkspace";
 
 const getRoleDisplayName = (role) => {
@@ -640,6 +643,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     );
   }, [isOwner, isManager, userSession]);
 
+  const isInventoryManager = useMemo(() => {
+    return isInventoryManagerUser(userSession?.user);
+  }, [userSession]);
+
+
   const userBranch = useMemo(() => {
     if (!userBranchId) return null;
     return (
@@ -677,6 +685,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         label: "Tasks Board",
         icon: "📋",
       });
+      tabs.splice(6, 0, {
+        key: "alerts",
+        label: "Alerts Desk",
+        icon: "🔔",
+      });
       return tabs;
     }
     if (isManager) {
@@ -685,6 +698,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         { key: "inventory", label: "Inventory Desk", icon: "📦" },
         { key: "billing", label: "Billing POS", icon: "🧾" },
         { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
+        { key: "alerts", label: "Alerts Desk", icon: "🔔" },
         { key: "employees", label: "Staff", icon: "👥" },
         { key: "tasks-board", label: "Tasks Board", icon: "📋" },
         { key: "profile", label: "Profile", icon: "👤" },
@@ -701,6 +715,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
       if (isInventoryManager) {
         return [
           { key: "inventory", label: "Inventory Desk", icon: "📦" },
+          { key: "analytics", label: "AI Forecasts & Analytics", icon: "📊" },
+          { key: "alerts", label: "Alerts Desk", icon: "🔔" },
           { key: "tasks", label: "My Tasks", icon: "📋" },
           { key: "profile", label: "Profile", icon: "👤" },
         ];
@@ -876,6 +892,15 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   const [employeeTasks, setEmployeeTasks] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
 
+  const filteredEmployeeTasks = useMemo(() => {
+    const currentUser = userSession?.user;
+    if (!currentUser) return [];
+    
+    return employeeTasks.filter((task) => {
+      return employeeTaskRoleMatch(currentUser, task.role);
+    });
+  }, [employeeTasks, userSession]);
+
   const fetchEmployeeTasks = async () => {
     if (!isEmployee) return;
     setLoadingTasks(true);
@@ -1007,6 +1032,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
 
   // Load real dynamic products from cache or DB if branch exists
   useEffect(() => {
+    const hasInventoryAccess = isOwner || isManager || isInventoryManager;
+    if (!hasInventoryAccess) {
+      setProducts([]);
+      return;
+    }
     if (branchesList && branchesList.length > 0) {
       if (normalizedTier === "small") {
         const activeBranch = branchesList[0];
@@ -1075,7 +1105,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     } else {
       setProducts([]);
     }
-  }, [branchesList, normalizedTier]);
+  }, [branchesList, normalizedTier, isOwner, isManager, isInventoryManager]);
 
   // Session details are moved to the top of Dashboard component
 
@@ -2940,10 +2970,31 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   {/* Dual Card Showcase */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {products.length === 0 ? (
-                      <div className="col-span-2 bg-white border border-slate-200 rounded-3xl p-8 text-center text-xs font-semibold text-slate-500">
-                        {isEmployee
-                          ? "📦 No products available in this branch's inventory."
-                          : "📦 Add products in Inventory Operations to view category sales predictions and sparklines."}
+                      <div className="col-span-2 bg-white border border-slate-200 rounded-3xl p-8 md:p-12 text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-slate-200 animate-pulse">
+                          🧠
+                        </div>
+                        <div className="max-w-md space-y-1.5">
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight">AI Forecasting Core Idle</h4>
+                          <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                            {isEmployee
+                              ? "Your branch inventory database has no active product mappings. Register products in the Inventory Desk to feed AI turnover metrics and category sales sparklines."
+                              : "No inventory records are registered under this business yet. Please add products or run a spreadsheet import to begin feeding intelligence forecast arrays."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isEmployee) {
+                              setActiveSection("inventory");
+                            } else {
+                              setActiveTab("inventory-ops-" + normalizedTier);
+                            }
+                          }}
+                          className="mt-2.5 px-4 py-2 border border-slate-200 hover:bg-slate-55 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm"
+                        >
+                          📦 Go to Inventory Desk
+                        </button>
                       </div>
                     ) : (
                       [...products]
@@ -3767,7 +3818,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     Retrieving assignments…
                   </span>
                 </div>
-              ) : employeeTasks.length === 0 ? (
+              ) : filteredEmployeeTasks.length === 0 ? (
                 <div className="py-16 text-center border border-dashed border-slate-200 rounded-3xl bg-slate-50/50">
                   <div className="text-3xl mb-3">✨</div>
                   <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">
@@ -3783,7 +3834,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-amber-700">
                       ⏳{" "}
                       {
-                        employeeTasks.filter((t) => t.status !== "completed")
+                        filteredEmployeeTasks.filter((t) => t.status !== "completed")
                           .length
                       }{" "}
                       Pending
@@ -3791,13 +3842,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">
                       ✓{" "}
                       {
-                        employeeTasks.filter((t) => t.status === "completed")
+                        filteredEmployeeTasks.filter((t) => t.status === "completed")
                           .length
                       }{" "}
                       Completed
                     </span>
                   </div>
-                  {employeeTasks.map((task) => {
+                  {filteredEmployeeTasks.map((task) => {
                     const isCompleted = task.status === "completed";
                     const taskId = task._id || task.id;
                     const priorityColorMap = {
@@ -4481,6 +4532,251 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeSection === "alerts" && (
+            <div className="space-y-6 text-left">
+              {/* Header Title Section */}
+              <div className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+                  Stock Operations Alerts
+                </span>
+                <h3 className="text-lg md:text-xl font-black text-slate-900 mt-1">
+                  Expiry & Low-Stock Alerts Desk
+                </h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">
+                  Real-time monitoring arrays for inventory safety thresholds and expiration exposure.
+                </p>
+              </div>
+
+              {/* Data Check */}
+              {products.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-12 text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-slate-200 animate-bounce">
+                    🔔
+                  </div>
+                  <div className="max-w-md space-y-1.5">
+                    <h4 className="text-sm font-black text-slate-800 tracking-tight">No Active Alerts Desk Data</h4>
+                    <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                      We couldn't find any products in your branch inventory. Please register products in the Inventory Desk to start monitoring stock levels and expiration timelines.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isEmployee) {
+                        setActiveSection("inventory");
+                      } else {
+                        setActiveTab("inventory-ops-" + normalizedTier);
+                      }
+                    }}
+                    className="mt-2.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm"
+                  >
+                    📦 Go to Inventory Desk
+                  </button>
+                </div>
+              ) : (() => {
+                // Compute alerts
+                const today = new Date();
+                const lowStock = [];
+                const nearExpiry = [];
+                const expired = [];
+
+                products.forEach((p) => {
+                  // Low stock check
+                  const safetyLimit = p.reorderLevel || 10;
+                  if (p.stock <= safetyLimit) {
+                    lowStock.push({
+                      ...p,
+                      alertType: p.stock === 0 ? "out_of_stock" : "low_stock",
+                      title: p.stock === 0 ? "Out of Stock" : "Low Stock Alert",
+                      severity: p.stock === 0 ? "critical" : "warning",
+                      message: p.stock === 0 
+                        ? `Product is completely out of stock. Immediate reorder required.`
+                        : `Current stock (${p.stock} units) is below the safety threshold of ${safetyLimit} units.`
+                    });
+                  }
+
+                  // Expiry check
+                  if (p.expiryDate) {
+                    const expDate = new Date(p.expiryDate);
+                    if (!isNaN(expDate.getTime())) {
+                      const diffTime = expDate.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                      if (diffDays <= 0) {
+                        expired.push({
+                          ...p,
+                          alertType: "expired",
+                          title: "Batch Expired",
+                          severity: "critical",
+                          daysLeft: diffDays,
+                          message: `Product expired on ${p.expiryDate}. Remove from shelves immediately.`
+                        });
+                      } else if (diffDays <= 30) {
+                        nearExpiry.push({
+                          ...p,
+                          alertType: "near_expiry",
+                          title: "Near Expiry Alert",
+                          severity: diffDays <= 7 ? "critical" : "warning",
+                          daysLeft: diffDays,
+                          message: `Product is expiring in ${diffDays} days (${p.expiryDate}). Plan markdown or clearance.`
+                        });
+                      }
+                    }
+                  }
+                });
+
+                const totalAlertsCount = lowStock.length + nearExpiry.length + expired.length;
+
+                if (totalAlertsCount === 0) {
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-12 text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex flex-col items-center gap-4">
+                      <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-emerald-200">
+                        ✓
+                      </div>
+                      <div className="max-w-md space-y-1.5">
+                        <h4 className="text-sm font-black text-slate-800 tracking-tight">All Systems Operational</h4>
+                        <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                          Your branch inventory is healthy. No critical low-stock items or near-expiry batches detected.
+                        </p>
+                        <span className="inline-block text-[9.5px] font-bold text-slate-400 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded-md mt-2">
+                          Total Monitored Items: {products.length}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-6">
+                    {/* Summary Counters Row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                        <span className="text-[8px] font-black uppercase tracking-wider text-rose-500 block">
+                          Critical: Expired
+                        </span>
+                        <span className="text-2xl font-black text-slate-900 block mt-1">
+                          {expired.length}
+                        </span>
+                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
+                          Requires immediate disposal
+                        </span>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                        <span className="text-[8px] font-black uppercase tracking-wider text-amber-500 block">
+                          Near Expiry
+                        </span>
+                        <span className="text-2xl font-black text-slate-900 block mt-1">
+                          {nearExpiry.length}
+                        </span>
+                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
+                          Expiring within 30 days
+                        </span>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                        <span className="text-[8px] font-black uppercase tracking-wider text-slate-600 block">
+                          Low & Out of Stock
+                        </span>
+                        <span className="text-2xl font-black text-slate-900 block mt-1">
+                          {lowStock.length}
+                        </span>
+                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
+                          Below reorder thresholds
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Alerts Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {[...expired, ...nearExpiry, ...lowStock].map((alert, idx) => {
+                        const isCritical = alert.severity === "critical";
+                        return (
+                          <div
+                            key={alert.id || `alert-${idx}`}
+                            className={`rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between shadow-sm bg-white relative overflow-hidden ${
+                              isCritical ? "border-rose-350 ring-2 ring-rose-500/5" : "border-slate-250"
+                            }`}
+                          >
+                            <div>
+                              <div className="flex justify-between items-start mb-3">
+                                <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider ${
+                                  isCritical ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+                                }`}>
+                                  {isCritical ? "🚨 Critical" : "⚠️ Warning"}: {alert.title}
+                                </span>
+                                <span className="text-[9px] font-bold text-slate-400">
+                                  {alert.category}
+                                </span>
+                              </div>
+
+                              <h4 className="text-sm font-black text-slate-900 leading-tight text-left">
+                                {alert.name}
+                              </h4>
+                              
+                              <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed text-left">
+                                {alert.message}
+                              </p>
+
+                              {/* Item Details */}
+                              <div className="grid grid-cols-2 gap-3 mt-4 pt-3.5 border-t border-slate-100 text-[10px] font-semibold text-slate-500">
+                                <div className="text-left">
+                                  <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">Stock Count</span>
+                                  <span className={`block font-extrabold text-[11px] mt-0.5 ${alert.stock === 0 ? "text-rose-600 font-black" : "text-slate-800"}`}>
+                                    {alert.stock} Units
+                                  </span>
+                                </div>
+                                <div className="text-left">
+                                  <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">Expiry Date</span>
+                                  <span className="block font-extrabold text-[11px] text-slate-800 mt-0.5">
+                                    {alert.expiryDate || "N/A"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Actions Button */}
+                            <div className="mt-5 pt-3 border-t border-slate-100 flex gap-2">
+                              {alert.alertType === "expired" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    toast.info(`Write-off initiated for ${alert.name}`);
+                                  }}
+                                  className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-rose-200 text-center"
+                                >
+                                  🗑️ Dispose / Write-Off
+                                </button>
+                              ) : alert.alertType === "near_expiry" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    toast.info(`Markdown pricing applied for ${alert.name}`);
+                                  }}
+                                  className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-amber-200 text-center"
+                                >
+                                  🏷️ Apply Clearance Markdown
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    toast.info(`Procurement order draft created for ${alert.name}`);
+                                  }}
+                                  className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-emerald-250 text-center"
+                                >
+                                  🛒 Draft Reorder PO
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

@@ -123,7 +123,7 @@ export async function getBranchById(branchId) {
 
 /** Fetch inventory for a branch from the backend database */
 export async function getBranchInventory(branchId) {
-  const res = await fetch(`${API_BASE}/${branchId}/inventory`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}/inventory`, {
     method: "GET",
     headers: getAuthHeaders(),
   });
@@ -136,7 +136,7 @@ export async function getBranchInventory(branchId) {
 
 /** Add a new inventory item for a branch */
 export async function createBranchInventoryItem(branchId, itemData) {
-  const res = await fetch(`${API_BASE}/${branchId}/inventory/items`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}/inventory/items`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(itemData),
@@ -154,7 +154,7 @@ export async function createBranchInventoryItem(branchId, itemData) {
 
 /** Update an inventory item for a branch */
 export async function updateBranchInventoryItem(branchId, itemId, itemData) {
-  const res = await fetch(`${API_BASE}/${branchId}/inventory/items/${itemId}`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}/inventory/items/${itemId}`, {
     method: "PUT",
     headers: getAuthHeaders(),
     body: JSON.stringify(itemData),
@@ -172,7 +172,7 @@ export async function updateBranchInventoryItem(branchId, itemId, itemData) {
 
 /** Delete an inventory item from a branch */
 export async function deleteBranchInventoryItem(branchId, itemId) {
-  const res = await fetch(`${API_BASE}/${branchId}/inventory/items/${itemId}`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}/inventory/items/${itemId}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });
@@ -189,7 +189,7 @@ export async function deleteBranchInventoryItem(branchId, itemId) {
 
 /** Update a branch (partial update) */
 export async function updateBranch(branchId, updates) {
-  const res = await fetch(`${API_BASE}/${branchId}`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}`, {
     method: "PUT",
     headers: getAuthHeaders(),
     body: JSON.stringify(updates),
@@ -203,7 +203,7 @@ export async function updateBranch(branchId, updates) {
 
 /** Deactivate (soft-delete) a branch */
 export async function deactivateBranch(branchId) {
-  const res = await fetch(`${API_BASE}/${branchId}`, {
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(branchId)}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });

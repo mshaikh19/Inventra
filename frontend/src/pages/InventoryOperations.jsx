@@ -283,7 +283,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
   const [selectedBranch, setSelectedBranch] = React.useState(() => {
     if (typeof window === "undefined") return branchNames[0];
-    const saved = sessionStorage.getItem("inventra_inventory_branch");
+    const saved = sessionStorage.getItem("inventra_selected_branch") || sessionStorage.getItem("inventra_inventory_branch");
     return branchNames.includes(saved) ? saved : branchNames[0];
   });
   const [products, setProducts] = React.useState([]);
@@ -655,7 +655,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
         setBranchNames(names);
 
         // Determine the initial branch to load
-        const saved = sessionStorage.getItem("inventra_inventory_branch");
+        const saved = sessionStorage.getItem("inventra_selected_branch") || sessionStorage.getItem("inventra_inventory_branch");
         const nextBranch = names.includes(saved)
           ? saved
           : names.includes(selectedBranch)
@@ -685,6 +685,7 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
   React.useEffect(() => {
     if (!selectedBranch) return;
+    sessionStorage.setItem("inventra_selected_branch", selectedBranch);
     sessionStorage.setItem("inventra_inventory_branch", selectedBranch);
     // Load inventory for the newly selected branch
     void loadBranchInventory(selectedBranch);
@@ -882,6 +883,8 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
 
     // Restore state of the newly selected branch from session storage!
     try {
+      sessionStorage.setItem("inventra_selected_branch", branchName);
+      sessionStorage.setItem("inventra_inventory_branch", branchName);
       const storedAddModal = sessionStorage.getItem(`inventra_inventory_showAddModal__${branchName}`) === "true";
       const storedScannerModal = sessionStorage.getItem(`inventra_inventory_showScannerModal__${branchName}`) === "true";
       
@@ -1095,6 +1098,28 @@ export default function InventoryOperations({ tier = "small", setActiveTab }) {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              onClick={() => setActiveTab && setActiveTab(getBillingPosTab(normalizedTier))}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[10px] font-black transition-colors cursor-pointer"
+              style={{
+                borderColor: `${tierAccent}22`,
+                backgroundColor: `${tierAccent}08`,
+                color: tierAccent
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = `${tierAccent}15`;
+                e.currentTarget.style.borderColor = `${tierAccent}44`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = `${tierAccent}08`;
+                e.currentTarget.style.borderColor = `${tierAccent}22`;
+              }}
+            >
+              <span>🧾</span>
+              <span>Billing POS</span>
+            </button>
+
+            <div className="w-px h-5 bg-slate-200" />
 
             <span className="hidden md:inline text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">
               {userDisplayName}

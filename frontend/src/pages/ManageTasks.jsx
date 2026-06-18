@@ -9,6 +9,8 @@ import {
   getTaskRoleOptions,
   getTaskTemplatesForBranch,
   isEmployeeUser,
+  isInventoryManagerUser,
+  employeeTaskRoleMatch,
 } from "../utils/employeeWorkspace";
 import CustomDropdown from "../components/CustomDropdown";
 
@@ -105,6 +107,7 @@ export default function ManageTasks({ setActiveTab }) {
     };
   });
   const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
 
   // Helper to clear task form draft from sessionStorage
   const clearTaskFormDraft = () => {
@@ -157,7 +160,16 @@ export default function ManageTasks({ setActiveTab }) {
   const isOwner = userHasOwnerAccess(userSession?.user);
   const userDisplayName = getUserDisplayName(userSession?.user, "Administrator");
 
+  // Block employees and inventory managers from tasks management
   useEffect(() => {
+    if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) {
+      toast.info("Tasks assignment is available to managers and owners only.");
+      setActiveTab(getDashboardTabFromUser(userSession.user));
+    }
+  }, [userSession, setActiveTab]);
+
+  useEffect(() => {
+    if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) return;
     fetchData();
   }, [userSession]);
 
@@ -204,6 +216,7 @@ export default function ManageTasks({ setActiveTab }) {
   };
 
   const openTaskModal = () => {
+    setEditingTaskId(null);
     const defaultBranchId = isOwner ? "" : (userSession?.user?.branchId || "");
     setTaskFormData({
       title: "",
@@ -214,6 +227,21 @@ export default function ManageTasks({ setActiveTab }) {
       priority: "medium",
     });
     setTaskModalStep(1);
+    setTaskModalErrors({});
+    setIsTaskModalOpen(true);
+  };
+
+  const handleOpenReassignModal = (task) => {
+    setEditingTaskId(task._id || task.id);
+    setTaskFormData({
+      title: task.title || "",
+      description: task.description || "",
+      role: task.role || "employee",
+      assigned_to: task.assigned_to || "",
+      branch_id: task.branch_id || "",
+      priority: task.priority || "medium",
+    });
+    setTaskModalStep(2); // Direct jump to assignment step for reassigning
     setTaskModalErrors({});
     setIsTaskModalOpen(true);
   };
@@ -291,13 +319,19 @@ export default function ManageTasks({ setActiveTab }) {
         branch_id: finalBranchId,
         priority: taskFormData.priority
       };
-      await createTask(payload);
-      toast.success("Task assigned successfully!");
+      if (editingTaskId) {
+        await updateTask(editingTaskId, payload);
+        toast.success("Task reassigned successfully!");
+      } else {
+        await createTask(payload);
+        toast.success("Task assigned successfully!");
+      }
       clearTaskFormDraft();
       setIsTaskModalOpen(false);
+      setEditingTaskId(null);
       fetchData();
     } catch (err) {
-      toast.error(err.message || "Failed to assign task");
+      toast.error(err.message || "Failed to save task");
     } finally {
       setTaskSubmitting(false);
     }
@@ -320,16 +354,43 @@ export default function ManageTasks({ setActiveTab }) {
   const filteredAssignees = React.useMemo(() => {
     const targetBranchId = isOwner ? taskFormData.branch_id : (userSession?.user?.branchId || "");
     if (!targetBranchId) return [];
-    return employees.filter(emp => emp.branchId === targetBranchId && emp.role !== "owner");
+    return employees.filter(emp => emp.branchId === targetBranchId && emp.role !== "owner" && emp.isActive !== false);
   }, [employees, taskFormData.branch_id, isOwner, userSession]);
+
+  const getVirtualTaskStatus = React.useCallback((task) => {
+    const assignee = employees.find(e => e._id === task.assigned_to || e.id === task.assigned_to);
+    
+    let hasRoleMismatch = false;
+    if (assignee) {
+      const isInactive = assignee.isActive === false;
+      hasRoleMismatch = !employeeTaskRoleMatch(assignee, task.role) || isInactive;
+    } else if (!task.assigned_to) {
+      // General role-scoped task: mismatch if no active staff in that branch matches the role
+      const hasEligibleStaff = employees.some(emp => 
+        emp.branchId === task.branch_id && 
+        emp.role !== "owner" && 
+        emp.isActive !== false && 
+        employeeTaskRoleMatch(emp, task.role)
+      );
+      hasRoleMismatch = !hasEligibleStaff;
+    }
+    
+    if (hasRoleMismatch) {
+      return "pending"; // Force pending status when role is mismatched or no staff is eligible
+    }
+    return task.status;
+  }, [employees]);
 
   const filteredTasks = React.useMemo(() => {
     return tasks.filter((task) => {
       const matchesPriority = taskFilterPriority === "all" || task.priority === taskFilterPriority;
-      const matchesStatus = taskFilterStatus === "all" || task.status === taskFilterStatus;
+      
+      const virtualStatus = getVirtualTaskStatus(task);
+      const matchesStatus = taskFilterStatus === "all" || virtualStatus === taskFilterStatus;
+      
       return matchesPriority && matchesStatus;
     });
-  }, [tasks, taskFilterPriority, taskFilterStatus]);
+  }, [tasks, taskFilterPriority, taskFilterStatus, getVirtualTaskStatus]);
 
   const getBranchName = (branchId) => {
     const branch = branches.find(b => b.branch_id === branchId);
@@ -357,7 +418,7 @@ export default function ManageTasks({ setActiveTab }) {
     return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
-  if (userSession?.user && isEmployeeUser(userSession.user)) {
+  if (userSession?.user && (isEmployeeUser(userSession.user) || isInventoryManagerUser(userSession.user))) {
     return null;
   }
 
@@ -475,7 +536,20 @@ export default function ManageTasks({ setActiveTab }) {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredTasks.map((task) => {
                   const assignee = employees.find(e => e._id === task.assigned_to || e.id === task.assigned_to);
-                  const isCompleted = task.status === "completed";
+                  
+                  const isInactive = assignee ? assignee.isActive === false : false;
+                  const isRoleMismatch = assignee ? !employeeTaskRoleMatch(assignee, task.role) : false;
+                  const hasNoStaffForRole = !task.assigned_to && !employees.some(emp => 
+                    emp.branchId === task.branch_id && 
+                    emp.role !== "owner" && 
+                    emp.isActive !== false && 
+                    employeeTaskRoleMatch(emp, task.role)
+                  );
+                  const hasRoleMismatch = isRoleMismatch || isInactive || hasNoStaffForRole;
+
+                  const virtualStatus = hasRoleMismatch ? "pending" : task.status;
+                  const isCompleted = virtualStatus === "completed";
+
                   const priorityColor =
                     task.priority === "high"
                       ? "bg-rose-50 border-rose-200 text-rose-700"
@@ -526,9 +600,9 @@ export default function ManageTasks({ setActiveTab }) {
                         <div className="flex justify-between items-center">
                           <span>📍 {getBranchName(task.branch_id)}</span>
                           <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider ${
-                            isCompleted ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700 animate-pulse"
+                            isCompleted ? "bg-emerald-100 text-emerald-700" : hasRoleMismatch ? "bg-rose-100 text-rose-700 border border-rose-300 font-extrabold" : "bg-amber-100 text-amber-700 animate-pulse"
                           }`}>
-                            {isCompleted ? "✓ Completed" : "⏳ Pending"}
+                            {isCompleted ? "✓ Completed" : hasRoleMismatch ? "⚠️ Reassign Task" : "⏳ Pending"}
                           </span>
                         </div>
 
@@ -537,10 +611,29 @@ export default function ManageTasks({ setActiveTab }) {
                           <span>{task.created_at ? new Date(task.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
                         </div>
 
+                        {hasRoleMismatch && (
+                          <div className="mt-2.5 p-3 rounded-2xl bg-rose-50 border border-rose-150 text-rose-950 font-semibold text-[11px] leading-relaxed text-left flex items-start gap-2.5 shadow-sm">
+                            <span className="text-base leading-none shrink-0">⚠️</span>
+                            <div>
+                              <span className="font-extrabold text-rose-800 block text-[10.5px] uppercase tracking-wider mb-0.5">
+                                {isInactive ? "Inactive Assignee Detected" : hasNoStaffForRole ? "No Eligible Staff" : "Role Mismatch Detected"}
+                              </span>
+                              {isInactive ? (
+                                <>Assignee {assignee ? `${assignee.firstName} ${assignee.lastName}` : ""} is inactive/deactivated. Please reassign this task to an active staff member.</>
+                              ) : hasNoStaffForRole ? (
+                                <>No active staff in this branch are eligible for the required role <strong>{getRoleLabel(task.role)}</strong>. Please add a staff member with this role or reassign the task.</>
+                              ) : (
+                                <>Assignee {assignee ? `${assignee.firstName} ${assignee.lastName}` : ""} is now a {assignee ? getRoleLabel(assignee.role) : ""}, but this task is scoped for a {getRoleLabel(task.role)}. Please reassign.</>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => handleToggleTaskStatus(task._id || task.id, task.status)}
-                          className={`mt-1 w-full rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                          disabled={hasRoleMismatch}
+                          className={`mt-1 w-full rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed ${
                             isCompleted
                               ? "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
                               : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
@@ -548,6 +641,16 @@ export default function ManageTasks({ setActiveTab }) {
                         >
                           {isCompleted ? "↩ Reopen Task" : "✓ Mark Complete"}
                         </button>
+                        
+                        {hasRoleMismatch && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReassignModal(task)}
+                            className="mt-1 w-full rounded-xl border border-rose-250 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            🔄 Reassign Task
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -561,8 +664,8 @@ export default function ManageTasks({ setActiveTab }) {
       {/* Task Modal Dialog */}
       {isTaskModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative">
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600 rounded-t-3xl shrink-0" />
+          <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)] flex flex-col relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-600 shrink-0" />
 
             {/* Header */}
             <div className="px-6 pt-6 pb-4 border-b border-slate-100 bg-slate-50/40 text-left shrink-0 rounded-t-3xl">
