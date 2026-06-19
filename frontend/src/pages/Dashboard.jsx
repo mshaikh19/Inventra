@@ -28,7 +28,7 @@ import MediumDashboard from "../components/mediumDashboard";
 import LargeDashboard from "../components/largeDashboard";
 import CustomDropdown from "../components/CustomDropdown";
 import NotificationDropdown from "../components/notificationDropdown";
-import { useNotifications } from "../contexts/notificationContext";
+import { useNotifications } from "../contexts/NotificationContext";
 import {
   loadScopedInventoryProducts,
   saveScopedInventoryProducts,

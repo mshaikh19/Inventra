@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNotifications } from "../contexts/notificationContext.jsx";
+import { useNotifications } from "../contexts/NotificationContext.jsx";
 
 const TYPE_META = {
   expiry: { icon: "⏳", accent: "text-amber-600", ring: "ring-amber-100" },
