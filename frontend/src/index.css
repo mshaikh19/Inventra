@@ -86,15 +86,27 @@ body {
 
 /* Toast cards styled to mirror the layered reference design */
 .inventra-toast-container {
-  width: min(92vw, 640px);
+  position: fixed !important;
+  top: 16px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: calc(100vw - 2rem) !important;
+  max-width: 540px !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  pointer-events: none !important;
 }
 
 .inventra-toast {
   position: relative;
   overflow: hidden;
   width: 100% !important;
-  min-width: min(92vw, 540px);
-  max-width: min(98vw, 980px);
+  min-width: min(100%, 540px);
+  max-width: min(100%, 980px);
   min-height: 56px; /* Sleeker, single-line toast height */
   margin: 0;
   border-radius: 1.25rem;

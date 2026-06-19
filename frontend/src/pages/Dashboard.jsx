@@ -780,10 +780,50 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   useEffect(() => {
     if (typeof window !== "undefined") {
       sessionStorage.setItem("inventra_dashboard_section", activeSection);
+      window.dispatchEvent(new CustomEvent("dashboard-section-changed", { detail: activeSection }));
     }
   }, [activeSection]);
 
+  useEffect(() => {
+    const handleSectionChange = (e) => {
+      const targetSection = e.detail;
+      const validKeys = visibleTabs.map((t) => t.key);
+      if (validKeys.includes(targetSection)) {
+        setActiveSection(targetSection);
+      }
+    };
+    window.addEventListener("change-dashboard-section", handleSectionChange);
+    return () => {
+      window.removeEventListener("change-dashboard-section", handleSectionChange);
+    };
+  }, [visibleTabs]);
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const shouldOpen = sessionStorage.getItem("inventra_open_mobile_menu");
+      if (shouldOpen === "true") {
+        setMobileSidebarOpen(true);
+        sessionStorage.removeItem("inventra_open_mobile_menu");
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleToggleMenu = () => {
+      setMobileSidebarOpen((prev) => !prev);
+    };
+    window.addEventListener("toggle-mobile-menu", handleToggleMenu);
+    return () => {
+      window.removeEventListener("toggle-mobile-menu", handleToggleMenu);
+    };
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("mobile-menu-status-changed", { detail: mobileSidebarOpen }));
+  }, [mobileSidebarOpen]);
+
   const [loading, setLoading] = useState(false);
 
   const [showAddBranchModal, setShowAddBranchModal] = useState(() => {
@@ -2753,16 +2793,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
           </div>
         </aside>
 
-        {/* Mobile menu navigation buttons (Hidden on Desktop) */}
-        <div className="lg:hidden w-full flex justify-between items-center gap-3 px-4 sm:px-6 pt-4">
-          <button
-            onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-            className="flex-1 py-3 px-4 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 hover:text-slate-950 font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-2 cursor-pointer shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          >
-            <span>🧭</span>
-            <span>Workspace Navigation Menu</span>
-          </button>
-        </div>
+
 
         {mobileSidebarOpen && (
           <div className="lg:hidden fixed inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col p-6 overflow-y-auto">

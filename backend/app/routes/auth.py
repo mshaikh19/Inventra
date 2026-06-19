@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi import APIRouter, HTTPException, status, Depends, Header, BackgroundTasks
+import os
+import requests
 from app.models import schemas
 from app.database.mongo import getDatabase
 from app.utils import security
@@ -9,12 +11,13 @@ from app.services.ml_classifier import classifier
 from app.services.dashboard_profiles import normalize_business_tier
 from bson import ObjectId
 from typing import Optional
+from app.utils.email import send_welcome_email, send_password_reset_email
 
 router = APIRouter()
 
 
 @router.post("/signup", response_model=schemas.LoginResponse)
-async def signUp(user: schemas.UserCreate):
+async def signUp(user: schemas.UserCreate, background_tasks: BackgroundTasks):
     db = getDatabase()
     # check existing — skip soft-deleted accounts (their email is freed for re-signup)
     existing = await db.users.find_one({"email": user.email, "isDeleted": {"$ne": True}})
@@ -119,6 +122,12 @@ async def signUp(user: schemas.UserCreate):
             user_doc["signalQuality"] = business_doc.get("signalQuality")
 
         access_token = security.createAccessToken(str(user_doc["_id"]))
+
+        background_tasks.add_task(
+            send_welcome_email,
+            user_email=user_doc["email"],
+            first_name=user_doc["firstName"]
+        )
 
         return {
             "message": "Signup successful.",
@@ -262,7 +271,7 @@ def MathSafeLog(x: int):
 
 
 @router.post("/forgot-password")
-async def forgot_password(payload: schemas.ForgotPasswordRequest):
+async def forgot_password(payload: schemas.ForgotPasswordRequest, background_tasks: BackgroundTasks):
     db = getDatabase()
     # Always return success to avoid user enumeration
     user = await db.users.find_one({"email": payload.email})
@@ -278,8 +287,15 @@ async def forgot_password(payload: schemas.ForgotPasswordRequest):
 
     await db.users.update_one({"_id": user.get("_id")}, {"$set": {"resetToken": token, "resetTokenExpires": expires_at}})
 
-    # In dev return token so it can be used without email delivery. In prod this would be emailed.
-    return {"message": "Reset token created.", "resetToken": token, "expiresAt": expires_at.isoformat()}
+    # Trigger password reset email asynchronously
+    background_tasks.add_task(
+        send_password_reset_email,
+        user_email=user["email"],
+        first_name=user.get("firstName", "User"),
+        token=token
+    )
+
+    return {"message": "If an account exists for this email, a reset link was issued."}
 
 
 @router.post("/reset-password", response_model=schemas.ResetPasswordResponse)
@@ -633,3 +649,286 @@ async def recover_account(payload: dict):
         "tokenType": "bearer",
         "user": user_response,
     }
+
+
+@router.post("/google", response_model=schemas.LoginResponse)
+async def google_login(payload: schemas.GoogleLoginRequest, background_tasks: BackgroundTasks):
+    email = None
+    firstName = "Google"
+    lastName = "User"
+    
+    if payload.credential:
+        # Verify the ID token with Google
+        token = payload.credential
+        tokeninfo_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
+        
+        try:
+            response = requests.get(tokeninfo_url, timeout=10)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to connect to Google OAuth service: {str(e)}"
+            )
+            
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google credential or token expired."
+            )
+            
+        google_user = response.json()
+        
+        # Validate audience
+        client_id = os.getenv("GOOGLE_CLIENT_ID") or "335551120481-532ku6717oec3lk37j48hc2koo8jfq3f.apps.googleusercontent.com"
+        if google_user.get("aud") != client_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token audience mismatch."
+            )
+            
+        email = google_user.get("email")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google token does not contain email."
+            )
+            
+        if google_user.get("email_verified") not in (True, "true"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google email is not verified."
+            )
+            
+        firstName = google_user.get("given_name", "Google")
+        lastName = google_user.get("family_name", "User")
+        
+    elif payload.access_token:
+        # Verify with Google Access Token (UserInfo API)
+        access_token = payload.access_token
+        userinfo_url = "https://www.googleapis.com/oauth2/v3/userinfo"
+        
+        try:
+            response = requests.get(
+                userinfo_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to connect to Google OAuth service: {str(e)}"
+            )
+            
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google access token or token expired."
+            )
+            
+        google_user = response.json()
+        email = google_user.get("email")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google account does not contain email."
+            )
+            
+        if google_user.get("email_verified") not in (True, "true"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google email is not verified."
+            )
+            
+        firstName = google_user.get("given_name", "Google")
+        lastName = google_user.get("family_name", "User")
+        
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either credential or access_token must be provided."
+        )
+    
+    db = getDatabase()
+    
+    # Look for existing user
+    existing = await db.users.find_one({"email": email})
+    
+    if existing:
+        # User already exists
+        if existing.get("isDeleted", False):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This account has been deleted. Please recover it or register with another email."
+            )
+            
+        if not existing.get("isActive", True):
+            if existing.get("ownerDeleted", False):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Your access was revoked when the account owner deleted their account."
+                )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your account has been deactivated. Contact your administrator."
+            )
+            
+        # Get business info for response
+        business = None
+        business_id = existing.get("businessId")
+        if business_id:
+            business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+        else:
+            business = await db.businesses.find_one({"ownerUserId": str(existing["_id"])})
+            
+        business_tier = "small"
+        business_name = existing.get("businessName")
+        if business:
+            business_tier = normalize_business_tier(business.get("classification") or business.get("businessTier") or "small")
+            if not business_name:
+                business_name = business.get("name")
+                
+        existing_id = str(existing.get("_id"))
+        existing_roles = existing.get("roles") or []
+        is_business_owner = (
+            (business and str(business.get("ownerUserId")) == existing_id)
+            or existing.get("role") in ("owner", "user")
+            or "owner" in existing_roles
+        )
+        
+        access_token = security.createAccessToken(str(existing.get("_id")))
+        user_response = {
+            "_id": existing_id,
+            "email": existing.get("email"),
+            "firstName": existing.get("firstName"),
+            "lastName": existing.get("lastName"),
+            "businessName": business_name or "",
+            "businessTier": business_tier,
+            "dashboardPath": f"/dashboard/{business_tier}",
+            "mlConfidence": existing.get("mlConfidence") or (business.get("mlConfidence") if business else None),
+            "signalQuality": existing.get("signalQuality") or (business.get("signalQuality") if business else None),
+            "role": "owner" if is_business_owner else (existing.get("role") or "employee"),
+            "roles": ["owner", "user"] if is_business_owner else existing_roles,
+            "branchId": existing.get("branchId"),
+            "isActive": existing.get("isActive", True),
+        }
+        
+        return {
+            "message": "Login successful.",
+            "accessToken": access_token,
+            "tokenType": "bearer",
+            "user": user_response,
+        }
+        
+    else:
+        # Create a new user (Auto-registration)
+        businessName = payload.businessName or f"{firstName}'s Business"
+        user_doc = {
+            "email": email,
+            "firstName": firstName,
+            "lastName": lastName,
+            "businessName": businessName,
+            "role": "owner",
+            "roles": ["owner", "user"],
+            "hashedPassword": None,
+            "isActive": True,
+            "isVerified": True,
+            "businessTier": "small",
+            "dashboardPath": "/dashboard/small",
+            "createdAt": datetime.utcnow()
+        }
+        
+        # Create default business document using the provided metrics
+        business_doc = {
+            "name": businessName,
+            "ownerUserId": "",  # will populate below
+            "inventorySize": int(payload.inventorySize or 0),
+            "transactionsLast30d": int(payload.transactionsLast30d or 0),
+            "branches": int(payload.branches or 1),
+            "employees": int(payload.employees or 1),
+            "businessType": payload.businessType or "other",
+            "classification": payload.classification or "small",
+            "mlConfidence": None,
+            "signalQuality": None,
+            "createdAt": datetime.utcnow(),
+            "dashboardPath": f"/dashboard/{payload.classification or 'small'}"
+        }
+
+        # Run ML Classifier if metrics are provided and no classification is preset, otherwise resolve
+        resolved_tier = normalize_business_tier(payload.classification or "small")
+        if not payload.classification:
+            try:
+                def to_ordinal(n, breaks):
+                    try:
+                        v = int(n or 0)
+                    except Exception:
+                        v = 0
+                    for i, b in enumerate(breaks):
+                        if v <= b:
+                            return i
+                    return len(breaks)
+
+                features = {
+                    "scale": to_ordinal(business_doc.get("employees", 0), [10, 50, 100]),
+                    "volume": to_ordinal(business_doc.get("transactionsLast30d", 0), [100, 1000, 10000]),
+                    "complexity": to_ordinal(business_doc.get("inventorySize", 0), [1000, 5000, 15000]),
+                    "locations": int(business_doc.get("branches", 0)),
+                    "bizType": business_doc.get("businessType") or "other",
+                }
+
+                ml_result = classifier.predict(features)
+                business_doc["classification"] = ml_result.get("classification")
+                business_doc["mlConfidence"] = float(ml_result.get("confidence", 0))
+                business_doc["signalQuality"] = float(ml_result.get("signalQuality", 0))
+                business_doc["classifiedAt"] = datetime.utcnow()
+                resolved_tier = normalize_business_tier(business_doc.get("classification") or resolved_tier)
+            except Exception:
+                pass
+        else:
+            resolved_tier = normalize_business_tier(payload.classification)
+
+        business_doc["classification"] = resolved_tier
+        business_doc["dashboardPath"] = f"/dashboard/{resolved_tier}"
+        user_doc["businessTier"] = resolved_tier
+        user_doc["dashboardPath"] = business_doc["dashboardPath"]
+        
+        res = await db.users.insert_one(user_doc)
+        user_doc["_id"] = str(res.inserted_id)
+        business_doc["ownerUserId"] = str(user_doc["_id"])
+        
+        await db.users.update_one(
+            {"_id": ObjectId(user_doc["_id"])},
+            {"$set": {"businessTier": resolved_tier, "dashboardPath": business_doc["dashboardPath"]}},
+        )
+        
+        await db.businesses.insert_one(business_doc)
+        
+        access_token = security.createAccessToken(str(user_doc["_id"]))
+        
+        user_response = {
+            "_id": str(user_doc["_id"]),
+            "email": user_doc["email"],
+            "firstName": user_doc["firstName"],
+            "lastName": user_doc["lastName"],
+            "businessName": user_doc["businessName"],
+            "businessTier": resolved_tier,
+            "dashboardPath": f"/dashboard/{resolved_tier}",
+            "mlConfidence": business_doc.get("mlConfidence"),
+            "signalQuality": business_doc.get("signalQuality"),
+            "role": "owner",
+            "roles": ["owner", "user"],
+            "branchId": None,
+            "isActive": True,
+        }
+        
+        background_tasks.add_task(
+            send_welcome_email,
+            user_email=user_doc["email"],
+            first_name=user_doc["firstName"]
+        )
+
+        return {
+            "message": "Signup successful.",
+            "accessToken": access_token,
+            "tokenType": "bearer",
+            "user": user_response,
+        }

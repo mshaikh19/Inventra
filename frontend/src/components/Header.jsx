@@ -150,25 +150,25 @@ export default function Header({
       </nav>
 
       {/* Right controls: A beautiful, clean high-contrast CTA button instead of application links */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {isAuthed && <NotificationDropdown buttonClassName="h-10 w-10" panelClassName="mt-3" />}
         {!isAuthed ? (
           <button
-            className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
+            className="inline-flex py-2 px-3 sm:py-2.5 sm:px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[11px] sm:text-[12px] items-center justify-center gap-1.5 font-sans"
             onClick={() => setActiveTab("login")}
           >
             <span>Login</span>
           </button>
         ) : (
           <button
-            className="hidden sm:inline-flex py-2.5 px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[12px] items-center justify-center gap-1.5 font-sans"
+            className="inline-flex py-2 px-3 sm:py-2.5 sm:px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[11px] sm:text-[12px] items-center justify-center gap-1.5 font-sans"
             onClick={() => { localStorage.removeItem('inventra_token'); localStorage.removeItem('inventra_user'); sessionStorage.removeItem('inventra_token'); sessionStorage.removeItem('inventra_user'); setActiveTab('home'); setIsAuthed(false); window.location.reload(); }}
           >
             <span>Logout</span>
           </button>
         )}
         <button
-          className="py-2.5 px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[12px] flex items-center justify-center gap-1.5 font-sans"
+          className="py-2 px-3 sm:py-2.5 sm:px-4.5 rounded-lg font-bold bg-[#0f172a] hover:bg-slate-800 text-white transition-all duration-200 active:scale-98 cursor-pointer text-[11px] sm:text-[12px] flex items-center justify-center gap-1.5 font-sans"
           onClick={() => setActiveTab('signup')}
         >
           <span>Start Session</span>

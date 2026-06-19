@@ -468,17 +468,33 @@ function App() {
     !isBranchOpsTab &&
     !isInventoryOpsTab;
 
+  const rawUser = localStorage.getItem("inventra_user") || sessionStorage.getItem("inventra_user");
+  let userTier = "small";
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      userTier = user.tier || "small";
+    } catch (e) {}
+  }
+
+  const shouldShowBottomNav =
+    activeTab !== "home" &&
+    activeTab !== "login" &&
+    activeTab !== "signup" &&
+    activeTab !== "forgot" &&
+    activeTab !== "branch-setup";
+
   return (
 
     <div
 
-      className={`min-h-screen bg-white text-slate-900 font-sans ${!shouldShowGlobalNav ? "" : "pb-24"
+      className={`min-h-screen bg-white text-slate-900 font-sans ${shouldShowBottomNav ? "pb-16 md:pb-0" : ""
         } relative transition-all`}
 
     >
 
       <ToastContainer
-        className="fixed left-1/8 top-4 z-[9999] flex w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] -translate-x-1/18 flex-col gap-2.5 p-0 m-0 pointer-events-none sm:w-[540px] sm:max-w-[540px]"
+        className="inventra-toast-container"
         position="top-center"
         autoClose={2800}
         hideProgressBar
@@ -572,8 +588,8 @@ function App() {
 
       {/* Bottom Floating Navigation (Mobile Only, Hidden on Desktop, Signup, Login, Branch Setup) */}
 
-      {shouldShowGlobalNav && (
-        <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      {shouldShowBottomNav && (
+        <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} userTier={userTier} />
       )}
 
 

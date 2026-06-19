@@ -1,6 +1,34 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
-export default function BottomNav({ activeTab, setActiveTab }) {
+export default function BottomNav({ activeTab, setActiveTab, userTier }) {
+  const [currentSection, setCurrentSection] = useState(() => {
+    return typeof window !== "undefined"
+      ? sessionStorage.getItem("inventra_dashboard_section") || "overview"
+      : "overview";
+  });
+
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleSectionChanged = (e) => {
+      setCurrentSection(e.detail);
+    };
+    window.addEventListener("dashboard-section-changed", handleSectionChanged);
+    return () => {
+      window.removeEventListener("dashboard-section-changed", handleSectionChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleMenuStatus = (e) => {
+      setIsMenuOpen(e.detail);
+    };
+    window.addEventListener("mobile-menu-status-changed", handleMenuStatus);
+    return () => {
+      window.removeEventListener("mobile-menu-status-changed", handleMenuStatus);
+    };
+  }, []);
+
   const tabs = [
     {
       id: "home",
@@ -21,6 +49,15 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       )
     },
     {
+      id: "billing",
+      label: "POS",
+      icon: (
+        <svg className="w-4.5 h-4.5 stroke-[2] fill-none stroke-current" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+        </svg>
+      )
+    },
+    {
       id: "inventory",
       label: "Inventory",
       icon: (
@@ -30,34 +67,86 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       )
     },
     {
-      id: "settings",
-      label: "Settings",
+      id: "menu",
+      label: "Menu",
       icon: (
         <svg className="w-4.5 h-4.5 stroke-[2] fill-none stroke-current" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       )
     }
   ];
 
+  const handleTabClick = (tabId) => {
+    const tier = userTier || "small";
+    if (tabId === "home") {
+      setActiveTab(`dashboard-${tier}`);
+      sessionStorage.setItem("inventra_dashboard_section", "overview");
+      window.dispatchEvent(new CustomEvent("change-dashboard-section", { detail: "overview" }));
+    } else if (tabId === "analytics") {
+      setActiveTab(`dashboard-${tier}`);
+      sessionStorage.setItem("inventra_dashboard_section", "analytics");
+      window.dispatchEvent(new CustomEvent("change-dashboard-section", { detail: "analytics" }));
+    } else if (tabId === "billing") {
+      setActiveTab(`billing-pos-${tier}`);
+    } else if (tabId === "inventory") {
+      if (tier === "small") {
+        setActiveTab("dashboard-small");
+        sessionStorage.setItem("inventra_dashboard_section", "inventory");
+        window.dispatchEvent(new CustomEvent("change-dashboard-section", { detail: "inventory" }));
+      } else {
+        setActiveTab(`inventory-ops-${tier}`);
+      }
+    } else if (tabId === "menu") {
+      const isDashboard = activeTab.startsWith("dashboard-");
+      if (isDashboard) {
+        window.dispatchEvent(new CustomEvent("toggle-mobile-menu"));
+      } else {
+        sessionStorage.setItem("inventra_open_mobile_menu", "true");
+        setActiveTab(`dashboard-${tier}`);
+      }
+    }
+  };
+
+  const isDashboard = activeTab.startsWith("dashboard-");
+  
+  const checkIsActive = (tabId) => {
+    if (tabId === "home") {
+      return isDashboard && currentSection === "overview";
+    }
+    if (tabId === "analytics") {
+      return isDashboard && currentSection === "analytics";
+    }
+    if (tabId === "billing") {
+      return activeTab.startsWith("billing-pos-");
+    }
+    if (tabId === "inventory") {
+      return (isDashboard && currentSection === "inventory") || activeTab.startsWith("inventory-ops-");
+    }
+    if (tabId === "menu") {
+      return isMenuOpen;
+    }
+    return false;
+  };
+
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-150 flex justify-around items-center z-50 shadow-md transition-all">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-150 grid grid-cols-5 items-center z-50 shadow-md transition-all">
       {tabs.map((tab) => {
-        const isActive = activeTab === tab.id;
+        const isActive = checkIsActive(tab.id);
         return (
-          <button
-            key={tab.id}
-            className={`flex flex-col items-center justify-center cursor-pointer bg-none border-none transition-all ${
-              isActive 
-                ? "bg-[#0EA5E9]/10 text-[#0EA5E9] rounded-xl py-1.5 px-4 font-black scale-105" 
-                : "text-slate-400 hover:text-slate-650 py-1.5 px-4 font-bold"
-            }`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.icon}
-            <span className="text-[9px] tracking-wide mt-0.5">{tab.label}</span>
-          </button>
+          <div key={tab.id} className="flex justify-center items-center w-full h-full">
+            <button
+              className={`flex flex-col items-center justify-center cursor-pointer bg-none border-none transition-all duration-200 ${
+                isActive 
+                  ? "bg-[#0EA5E9]/10 text-[#0EA5E9] rounded-xl py-1.5 px-3 font-black scale-105" 
+                  : "text-slate-400 hover:text-slate-650 py-1.5 px-3 font-bold"
+              }`}
+              onClick={() => handleTabClick(tab.id)}
+            >
+              {tab.icon}
+              <span className="text-[9px] tracking-wide mt-0.5">{tab.label}</span>
+            </button>
+          </div>
         );
       })}
     </nav>

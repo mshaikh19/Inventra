@@ -97,6 +97,9 @@ export default function Signup({ setActiveTab }) {
   const [emailChecking, setEmailChecking] = React.useState(false);
   const [emailAvailable, setEmailAvailable] = React.useState(null);
   const [showPassword, setShowPassword] = React.useState(false);
+  const [googleAccessToken, setGoogleAccessToken] = React.useState(null);
+  const [isGoogleSignup, setIsGoogleSignup] = React.useState(false);
+  const [googleProfile, setGoogleProfile] = React.useState(null);
 
   const firstNameRef = React.useRef(null);
   const lastNameRef = React.useRef(null);
@@ -110,7 +113,7 @@ export default function Signup({ setActiveTab }) {
     window.matchMedia("(min-width: 1025px)").matches;
 
   const inputClass =
-    "w-full border border-slate-200/90 bg-slate-50/50 placeholder:text-slate-400 text-slate-900 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-[#0EA5E9]/10 focus:border-[#0EA5E9] focus:bg-white transition-all duration-300 font-sans text-[12px] sm:text-[13.5px] font-semibold"; // disable page scroll while signup is open on large screens (full-height modal)
+  "w-full border border-slate-200/90 bg-slate-50/50 placeholder:text-slate-400 text-slate-900 px-3 py-1 sm:py-1.5 rounded-lg shadow-sm focus:outline-none focus:ring-4 focus:ring-[#0EA5E9]/10 focus:border-[#0EA5E9] focus:bg-white transition-all duration-300 font-sans text-[11px] sm:text-[12.5px] font-semibold"; // disable page scroll while signup is open on large screens (full-height modal)
 
   React.useEffect(() => {
     const prev = document.body.style.overflow;
@@ -242,30 +245,20 @@ export default function Signup({ setActiveTab }) {
 
       }
 
-      if (!form.password) {
-
-        e.password = "Choose a password.";
-
-      } else {
-
-        const pw = form.password;
-
-        if (pw.length < 8)
-
-          e.password = "Weak password. Use at least 8 characters.";
-
-        else if (!/[A-Z]/.test(pw))
-
-          e.password = "Password must contain at least one uppercase letter.";
-
-        else if (!/[a-z]/.test(pw))
-
-          e.password = "Password must contain at least one lowercase letter.";
-
-        else if (!/[0-9]/.test(pw))
-
-          e.password = "Password must contain at least one number.";
-
+      if (!isGoogleSignup) {
+        if (!form.password) {
+          e.password = "Choose a password.";
+        } else {
+          const pw = form.password;
+          if (pw.length < 8)
+            e.password = "Weak password. Use at least 8 characters.";
+          else if (!/[A-Z]/.test(pw))
+            e.password = "Password must contain at least one uppercase letter.";
+          else if (!/[a-z]/.test(pw))
+            e.password = "Password must contain at least one lowercase letter.";
+          else if (!/[0-9]/.test(pw))
+            e.password = "Password must contain at least one number.";
+        }
       }
 
       if (!form.agree)
@@ -591,6 +584,38 @@ export default function Signup({ setActiveTab }) {
 
       setClassification(cls);
 
+      if (isGoogleSignup && googleAccessToken) {
+        const payload = {
+          access_token: googleAccessToken,
+          businessName: form.company,
+          businessType: form.businessType || null,
+          inventorySize: Number(form.inventorySize || 0),
+          transactionsLast30d: Number(form.transactionsLast30d || 0),
+          branches: Number(form.branches || 0),
+          employees: Number(form.employees || 0),
+          classification: cls,
+        };
+        const res = await fetch("http://127.0.0.1:8000/api/v1/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.detail || "Google Registration failed.");
+        }
+        if (data?.accessToken && data?.user) {
+          localStorage.setItem("inventra_token", data.accessToken);
+          localStorage.setItem("inventra_user", JSON.stringify(data.user));
+          setActiveTab("branch-setup");
+        }
+        setSuccess(true);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
+        }
+        return;
+      }
+
       const payload = {
 
         email: form.email,
@@ -725,6 +750,161 @@ export default function Signup({ setActiveTab }) {
 
 
 
+  const handleGoogleSignUpClick = () => {
+    if (window.google) {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: "335551120481-532ku6717oec3lk37j48hc2koo8jfq3f.apps.googleusercontent.com",
+        scope: "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+        callback: async (response) => {
+          if (response && response.access_token) {
+            setLoading(true);
+            setErrors(null);
+            try {
+              // 1. Fetch Google user profile
+              const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${response.access_token}` },
+              });
+              if (!userInfoRes.ok) throw new Error("Failed to fetch Google profile info.");
+              const profile = await userInfoRes.json();
+
+              // 2. Check if user already exists
+              const checkEmailRes = await fetch(`http://127.0.0.1:8000/api/v1/auth/check-email?email=${encodeURIComponent(profile.email)}`);
+              if (!checkEmailRes.ok) throw new Error("Failed to check email availability.");
+              const checkEmailData = await checkEmailRes.json();
+
+              if (checkEmailData.exists) {
+                // Exists: complete login instantly
+                toast.info("Account already exists. Logging you in...", { autoClose: 2000 });
+                const loginRes = await fetch("http://127.0.0.1:8000/api/v1/auth/google", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ access_token: response.access_token }),
+                });
+                const loginData = await loginRes.json();
+                if (!loginRes.ok) throw new Error(loginData.detail || "Google Login failed.");
+
+                if (loginData.accessToken && loginData.user) {
+                  localStorage.setItem("inventra_token", loginData.accessToken);
+                  localStorage.setItem("inventra_user", JSON.stringify(loginData.user));
+                  setActiveTab("branch-setup");
+                  setSuccess(true);
+                }
+              } else {
+                // Doesn't exist: prefill form details and proceed with wizard
+                setForm((prev) => ({
+                  ...prev,
+                  firstName: profile.given_name || "",
+                  lastName: profile.family_name || "",
+                  email: profile.email || "",
+                  password: "google_authenticated_user_placeholder_pw",
+                  agree: true, // Auto-agree on Google Sign-Up to enable Continue immediately
+                }));
+                setGoogleAccessToken(response.access_token);
+                setGoogleProfile(profile);
+                setIsGoogleSignup(true);
+                setEmailAvailable(true);
+                setErrors({}); // Clear any previous validation errors
+                toast.success("Google account connected. Please enter your business details to complete registration.");
+              }
+            } catch (err) {
+              setErrors({ submit: err.message });
+              toast.error(`Google authentication error: ${err.message}`);
+            } finally {
+              setLoading(false);
+            }
+          }
+        },
+      });
+      client.requestAccessToken();
+    }
+  };
+
+  const handleDisconnectGoogle = () => {
+    setIsGoogleSignup(false);
+    setGoogleAccessToken(null);
+    setGoogleProfile(null);
+    setForm((prev) => ({
+      ...prev,
+      firstName: "",
+      lastName: "",
+      email: "",
+      password: "",
+      agree: false,
+    }));
+    setEmailAvailable(null);
+    setErrors({});
+  };
+
+  const handleGoogleSignup = async (accessToken) => {
+
+    setLoading(true);
+
+    setErrors(null);
+
+    setDbCheck(null);
+
+
+
+    try {
+
+      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/google", {
+
+        method: "POST",
+
+        headers: { "Content-Type": "application/json" },
+
+        body: JSON.stringify({ access_token: accessToken }),
+
+      });
+
+
+
+      const data = await res.json().catch(() => ({}));
+
+
+
+      if (!res.ok) {
+
+        throw new Error(data?.detail || "Google Sign-Up failed.");
+
+      }
+
+
+
+      if (data?.accessToken && data?.user) {
+
+        localStorage.setItem("inventra_token", data.accessToken);
+
+        localStorage.setItem("inventra_user", JSON.stringify(data.user));
+
+        setActiveTab("branch-setup");
+
+      }
+
+
+
+      setSuccess(true);
+
+      if (typeof window !== "undefined") {
+
+        window.sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
+
+      }
+
+    } catch (err) {
+
+      setErrors({ submit: err.message });
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  };
+
+
+
   const checkDatabaseStatus = async () => {
 
     setLoading(true);
@@ -772,8 +952,7 @@ export default function Signup({ setActiveTab }) {
   return (
     <div className="flex flex-col lg:flex-row bg-[#F8FAFC] font-sans lg:h-screen">
       {/* Left panel: Brand highlight and vision */}
-      {isLargeScreen && (
-        <div className="lg:w-[48%] 2xl:w-1/2 bg-[#0F172A] text-white p-8 lg:pt-6 lg:px-12 xl:pt-8 xl:px-16 2xl:pt-10 2xl:px-20 flex flex-col justify-between relative overflow-hidden lg:h-full">
+      <div className="hidden lg:flex lg:w-[48%] 2xl:w-1/2 bg-[#0F172A] text-white p-8 lg:pt-6 lg:px-12 xl:pt-8 xl:px-16 2xl:pt-10 2xl:px-20 flex-col justify-between relative overflow-hidden lg:h-full">
 
           {/* Neon blurred background nodes for premium ambient glow */}
           <div className="absolute w-100 h-100 bg-[#0EA5E9]/10 blur-[100px] rounded-full -top-25 -left-25 pointer-events-none"></div>
@@ -940,15 +1119,13 @@ export default function Signup({ setActiveTab }) {
 
         </div>
 
-      )}
-
 
 
       {/* Right panel: Premium Signup wizard */}
 
-      <div className="w-full lg:w-[52%] p-4 sm:p-8 md:p-12 lg:pt-4 lg:px-10 xl:pt-6 xl:px-12 2xl:pt-8 2xl:px-16 pb-6 sm:pb-8 md:pb-10 lg:pb-12 flex items-start justify-start lg:h-full min-h-0 overflow-auto lg:overflow-visible">
+      <div className="w-full lg:w-[52%] p-4 sm:p-8 md:p-12 lg:pt-4 lg:px-10 xl:pt-6 xl:px-12 2xl:pt-8 2xl:px-16 pb-24 sm:pb-28 md:pb-32 lg:pb-12 flex items-start lg:items-start justify-center lg:justify-start lg:h-full min-h-0 overflow-visible lg:overflow-y-auto">
 
-        <div className="w-full max-w-sm sm:max-w-md lg:max-w-190 xl:max-w-210 2xl:max-w-230 origin-top">
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-[480px] xl:max-w-[520px] 2xl:max-w-[560px] origin-top">
 
           {/* Header block with elegant back button */}
 
@@ -1254,25 +1431,23 @@ export default function Signup({ setActiveTab }) {
 
           ) : (
 
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-5 md:p-6 lg:p-6 xl:p-7 shadow-[0_20px_50px_rgba(0,0,0,0.02)] w-full flex flex-col gap-3 text-left">
+            <div className="bg-white border border-slate-100 rounded-2xl p-3 sm:p-3.5 md:p-4 lg:p-4 xl:p-4.5 shadow-[0_20px_50px_rgba(0,0,0,0.02)] w-full flex flex-col gap-2 text-left">
 
               {step === 1 && (
 
                 <>
 
-                  <div className="flex flex-col gap-1 mb-2">
+                  <div className="flex flex-col gap-0.5 mb-1">
 
-                    <h2 className="text-xl sm:text-[1.7rem] lg:text-[1.75rem] xl:text-[1.8rem] 2xl:text-[1.8rem] font-black text-slate-950 tracking-tight leading-tight">
+                    <h2 className="text-[16px] sm:text-[18px] lg:text-[20px] font-black text-slate-950 tracking-tight leading-tight">
 
                       Setup your account
 
                     </h2>
 
-                    <p className="text-xs sm:text-sm md:text-[14px] lg:text-sm text-slate-600 font-medium leading-relaxed">
+                    <p className="text-[10.5px] sm:text-[11px] text-slate-500 leading-normal">
 
-                      Let's start with your contact information to setup your
-
-                      workspace.
+                      Let's start with your contact details to set up your retail intelligence workspace.
 
                     </p>
 
@@ -1280,255 +1455,256 @@ export default function Signup({ setActiveTab }) {
 
 
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {!isGoogleSignup ? (
+                    <>
+                      <div className="w-full flex justify-center mt-1">
 
-                    <div className="flex flex-col gap-1">
+                        <button
 
-                      <label className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                          type="button"
 
-                        First Name
+                          onClick={handleGoogleSignUpClick}
 
-                      </label>
+                          className="w-full flex items-center h-[40px] rounded-full border border-black bg-[#1f1f1f] text-white hover:bg-slate-850 transition-all duration-200 active:scale-[0.98] shadow-sm cursor-pointer overflow-hidden font-sans text-[14px] font-bold"
 
-                      <input
+                        >
 
-                        aria-invalid={!!(errors && errors.firstName)}
+                          <div className="flex items-center justify-center bg-white h-full w-[48px] shrink-0 border-r border-black">
 
-                        ref={firstNameRef}
+                            <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
 
-                        value={form.firstName}
+                              <path
 
-                        onChange={(e) =>
+                                fill="#4285F4"
 
-                          handleChange("firstName", e.target.value)
+                                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.9h6.69c-.29 1.5-.1.13-1.14 2.19v2.51h1.8c1.05-1.0 1.8-2.4 1.8-4.08c0-1.85-.35-2.45-1.15-2.45z"
 
-                        }
+                              />
 
-                        placeholder="John"
+                              <path
 
-                        className={inputClass}
+                                fill="#34A853"
 
-                      />
+                                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-1.8-2.51c-.8.5-1.8.8-3.13.8c-2.95 0-5.45-2.0-6.34-4.7H1.83v2.58C3.83 21.08 7.6 24 12 24z"
 
-                      {errors && errors.firstName && (
+                              />
 
-                        <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                              <path
 
-                          {errors.firstName}
+                                fill="#FBBC05"
 
-                        </p>
+                                d="M5.66 14.68a7.17 7.17 0 0 1 0-4.56V7.54H1.83a12.01 12.01 0 0 0 0 10.72l3.83-2.58z"
 
-                      )}
+                              />
 
-                    </div>
+                              <path
 
-                    <div className="flex flex-col gap-1">
+                                fill="#EA4335"
 
-                      <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0C7.6 0 3.83 2.92 1.83 7.54l3.83 2.58c.89-2.7 3.39-4.7 6.34-4.7z"
 
-                        Last Name
+                              />
 
-                      </label>
+                            </svg>
 
-                      <input
+                          </div>
 
-                        aria-invalid={!!(errors && errors.lastName)}
+                          <span className="flex-1 text-center pr-[48px]">Sign up with Google</span>
 
-                        ref={lastNameRef}
+                        </button>
 
-                        value={form.lastName}
+                      </div>
 
-                        onChange={(e) =>
 
-                          handleChange("lastName", e.target.value)
 
-                        }
+                      <div className="relative flex py-0.5 items-center">
 
-                        placeholder="Doe"
+                        <div className="flex-grow border-t border-slate-200"></div>
 
-                        className={inputClass}
+                        <span className="flex-shrink mx-4 text-slate-400 text-[10.5px] font-extrabold uppercase tracking-wider">Or</span>
 
-                      />
+                        <div className="flex-grow border-t border-slate-200"></div>
 
-                      {errors && errors.lastName && (
+                      </div>
+                    </>
+                  ) : null}
 
-                        <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                  {!isGoogleSignup ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                            First Name
+                          </label>
+                          <input
+                            aria-invalid={!!(errors && errors.firstName)}
+                            ref={firstNameRef}
+                            value={form.firstName}
+                            onChange={(e) =>
+                              handleChange("firstName", e.target.value)
+                            }
+                            placeholder="John"
+                            className={inputClass}
+                          />
+                          {errors && errors.firstName && (
+                            <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                              {errors.firstName}
+                            </p>
+                          )}
+                        </div>
 
-                          {errors.lastName}
-
-                        </p>
-
-                      )}
-
-                    </div>
-
-                  </div>
-
-
-
-                  <div className="flex flex-col gap-1">
-
-                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-
-                      Business Email
-
-                    </label>
-
-                    <input
-
-                      aria-invalid={!!(errors && errors.email)}
-
-                      ref={emailRef}
-
-                      value={form.email}
-
-                      onChange={(e) => handleChange("email", e.target.value)}
-
-                      placeholder="you@yourbusiness.com"
-
-                      className={inputClass}
-
-                    />
-
-                    <p className="text-[11px] text-slate-500 mt-1">
-
-                      We'll send setup and verification details to this address.
-
-                    </p>
-
-                    {emailChecking && (
-
-                      <p className="text-[11px] text-slate-500 mt-0 px-1 leading-tight">
-
-                        Checking email availability...
-
-                      </p>
-
-                    )}
-
-                    {emailAvailable === true && !emailChecking && form.email && (
-
-                      <p className="text-emerald-600 text-[11px] font-bold mt-0 px-1 leading-tight">
-
-                        ✓ Email is available
-
-                      </p>
-
-                    )}
-
-                    {emailAvailable === false && !emailChecking && form.email && (
-
-                      <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
-
-                        ✗ Email is already registered
-
-                      </p>
-
-                    )}
-
-                    {errors && errors.email && (
-
-                      <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
-
-                        {errors.email}
-
-                      </p>
-
-                    )}
-
-                  </div>
-
-
-
-                  <div className="flex flex-col gap-1">
-
-                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-
-                      Create a Password
-
-                    </label>
-
-                    <div className="relative">
-
-                      <input
-
-                        aria-invalid={!!(errors && errors.password)}
-
-                        type={showPassword ? "text" : "password"}
-
-                        value={form.password}
-
-                        onChange={(e) => handleChange("password", e.target.value)}
-
-                        placeholder="At least 8 characters"
-
-                        className={inputClass + " pr-10"}
-
-                      />
-
-                      <button
-
-                        type="button"
-
-                        onClick={() => setShowPassword(!showPassword)}
-
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-
-                      >
-
-                        {showPassword ? (
-
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-
-                          </svg>
-
-                        ) : (
-
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-
-                          </svg>
-
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                            Last Name
+                          </label>
+                          <input
+                            aria-invalid={!!(errors && errors.lastName)}
+                            ref={lastNameRef}
+                            value={form.lastName}
+                            onChange={(e) =>
+                              handleChange("lastName", e.target.value)
+                            }
+                            placeholder="Doe"
+                            className={inputClass}
+                          />
+                          {errors && errors.lastName && (
+                            <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                              {errors.lastName}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                          Business Email
+                        </label>
+                        <input
+                          aria-invalid={!!(errors && errors.email)}
+                          ref={emailRef}
+                          value={form.email}
+                          onChange={(e) => handleChange("email", e.target.value)}
+                          placeholder="you@yourbusiness.com"
+                          className={inputClass}
+                        />
+                        {emailChecking && (
+                          <p className="text-[11px] text-slate-500 mt-0 px-1 leading-tight">
+                            Checking email availability...
+                          </p>
                         )}
+                        {emailAvailable === true && !emailChecking && form.email && (
+                          <p className="text-emerald-600 text-[11px] font-bold mt-0 px-1 leading-tight">
+                            ✓ Email is available
+                          </p>
+                        )}
+                        {emailAvailable === false && !emailChecking && form.email && (
+                          <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                            ✗ Email is already registered
+                          </p>
+                        )}
+                        {errors && errors.email && (
+                          <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                            {errors.email}
+                          </p>
+                        )}
+                      </div>
 
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                          Create a Password
+                        </label>
+                        <div className="relative">
+                          <input
+                            aria-invalid={!!(errors && errors.password)}
+                            type={showPassword ? "text" : "password"}
+                            value={form.password}
+                            onChange={(e) => handleChange("password", e.target.value)}
+                            placeholder="At least 8 characters"
+                            className={inputClass + " pr-10"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650 transition-colors"
+                          >
+                            {showPassword ? (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                        {errors && errors.password && (
+                          <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
+                            {errors.password}
+                          </p>
+                        )}
+                        {!passwordIsStrong && form.password && (
+                          <span className="text-red-500 text-[10px] font-bold block mt-0.5 px-1">
+                            Use at least 8 characters for security.
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    googleProfile && (
+                      <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 p-4.5 flex items-center gap-4.5 transition-all duration-300 hover:border-slate-300 hover:shadow-sm cursor-default my-1">
+                        <div className="absolute right-0 top-0 h-16 w-16 bg-emerald-500/5 blur-xl rounded-full pointer-events-none"></div>
+                        <div className="relative shrink-0">
+                          {googleProfile.picture ? (
+                            <img
+                              src={googleProfile.picture}
+                              alt="Google Avatar"
+                              className="h-12 w-12 rounded-full border border-slate-200/90 object-cover shadow-sm animate-fade-in"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 font-bold text-lg border border-slate-300">
+                              {googleProfile.given_name?.[0] || googleProfile.name?.[0] || "U"}
+                            </div>
+                          )}
+                          <div className="absolute -bottom-1 -right-1 h-5.5 w-5.5 rounded-full bg-white flex items-center justify-center shadow-md border border-slate-100/90">
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24">
+                              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.9h6.69c-.29 1.5-.1.13-1.14 2.19v2.51h1.8c1.05-1.0 1.8-2.4 1.8-4.08c0-1.85-.35-2.45-1.15-2.45z"/>
+                              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-1.8-2.51c-.8.5-1.8.8-3.13.8c-2.95 0-5.45-2.0-6.34-4.7H1.83v2.58C3.83 21.08 7.6 24 12 24z"/>
+                              <path fill="#FBBC05" d="M5.66 14.68a7.17 7.17 0 0 1 0-4.56V7.54H1.83a12.01 12.01 0 0 0 0 10.72l3.83-2.58z"/>
+                              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0C7.6 0 3.83 2.92 1.83 7.54l3.83 2.58c.89-2.7 3.39-4.7 6.34-4.7z"/>
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[13.5px] font-extrabold text-slate-900 truncate">
+                              {googleProfile.name || `${googleProfile.given_name} ${googleProfile.family_name}`}
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-755 border border-emerald-200 shadow-sm animate-pulse-soft">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-[11.5px] text-slate-500 font-semibold truncate leading-none">
+                            {googleProfile.email}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleDisconnectGoogle}
+                          className="text-[11.5px] font-black text-rose-650 hover:text-rose-700 hover:underline shrink-0 cursor-pointer p-1.5 transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    )
+                  )}
 
-                    </div>
-
-                    {errors && errors.password && (
-
-                      <p className="text-red-500 text-[11px] font-bold mt-0 px-1 leading-tight">
-
-                        {errors.password}
-
-                      </p>
-
-                    )}
-
-                    <span
-
-                      className={`text-[10px] font-bold block mt-1 px-1 leading-normal ${passwordIsStrong ? "text-emerald-600" : "text-red-500"}`}
-
-                    >
-
-                      {passwordIsStrong
-
-                        ? "Good — secure enough to continue."
-
-                        : "Use at least 8 characters for security."}
-
-                    </span>
-
-                  </div>
 
 
-
-                  <div className="flex flex-col gap-1.5 mt-1.5 border-t border-slate-50 pt-3.5">
+                  <div className="flex flex-col gap-1 mt-1 border-t border-slate-100 pt-2.5">
 
                     <div className="flex items-start gap-3">
 
@@ -1554,7 +1730,7 @@ export default function Signup({ setActiveTab }) {
 
                         htmlFor="agree"
 
-                        className="text-[12.5px] text-slate-600 font-bold leading-normal cursor-pointer select-none"
+                        className="text-[11.5px] text-slate-600 font-bold leading-normal cursor-pointer select-none"
 
                       >
 
@@ -1591,6 +1767,10 @@ export default function Signup({ setActiveTab }) {
                     )}
 
                   </div>
+
+
+
+
 
                 </>
 
@@ -1798,11 +1978,11 @@ export default function Signup({ setActiveTab }) {
 
 
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <div className="flex flex-col gap-1 h-full">
 
-                      <label className="min-h-10 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 leading-tight">
+                      <label className="min-h-0 sm:min-h-10 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 leading-tight">
 
                         How many locations do you have?
 
@@ -1834,7 +2014,7 @@ export default function Signup({ setActiveTab }) {
 
                     <div className="flex flex-col gap-1 h-full">
 
-                      <label className="min-h-10 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 leading-tight">
+                      <label className="min-h-0 sm:min-h-10 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 leading-tight">
 
                         Monthly sales
 
@@ -1916,7 +2096,7 @@ export default function Signup({ setActiveTab }) {
 
               {step < 4 && (
 
-                <div className="sticky bottom-0 z-20 -mx-4 sm:mx-0 flex items-center gap-2 sm:gap-3 mt-1.5 sm:mt-2 border-t border-slate-50 pt-3 sm:pt-4 pb-3 sm:pb-0 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 px-4 sm:px-0">
+                <div className="sticky bottom-0 z-20 -mx-4 sm:mx-0 flex items-center gap-2 sm:gap-3 mt-1 border-t border-slate-100 pt-2.5 pb-2 sm:pb-0 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 px-4 sm:px-0">
 
                   {step > 1 && (
 
@@ -1926,7 +2106,7 @@ export default function Signup({ setActiveTab }) {
 
                       onClick={goBack}
 
-                      className="px-4 py-2.5 sm:py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 text-[12px] sm:text-[13px] font-bold rounded-xl transition-all duration-200 active:scale-97 cursor-pointer"
+                      className="px-4 py-2 sm:py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-[11px] sm:text-[12px] font-bold rounded-xl transition-all duration-200 active:scale-97 cursor-pointer"
 
                     >
 
@@ -1942,7 +2122,7 @@ export default function Signup({ setActiveTab }) {
 
                     onClick={goNext}
 
-                    className="ml-auto px-5 sm:px-7 py-2.5 sm:py-3 bg-[#0F172A] hover:bg-slate-800 text-white text-[12px] sm:text-[13px] font-bold rounded-xl transition-all duration-200 active:scale-97 cursor-pointer shadow-md shadow-slate-900/5"
+                    className="ml-auto px-5 sm:px-7 py-2 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white text-[11px] sm:text-[12px] font-bold rounded-xl transition-all duration-200 active:scale-97 cursor-pointer shadow-md shadow-slate-900/5"
 
                   >
 

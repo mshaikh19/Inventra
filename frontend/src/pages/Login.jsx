@@ -392,6 +392,130 @@ export default function Login({ setActiveTab }) {
 
 
 
+  const handleGoogleLogin = async (response) => {
+
+    setLoading(true);
+
+    setError(null);
+
+    setMessage(null);
+
+    setFieldErrors({});
+
+    setLoginSuccess(false);
+
+
+
+    try {
+
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/google`, {
+
+        method: "POST",
+
+        headers: {
+
+          "Content-Type": "application/json",
+
+        },
+
+        body: JSON.stringify({
+
+          access_token: response,
+
+        }),
+
+      });
+
+
+
+      const data = await res.json();
+
+
+
+      if (!res.ok) {
+
+        throw new Error(data?.detail || "Google Sign-In failed.");
+
+      }
+
+
+
+      saveAuthData(data.accessToken, data.user);
+
+
+
+      let branchData = null;
+
+      try {
+
+        branchData = await getUserBranches();
+
+      } catch {
+
+        branchData = null;
+
+      }
+
+
+
+      const user = data.user || {};
+
+      const userId = user.id || user._id || user.email || "default";
+
+      const isOwner = userHasOwnerAccess(user);
+
+      const hasCompletedBranchSetup = Boolean(branchData?.branches && branchData.branches.length > 0);
+
+
+
+      if (isOwner && hasCompletedBranchSetup) {
+
+        markBranchSetupCompleted(user);
+
+      }
+
+
+
+      const onboardingCompleted =
+
+        !isOwner ||
+
+        hasCompletedBranchSetup ||
+
+        localStorage.getItem(`inventra_onboarding_completed_${userId}`) === "true";
+
+
+
+      if (isOwner && !onboardingCompleted) {
+
+        setActiveTab("branch-setup");
+
+      } else {
+
+        setActiveTab(getDashboardTabFromUser(data.user));
+
+      }
+
+
+
+      setLoginSuccess(true);
+
+      setMessage(data.message || "Login successful.");
+
+    } catch (err) {
+
+      setError(err.message || "Unable to sign in with Google right now.");
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  };
+
+
+
   const RightCard = () => {
 
     if (loginSuccess) {
@@ -528,23 +652,95 @@ export default function Login({ setActiveTab }) {
 
       >
 
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-2">
 
           <div>
 
-            <p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">
+            <p className="text-[10px] font-black tracking-[0.28em] uppercase text-sky-500">
 
               Sign In
 
             </p>
 
-            <h2 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-slate-900">
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900">
 
               Sign in to Inventra
 
             </h2>
 
           </div>
+
+        </div>
+
+
+
+        <div className="w-full flex justify-center mt-2">
+
+          <button
+
+            type="button"
+
+            onClick={handleGoogleSignInClick}
+
+            className="w-full flex items-center h-[40px] rounded-full border border-black bg-[#1f1f1f] text-white hover:bg-slate-850 transition-all duration-200 active:scale-[0.98] shadow-sm cursor-pointer overflow-hidden font-sans text-[14px] font-bold"
+
+          >
+
+            <div className="flex items-center justify-center bg-white h-full w-[48px] shrink-0 border-r border-black">
+
+              <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+
+                <path
+
+                  fill="#4285F4"
+
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.9h6.69c-.29 1.5-.1.13-1.14 2.19v2.51h1.8c1.05-1.0 1.8-2.4 1.8-4.08c0-1.85-.35-2.45-1.15-2.45z"
+
+                />
+
+                <path
+
+                  fill="#34A853"
+
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-1.8-2.51c-.8.5-1.8.8-3.13.8c-2.95 0-5.45-2.0-6.34-4.7H1.83v2.58C3.83 21.08 7.6 24 12 24z"
+
+                />
+
+                <path
+
+                  fill="#FBBC05"
+
+                  d="M5.66 14.68a7.17 7.17 0 0 1 0-4.56V7.54H1.83a12.01 12.01 0 0 0 0 10.72l3.83-2.58z"
+
+                />
+
+                <path
+
+                  fill="#EA4335"
+
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0C7.6 0 3.83 2.92 1.83 7.54l3.83 2.58c.89-2.7 3.39-4.7 6.34-4.7z"
+
+                />
+
+              </svg>
+
+            </div>
+
+            <span className="flex-1 text-center pr-[48px]">Sign in with Google</span>
+
+          </button>
+
+        </div>
+
+
+
+        <div className="relative flex py-1 items-center">
+
+          <div className="flex-grow border-t border-slate-200"></div>
+
+          <span className="flex-shrink mx-4 text-slate-400 text-[11px] font-extrabold uppercase tracking-wider">Or</span>
+
+          <div className="flex-grow border-t border-slate-200"></div>
 
         </div>
 
@@ -695,6 +891,10 @@ export default function Login({ setActiveTab }) {
 
         </button>
 
+
+
+
+
       </form>
 
     );
@@ -747,13 +947,43 @@ export default function Login({ setActiveTab }) {
 
 
 
+  const handleGoogleSignInClick = () => {
+
+    if (window.google) {
+
+      const client = window.google.accounts.oauth2.initTokenClient({
+
+        client_id: "335551120481-532ku6717oec3lk37j48hc2koo8jfq3f.apps.googleusercontent.com",
+
+        scope: "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+
+        callback: (response) => {
+
+          if (response && response.access_token) {
+
+            handleGoogleLogin(response.access_token);
+
+          }
+
+        },
+
+      });
+
+      client.requestAccessToken();
+
+    }
+
+  };
+
+
+
   return (
 
     <section className="min-h-[calc(100vh-5rem)] px-6 md:px-16 lg:px-24 xl:px-32 py-10 md:py-14 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_32%),linear-gradient(180deg,#f8fafc_0%,#ffffff_45%,#f8fafc_100%)] w-full flex items-center overflow-hidden">
 
       <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
 
-        <div className="relative overflow-hidden rounded-4xl bg-[#0F172A] text-white p-8 md:p-12 shadow-[0_30px_80px_rgba(15,23,42,0.16)] lg:-translate-y-6">
+        <div className="hidden lg:block relative overflow-hidden rounded-4xl bg-[#0F172A] text-white p-8 md:p-12 shadow-[0_30px_80px_rgba(15,23,42,0.16)] lg:-translate-y-6">
 
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.22),transparent_30%)]" />
 
@@ -835,7 +1065,7 @@ export default function Login({ setActiveTab }) {
 
 
 
-        <div className="relative">
+        <div className="relative w-full max-w-md md:max-w-lg lg:max-w-none mx-auto lg:mx-0">
 
           <div className="absolute inset-0 -z-10 rounded-[36px] bg-sky-100/40 blur-3xl" />
 

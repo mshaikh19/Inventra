@@ -50,6 +50,18 @@ class UserLogin(BaseModel):
     password: str = Field(..., min_length=6)
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: Optional[str] = None
+    access_token: Optional[str] = None
+    businessName: Optional[str] = None
+    businessType: Optional[str] = None
+    inventorySize: Optional[int] = 0
+    transactionsLast30d: Optional[int] = 0
+    branches: Optional[int] = 1
+    employees: Optional[int] = 1
+    classification: Optional[str] = None
+
+
 class UserResponse(UserBase):
     id: Optional[str] = Field(None, alias="_id")
     businessTier:    Optional[str] = None

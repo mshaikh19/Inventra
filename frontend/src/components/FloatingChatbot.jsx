@@ -490,7 +490,7 @@ export default function FloatingChatbot({ activeTier }) {
     // Default parser for standard text
     return (
       <div className="space-y-1">
-        {txt.split("\n").map((line, lineIdx) => {
+        {(msg.text || "").split("\n").map((line, lineIdx) => {
           let content = line;
           const isBullet = line.startsWith("•");
           if (isBullet) content = line.substring(1).trim();
@@ -517,7 +517,7 @@ export default function FloatingChatbot({ activeTier }) {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 md:bottom-8 md:right-8 z-50 select-none">
+    <div className="fixed bottom-20 right-4 md:bottom-8 md:right-8 z-50 select-none">
       {/* Floating Action Button (FAB) */}
       <button
         onClick={toggleChat}
@@ -541,7 +541,7 @@ export default function FloatingChatbot({ activeTier }) {
 
       {/* Floating Chat Overlay Card */}
       {isOpen && (
-        <div className="absolute bottom-18 right-0 w-[380px] max-w-[calc(100vw-2.5rem)] h-[570px] rounded-3xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="absolute bottom-16 md:bottom-18 right-0 w-[380px] max-w-[calc(100vw-2rem)] h-[480px] sm:h-[520px] md:h-[570px] rounded-3xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300">
           {/* Header */}
           <div className="px-5 py-4 bg-slate-900 text-white flex justify-between items-center relative">
             <div className="flex items-center gap-2">

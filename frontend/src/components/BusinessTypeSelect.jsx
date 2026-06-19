@@ -106,7 +106,7 @@ export default function BusinessTypeSelect({
           <ul
             role="listbox"
             aria-activedescendant={`opt-${highlight}`}
-            className="max-h-48 overflow-auto"
+            className="max-h-40 overflow-auto"
           >
             {normalized.map((opt, i) => (
               <li

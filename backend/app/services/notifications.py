@@ -76,6 +76,23 @@ async def upsert_notification(db, payload: NotificationCreate) -> dict:
 
     result = await db.notifications.insert_one(doc)
     created = await db.notifications.find_one({"_id": result.inserted_id})
+    
+    # Send email alert in the background for new low stock/expiry alerts
+    import asyncio
+    from app.utils.email import send_alert_email
+    type_val = payload.type.value if hasattr(payload.type, "value") else payload.type
+    if type_val in ["low_stock", "expiry"]:
+        asyncio.create_task(
+            send_alert_email(
+                db,
+                business_id=str(payload.business_id),
+                branch_id=str(payload.branch_id) if payload.branch_id else None,
+                alert_title=payload.title,
+                alert_text=payload.text,
+                alert_type=type_val
+            )
+        )
+        
     return serialize_notification(created)
 
 
