@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
-import PureBarcodeScanner from "./pureBarcodeScanner";
-import PaymentModal from "./paymentModal";
+import PureBarcodeScanner from "./PureBarcodeScanner";
+import PaymentModal from "./PaymentModal";
 import CustomDropdown from "./CustomDropdown";
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import { getCategoryGstRate } from "../utils/inventory";
