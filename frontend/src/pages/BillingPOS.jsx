@@ -1,6 +1,6 @@
 import React from "react";
-import BillingSystem from "../components/billingSystem";
-import BranchDropdown from "../components/branchDropdown";
+import BillingSystem from "../components/BillingSystem";
+import BranchDropdown from "../components/BranchDropdown";
 import {
   getDashboardTierFromUser,
   getTierBadgeLabel,

@@ -1,5 +1,5 @@
 import React from "react";
-import NotificationDropdown from "./notificationDropdown";
+import NotificationDropdown from "./NotificationDropdown";
 
 export default function Header({
   activeTab,

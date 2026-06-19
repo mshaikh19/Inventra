@@ -21,13 +21,13 @@ import {
 import { getEmployees } from "../utils/employees";
 import { getTasks, updateTask } from "../utils/tasks";
 import { toast } from "react-toastify";
-import InventoryTable from "../components/inventoryTable";
-import CSVUpload from "../components/csvUpload";
-import SmallDashboard from "../components/smallDashboard";
-import MediumDashboard from "../components/mediumDashboard";
-import LargeDashboard from "../components/largeDashboard";
+import InventoryTable from "../components/InventoryTable";
+import CSVUpload from "../components/CSVUpload";
+import SmallDashboard from "../components/SmallDashboard";
+import MediumDashboard from "../components/MediumDashboard";
+import LargeDashboard from "../components/LargeDashboard";
 import CustomDropdown from "../components/CustomDropdown";
-import NotificationDropdown from "../components/notificationDropdown";
+import NotificationDropdown from "../components/NotificationDropdown";
 import { useNotifications } from "../contexts/NotificationContext";
 import {
   loadScopedInventoryProducts,

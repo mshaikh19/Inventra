@@ -1,6 +1,6 @@
 import React from "react";
 import { toast } from "react-toastify";
-import PureBarcodeScanner from "../components/pureBarcodeScanner";
+import PureBarcodeScanner from "../components/PureBarcodeScanner";
 import CustomDropdown from "../components/CustomDropdown";
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import {
