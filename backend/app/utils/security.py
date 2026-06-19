@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from passlib.context import CryptContext
@@ -23,7 +23,7 @@ def verifyPassword(plainPassword: str, hashedPassword: str) -> bool:
 
 
 def createAccessToken(subject: str, expires_delta: Optional[timedelta] = None) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
     else:
@@ -34,7 +34,7 @@ def createAccessToken(subject: str, expires_delta: Optional[timedelta] = None) -
 
 
 def createRefreshToken(subject: str, expires_delta: Optional[timedelta] = None) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
     else:
@@ -48,7 +48,7 @@ def decodeToken(token: str) -> dict:
 
 
 def createPurposeToken(subject: str, purpose: str, expires_minutes: int = 60) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=expires_minutes)
     to_encode = {
         "sub": str(subject),

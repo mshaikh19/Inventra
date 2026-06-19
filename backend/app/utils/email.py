@@ -193,3 +193,35 @@ async def send_password_reset_email(user_email: str, first_name: str, token: str
     </div>
     """
     await send_email([user_email], "Reset your Inventra password", html_content)
+
+
+async def send_employee_setup_email(employee_email: str, first_name: str, business_name: str, role: str):
+    login_link = f"{FRONTEND_URL}/login"
+    html_content = f"""
+    <div style="font-family: sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+        <h2 style="color: #0ea5e9; margin-top: 0;">Welcome to the Team! 🎉</h2>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            Hello {first_name},
+        </p>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            Your staff account has been successfully set up for <strong>{business_name}</strong> on the Inventra Retail Intelligence portal.
+        </p>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            <strong>Your Assigned Role:</strong> {role.replace('_', ' ').title()}
+        </p>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            You can access the portal and sign in with your email address. We highly recommend updating your temporary password upon logging in.
+        </p>
+        <div style="margin-top: 28px; padding-top: 20px; text-align: center;">
+            <a href="{login_link}" style="display: inline-block; background-color: #0f172a; color: #ffffff; text-decoration: none; padding: 10px 20px; font-weight: bold; border-radius: 8px; font-size: 13px;">Login to Portal</a>
+        </div>
+        <p style="font-size: 12px; line-height: 1.6; color: #64748b; margin-top: 28px;">
+            If the button above does not work, copy and paste the following URL into your browser:
+            <br />
+            <a href="{login_link}" style="color: #0ea5e9;">{login_link}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0 16px 0;" />
+        <p style="font-size: 11px; color: #64748b; margin: 0;">This is an automated notification. If you believe this was sent in error, please contact your manager.</p>
+    </div>
+    """
+    await send_email([employee_email], f"Welcome to the team at {business_name}!", html_content)

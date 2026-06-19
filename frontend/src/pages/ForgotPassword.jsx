@@ -78,7 +78,10 @@ export default function ForgotPassword({ setActiveTab }) {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.detail || data?.message || "Unable to reset password");
-      setResetMessage(data.message || "Password reset successful.");
+      setResetMessage((data.message || "Password reset successful.") + " Redirecting to login...");
+      setTimeout(() => {
+        setActiveTab("login");
+      }, 2000);
     } catch (err) {
       setResetError(err.message || "Unable to reset password");
     } finally {
@@ -93,7 +96,7 @@ export default function ForgotPassword({ setActiveTab }) {
         <div className="relative">
           <div className="absolute inset-0 -z-10 rounded-[36px] bg-sky-50/20" />
           {!showReset ? (
-            <form onSubmit={submitForgot} className="rounded-[20px] border border-slate-100 bg-white p-8 md:p-10 shadow-lg max-w-xl mx-auto">
+            <form onSubmit={submitForgot} className="rounded-[20px] border border-slate-100 bg-white p-6 sm:p-8 md:p-10 shadow-lg max-w-xl mx-auto">
               <div>
                 <p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">Request reset</p>
                 <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Reset Password</h2>
@@ -124,7 +127,7 @@ export default function ForgotPassword({ setActiveTab }) {
               <button type="button" onClick={() => setActiveTab("login")} className="mt-6 text-sm text-slate-600">← Back to sign in</button>
             </form>
           ) : (
-            <form onSubmit={submitReset} className="rounded-[20px] border border-slate-100 bg-white p-8 md:p-10 shadow-lg max-w-xl mx-auto">
+            <form onSubmit={submitReset} className="rounded-[20px] border border-slate-100 bg-white p-6 sm:p-8 md:p-10 shadow-lg max-w-xl mx-auto">
               <div>
                 <p className="text-[11px] font-black tracking-[0.28em] uppercase text-sky-500">Reset password</p>
                 <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">Provide token and new password</h2>
@@ -189,7 +192,7 @@ export default function ForgotPassword({ setActiveTab }) {
         </div>
 
         {/* Right: info / hero */}
-        <div className="relative overflow-hidden rounded-[32px] bg-[#0F172A] text-white p-8 md:p-12 shadow-[0_30px_80px_rgba(15,23,42,0.16)] lg:-translate-y-6">
+        <div className="hidden lg:block relative overflow-hidden rounded-[32px] bg-[#0F172A] text-white p-8 md:p-12 shadow-[0_30px_80px_rgba(15,23,42,0.16)] lg:-translate-y-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(14,165,233,0.22),_transparent_30%)]" />
           <div className="relative z-10 flex flex-col gap-6">
             <div className="flex items-center gap-2 text-xs font-black tracking-[0.28em] uppercase text-sky-200/90">

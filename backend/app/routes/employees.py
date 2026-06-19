@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi import APIRouter, HTTPException, status, Depends, Header, BackgroundTasks
 from typing import List, Optional
 from datetime import datetime
 from bson import ObjectId
 from app.models import schemas
 from app.database.mongo import getDatabase
 from app.utils import security
+from app.utils.email import send_employee_setup_email
 
 router = APIRouter()
 
@@ -143,6 +144,7 @@ def _serialize_employee(doc: dict) -> dict:
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=schemas.EmployeeResponse)
 async def create_employee(
     employee: schemas.EmployeeCreate,
+    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None),
     db = Depends(getDatabase)
 ):
@@ -243,6 +245,21 @@ async def create_employee(
         {"_id": ObjectId(business_id)},
         {"$inc": {"employees": 1}}
     )
+
+    # Send setup email to the new employee in the background
+    try:
+        business = await db.businesses.find_one({"_id": ObjectId(business_id)})
+        business_name = business.get("name", "Inventra Partner") if business else "Inventra Partner"
+        background_tasks.add_task(
+            send_employee_setup_email,
+            employee_email=employee.email,
+            first_name=employee.firstName,
+            business_name=business_name,
+            role=employee.role
+        )
+    except Exception as e:
+        import logging
+        logging.error(f"Failed to queue employee setup email: {e}")
 
     return _serialize_employee(user_doc)
 

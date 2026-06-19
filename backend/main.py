@@ -16,7 +16,7 @@ from app.routes import tasks
 from app.services.ml_classifier import classifier
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 PROJECT = os.getenv("PROJECT_NAME")
 
