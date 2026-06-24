@@ -5,30 +5,9 @@ from bson import ObjectId
 from app.models import schemas
 from app.database.mongo import getDatabase
 from app.utils import security
+from app.utils.security import get_current_user_id
 
 router = APIRouter()
-
-
-# ── Auth helpers ──────────────────────────────────────────────────────────────
-async def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extract and validate bearer token, return user_id string."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header"
-        )
-    token = authorization.split(" ", 1)[1]
-    try:
-        payload = security.decodeToken(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("No subject in token")
-        return user_id
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
 
 
 async def get_user_role_and_business(user_id: str, db):

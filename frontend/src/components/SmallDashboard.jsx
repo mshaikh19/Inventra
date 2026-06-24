@@ -1,6 +1,157 @@
 import React from "react";
+import CustomDropdown from "./CustomDropdown";
 
-export default function SmallDashboard({ products, salesCount, salesRevenue, salesRevenueNote = "", notifications, tierAccent, salesHistory }) {
+
+
+const getRecommendedStarterItems = (businessType) => {
+  switch (businessType) {
+    case "retail":
+      return [
+        { name: "Eco-Friendly Notebooks", category: "Stationery", demand: "High", margin: "45%" },
+        { name: "Stainless Steel Water Bottles", category: "Drinkware", demand: "Medium", margin: "50%" },
+        { name: "Universal Charging Cables", category: "Electronics", demand: "High", margin: "60%" },
+        { name: "Reusable Tote Bags", category: "Accessories", demand: "Very High", margin: "40%" },
+      ];
+    case "grocery":
+      return [
+        { name: "Whole Wheat Sourdough Bread", category: "Bakery", demand: "Very High", margin: "35%" },
+        { name: "Organic Whole Milk (1L)", category: "Dairy", demand: "Very High", margin: "15%" },
+        { name: "Salted Potato Chips", category: "Snacks", demand: "High", margin: "30%" },
+        { name: "Fresh Gala Apples (1kg)", category: "Produce", demand: "High", margin: "25%" },
+      ];
+    case "pharmacy":
+      return [
+        { name: "Paracetamol 500mg (10 tabs)", category: "OTC Medicine", demand: "Very High", margin: "40%" },
+        { name: "Adhesive Bandages (Pack of 20)", category: "First Aid", demand: "High", margin: "50%" },
+        { name: "Multivitamin Tablets (30 count)", category: "Supplements", demand: "High", margin: "55%" },
+        { name: "Instant Hand Sanitizer (100ml)", category: "Hygiene", demand: "Medium", margin: "45%" },
+      ];
+    case "apparel":
+      return [
+        { name: "Classic Cotton Crewneck Tee", category: "T-Shirts", demand: "Very High", margin: "65%" },
+        { name: "Athletic Ankle Socks (Pack of 3)", category: "Socks", demand: "High", margin: "70%" },
+        { name: "Fleece Hooded Sweatshirt", category: "Outerwear", demand: "Medium", margin: "60%" },
+        { name: "Canvas Tote Bag", category: "Accessories", demand: "High", margin: "50%" },
+      ];
+    default:
+      return [
+        { name: "Standard Copy Paper (A4)", category: "Office Supplies", demand: "High", margin: "35%" },
+        { name: "Microfiber Cleaning Cloths", category: "Home Utility", demand: "Medium", margin: "50%" },
+        { name: "AA Alkaline Batteries (Pack of 4)", category: "Electronics", demand: "High", margin: "45%" },
+      ];
+  }
+};
+
+export default function SmallDashboard({
+  products,
+  salesCount,
+  salesRevenue,
+  salesRevenueNote = "",
+  notifications,
+  tierAccent,
+  salesHistory,
+  userProfile,
+  onUpdateBusinessDetails
+}) {
+  const [isEditingInline, setIsEditingInline] = React.useState(false);
+  const [tempType, setTempType] = React.useState(userProfile?.businessType || "retail");
+  const [tempDesc, setTempDesc] = React.useState(userProfile?.businessDescription || "");
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [showStarterSuggestions, setShowStarterSuggestions] = React.useState(false);
+  const [dynamicRecommendations, setDynamicRecommendations] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("inventra_starter_recommendations");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.recommendations || [];
+      }
+    } catch (e) {
+      console.warn("Failed to parse cached recommendations:", e);
+    }
+    return [];
+  });
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = React.useState(false);
+
+  React.useEffect(() => {
+    const hasDetails = userProfile?.businessType && userProfile?.businessDescription && userProfile.businessDescription.trim().length > 3;
+    if ((!products || products.length === 0) && userProfile?.isSmartStockEnabled && hasDetails) {
+      // Try to load from cache optimistically to avoid default lists during api load
+      try {
+        const saved = localStorage.getItem("inventra_starter_recommendations");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (
+            parsed.type === userProfile.businessType &&
+            parsed.desc === userProfile.businessDescription &&
+            parsed.recommendations &&
+            parsed.recommendations.length > 0
+          ) {
+            setDynamicRecommendations(parsed.recommendations);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse cached recommendations:", e);
+      }
+
+      const fetchStarterRecommendations = async () => {
+        setIsLoadingRecommendations(true);
+        try {
+          const token = localStorage.getItem("inventra_token") || sessionStorage.getItem("inventra_token");
+          const headers = {};
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+          }
+          const res = await fetch("http://127.0.0.1:8000/api/v1/chatbot/starter-recommendations", { headers });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.recommendations) {
+              setDynamicRecommendations(data.recommendations);
+              localStorage.setItem(
+                "inventra_starter_recommendations",
+                JSON.stringify({
+                  type: userProfile.businessType,
+                  desc: userProfile.businessDescription,
+                  recommendations: data.recommendations
+                })
+              );
+            }
+          }
+        } catch (err) {
+          console.error("Failed to fetch starter recommendations:", err);
+        } finally {
+          setIsLoadingRecommendations(false);
+        }
+      };
+      fetchStarterRecommendations();
+    }
+  }, [products, userProfile?.isSmartStockEnabled, userProfile?.businessType, userProfile?.businessDescription]);
+
+  React.useEffect(() => {
+    if (userProfile) {
+      setTempType(userProfile.businessType || "retail");
+      setTempDesc(userProfile.businessDescription || "");
+    }
+  }, [userProfile]);
+
+  const handleSaveDetails = async () => {
+    setIsSaving(true);
+    try {
+      await onUpdateBusinessDetails(tempType, tempDesc, true);
+      // Clear local storage cache to force fresh recommendations matching the new details
+      localStorage.removeItem("inventra_starter_recommendations");
+      setDynamicRecommendations([]);
+      setIsEditingInline(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEnableOnly = () => {
+    setIsEditingInline(true);
+  };
+
   const lowStockProducts = products.filter((p) => p.stock <= (p.reorderLevel || 10));
 
   const upcomingExpiries = products
@@ -171,8 +322,8 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, sal
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_0.85fr] gap-6 items-start">
-        <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <section className="lg:col-span-2 relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
           <div className="flex items-center justify-between gap-4 mb-5">
             <div>
               <h3 className="text-lg font-black text-slate-900">Demand Forecasting</h3>
@@ -184,7 +335,7 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, sal
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-2 h-[220px] items-end rounded-3xl bg-slate-50/70 border border-slate-100 p-4">
+          <div className="grid grid-cols-7 gap-2 h-[320px] items-end rounded-3xl bg-slate-50/70 border border-slate-100 p-4">
             {chartBars.map((bar, i) => (
               <div key={i} className="flex flex-col items-center justify-end h-full">
                 <div className="text-[9px] font-bold text-slate-400 mb-1">₹{bar.revenue.toLocaleString()}</div>
@@ -227,38 +378,194 @@ export default function SmallDashboard({ products, salesCount, salesRevenue, sal
           ) : null}
         </section>
 
-        <aside className="rounded-3xl border border-sky-200 bg-white p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
+        <aside className="lg:col-span-1 rounded-3xl border border-sky-200 bg-white p-5 md:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_10px_40px_rgba(0,0,0,0.02)]">
           <div className="flex items-center gap-2">
             <span className="text-sky-500 text-lg">✦</span>
             <h3 className="text-lg font-black text-slate-900">Smart Stock</h3>
           </div>
 
           <div className="mt-5 space-y-3">
-            {recommendations.length === 0 ? (
-              <div className="py-8 px-4 text-center rounded-2xl border border-dashed border-sky-100 bg-sky-50/20 text-xs font-semibold text-slate-500 leading-relaxed">
-                <span className="block text-lg mb-1.5">✨</span>
-                {products.length === 0 
-                  ? "No inventory recommendations yet. Add products to get smart stock insights!"
-                  : "All stock levels are optimal! No immediate reorders or promotions required."}
-              </div>
-            ) : (
-              recommendations.map((rec) => (
-                <div key={rec.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-black text-slate-900">{rec.title}</div>
-                    <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase border ${rec.badgeBg}`}>
-                      {rec.badge}
-                    </span>
+            {(!products || products.length === 0) ? (
+              (() => {
+                const isSmartStockEnabled = !!userProfile?.isSmartStockEnabled;
+                const hasDetails = userProfile?.businessType && userProfile?.businessDescription && userProfile.businessDescription.trim().length > 3;
+
+                // State A: Not enabled yet
+                if (!isSmartStockEnabled && !isEditingInline) {
+                  return (
+                    <div className="rounded-2xl border border-sky-100 bg-sky-50/30 p-5 text-center relative overflow-hidden transition-all duration-300 hover:shadow-md">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-sky-100/30 rounded-full blur-2xl -mr-6 -mt-6" />
+                      <div className="text-2xl mb-2.5">🚀</div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Enable Smart Stock</h4>
+                      <p className="mt-2 text-[11px] font-semibold text-slate-500 leading-relaxed">
+                        Unlock real-time sales forecasting, low-stock warnings, and dynamic discount suggestions customized for your retail niche.
+                      </p>
+                      <button
+                        onClick={handleEnableOnly}
+                        className="mt-4 w-full rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-[10px] uppercase tracking-widest py-3 transition-colors shadow-sm"
+                      >
+                        Enable Smart Stock
+                      </button>
+                    </div>
+                  );
+                }
+
+                // State B: Setup Details
+                if (isEditingInline || !hasDetails) {
+                  return (
+                    <div className="rounded-2xl border border-amber-100 bg-amber-50/30 p-5 text-left transition-all duration-300">
+                      <div className="flex items-center gap-2 font-black text-amber-800 text-xs">
+                        <span>💡</span>
+                        <span>Initial Business Details</span>
+                      </div>
+                      <p className="mt-1 text-[11px] font-semibold text-slate-650 leading-relaxed">
+                        A brief description and category details are needed so that Smart Stock can analyze and display personalized strategies.
+                      </p>
+
+                      <div className="mt-4 space-y-3">
+                        <div>
+                          <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Business Category</label>
+                          <CustomDropdown
+                            value={tempType}
+                            onChange={(val) => setTempType(val)}
+                            options={[
+                              { value: "retail", label: "General Retail" },
+                              { value: "grocery", label: "Grocery / Supermarket" },
+                              { value: "pharmacy", label: "Pharmacy / Healthcare" },
+                              { value: "apparel", label: "Apparel / Fashion" },
+                              { value: "other", label: "Other" },
+                            ]}
+                            theme="sky"
+                            size="sm"
+                            className="mt-1"
+                            buttonClassName="font-bold"
+                            up={false}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">What do you sell?</label>
+                          <textarea
+                            value={tempDesc}
+                            onChange={(e) => setTempDesc(e.target.value)}
+                            placeholder="e.g. Organic bakery items, fresh artisan bread, cakes and custom dessert orders."
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 resize-none h-16"
+                          />
+                        </div>
+
+                        <button
+                          onClick={handleSaveDetails}
+                          disabled={isSaving}
+                          className="w-full rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase tracking-wider py-2.5 transition-colors disabled:opacity-50"
+                        >
+                          {isSaving ? "Saving..." : "Save & Generate Strategy"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // State C: Enabled & Details present (Show Simple Active Status + Space-Saving Recommendations)
+                const starterItems = dynamicRecommendations.length > 0 
+                  ? dynamicRecommendations 
+                  : getRecommendedStarterItems(userProfile?.businessType || "retail");
+                return (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/10 px-4 py-3 text-xs flex items-center justify-between shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
+                      <span className="flex items-center gap-1.5 text-[10.5px] font-black uppercase tracking-wider text-emerald-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Smart Stock Active
+                      </span>
+                      <button
+                        onClick={() => setIsEditingInline(true)}
+                        className="text-[10px] font-black uppercase text-[#0EA5E9] hover:text-[#0284C7] hover:underline transition-colors cursor-pointer"
+                      >
+                        Edit Details
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-sky-100 bg-sky-50/30 p-3.5 text-xs">
+                      <div className="flex items-center justify-between gap-1.5 font-extrabold text-[10.5px] uppercase tracking-wider text-sky-700 mb-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <span>📦</span>
+                          <span>Recommended Starter Stock</span>
+                        </div>
+                        {isLoadingRecommendations && (
+                          <span className="flex h-2 w-2 relative shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {starterItems.map((item, idx) => {
+                          const demandColor = item.demand.includes("Very High")
+                            ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20"
+                            : item.demand.includes("High")
+                            ? "bg-teal-500/10 text-teal-700 border-teal-500/20"
+                            : "bg-sky-500/10 text-sky-700 border-sky-500/20";
+                          
+                          return (
+                            <div 
+                              key={idx} 
+                              className="p-3 rounded-xl bg-white border border-slate-100 hover:border-sky-100 hover:shadow-sm transition-all duration-200 text-left space-y-2.5"
+                            >
+                              {/* Product Name */}
+                              <div className="font-extrabold text-slate-900 text-[12px] leading-snug">
+                                {item.name}
+                              </div>
+
+                              {/* Footer Meta Row */}
+                              <div className="flex items-center justify-between text-[10px] gap-2 pt-2 border-t border-slate-100/70">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide truncate">
+                                    {item.category}
+                                  </span>
+                                  <span className={`inline-block px-1.5 py-0.5 rounded-full text-[7.5px] font-black uppercase tracking-wider border shrink-0 ${demandColor}`}>
+                                    {item.demand}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Margin</span>
+                                  <span className="text-[10.5px] font-black text-emerald-600 font-mono">{item.margin}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                  <p className="mt-2 text-xs text-slate-600 leading-relaxed">{rec.text}</p>
+                );
+              })()
+            ) : (
+              recommendations.length === 0 ? (
+                <div className="py-8 px-4 text-center rounded-2xl border border-dashed border-sky-100 bg-sky-50/20 text-xs font-semibold text-slate-500 leading-relaxed">
+                  <span className="block text-lg mb-1.5">✨</span>
+                  All stock levels are optimal! No immediate reorders or promotions required.
                 </div>
-              ))
+              ) : (
+                recommendations.map((rec) => (
+                  <div key={rec.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-black text-slate-900">{rec.title}</div>
+                      <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase border ${rec.badgeBg}`}>
+                        {rec.badge}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600 leading-relaxed">{rec.text}</p>
+                  </div>
+                ))
+              )
             )}
           </div>
 
-          <button className="mt-4 w-full rounded-2xl border border-slate-200 bg-white py-3 text-xs font-black uppercase tracking-[0.24em] text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors">
-            View All Suggestions
-          </button>
+          {products && products.length > 0 && recommendations.length > 0 && (
+            <button className="mt-4 w-full rounded-2xl border border-slate-200 bg-white py-3 text-xs font-black uppercase tracking-[0.24em] text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+              View All Suggestions
+            </button>
+          )}
         </aside>
       </div>
 

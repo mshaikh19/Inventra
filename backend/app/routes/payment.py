@@ -19,46 +19,10 @@ from app.models.schemas import (
 from app.database.mongo import getDatabase
 from app.services.payment_service import get_payment_service
 from app.services.notifications import NotificationCreate, NotificationType, upsert_notification
-from app.utils.security import decodeToken
+from app.utils.security import decodeToken, get_current_user_id, get_business_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["payments"])
-
-# ── Auth helper ──────────────────────────────────────────────────────────────
-async def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extract and validate bearer token, return user_id string."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header"
-        )
-    token = authorization.split(" ", 1)[1]
-    try:
-        payload = decodeToken(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("No subject in token")
-        return user_id
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
-
-
-async def get_business_id(user_id: str, db) -> str:
-    """Look up the business document for this user."""
-    if ObjectId.is_valid(user_id):
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
-        if user and "businessId" in user and user["businessId"]:
-            return str(user["businessId"])
-    business = await db.businesses.find_one({"ownerUserId": user_id})
-    if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No business found for this user"
-        )
-    return str(business["_id"])
 
 
 async def _emit_payment_notification(db, business_id: str, branch_id: Optional[str], user_id: str, *, key: str, title: str, text: str, notification_type: NotificationType, source: str = "payment", meta: Optional[dict] = None):

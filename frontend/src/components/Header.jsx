@@ -162,7 +162,7 @@ export default function Header({
         ) : (
           <button
             className="inline-flex py-2 px-3 sm:py-2.5 sm:px-4.5 rounded-lg font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all duration-200 active:scale-98 cursor-pointer text-[11px] sm:text-[12px] items-center justify-center gap-1.5 font-sans"
-            onClick={() => { localStorage.removeItem('inventra_token'); localStorage.removeItem('inventra_user'); sessionStorage.removeItem('inventra_token'); sessionStorage.removeItem('inventra_user'); setActiveTab('home'); setIsAuthed(false); window.location.reload(); }}
+            onClick={() => { localStorage.removeItem('inventra_token'); localStorage.removeItem('inventra_user'); localStorage.removeItem('inventra_starter_recommendations'); sessionStorage.removeItem('inventra_token'); sessionStorage.removeItem('inventra_user'); sessionStorage.removeItem('inventra_starter_recommendations'); setActiveTab('home'); setIsAuthed(false); window.location.reload(); }}
           >
             <span>Logout</span>
           </button>

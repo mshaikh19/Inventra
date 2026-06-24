@@ -72,6 +72,9 @@ class UserResponse(UserBase):
     roles:           Optional[List[str]] = None
     branchId:        Optional[str] = None
     isActive:        Optional[bool] = True
+    businessType:        Optional[str] = None
+    businessDescription: Optional[str] = None
+    isSmartStockEnabled: Optional[bool] = False
 
     class Config:
         populate_by_name = True

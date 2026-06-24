@@ -28,6 +28,7 @@ import MediumDashboard from "../components/MediumDashboard";
 import LargeDashboard from "../components/LargeDashboard";
 import CustomDropdown from "../components/CustomDropdown";
 import NotificationDropdown from "../components/NotificationDropdown";
+import ExecutiveProfileModal from "../components/ExecutiveProfileModal";
 import { useNotifications } from "../contexts/NotificationContext";
 import {
   loadScopedInventoryProducts,
@@ -1166,6 +1167,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     businessName: "",
     email: "",
     businessType: "",
+    businessDescription: "",
+    isSmartStockEnabled: false,
   });
 
   // ── Delete Account state ──────────────────────────────────────────────────
@@ -1185,9 +1188,38 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         businessName: userProfile.businessName || userProfile.company || "",
         email: userProfile.email || "",
         businessType: userProfile.businessType || "",
+        businessDescription: userProfile.businessDescription || "",
+        isSmartStockEnabled: !!userProfile.isSmartStockEnabled,
       });
     }
   }, [userProfile]);
+
+  useEffect(() => {
+    const fetchFreshProfile = async () => {
+      const token =
+        localStorage.getItem("inventra_token") ||
+        sessionStorage.getItem("inventra_token");
+      if (!token) return;
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/v1/auth/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.user) {
+            setUserProfile(data.user);
+            localStorage.setItem("inventra_user", JSON.stringify(data.user));
+            sessionStorage.setItem("inventra_user", JSON.stringify(data.user));
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch fresh user profile:", err);
+      }
+    };
+    fetchFreshProfile();
+  }, []);
 
   const userDisplayName = getUserDisplayName(userProfile || userSession?.user);
 
@@ -1195,6 +1227,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     for (const storage of [localStorage, sessionStorage]) {
       storage.removeItem("inventra_token");
       storage.removeItem("inventra_user");
+      storage.removeItem("inventra_starter_recommendations");
     }
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("inventra_dashboard_section");
@@ -1607,6 +1640,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
           ? {
               businessName: (profileDraft.businessName || "").trim(),
               businessType: profileDraft.businessType || "other",
+              businessDescription: profileDraft.businessDescription || "",
+              isSmartStockEnabled: !!profileDraft.isSmartStockEnabled,
             }
           : {}),
       };
@@ -1642,6 +1677,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                 businessName: updated.businessName,
                 email: updated.email,
                 businessType: updated.businessType,
+                businessDescription: updated.businessDescription,
+                isSmartStockEnabled: updated.isSmartStockEnabled,
               }),
             },
           );
@@ -1663,6 +1700,57 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     } catch (err) {
       console.error(err);
       toast.error("Failed to save profile.");
+    }
+  };
+
+  const updateBusinessProfileDetails = async (newType, newDesc, isEnabled) => {
+    try {
+      const updated = {
+        ...userProfile,
+        ...(newType !== undefined ? { businessType: newType } : {}),
+        ...(newDesc !== undefined ? { businessDescription: newDesc } : {}),
+        ...(isEnabled !== undefined ? { isSmartStockEnabled: isEnabled } : {}),
+      };
+      setUserProfile(updated);
+      localStorage.setItem("inventra_user", JSON.stringify(updated));
+      sessionStorage.setItem("inventra_user", JSON.stringify(updated));
+
+      const token =
+        localStorage.getItem("inventra_token") ||
+        sessionStorage.getItem("inventra_token");
+      if (token) {
+        const res = await fetch(
+          "http://127.0.0.1:8000/api/v1/auth/update-profile",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              firstName: updated.firstName,
+              lastName: updated.lastName,
+              businessName: updated.businessName,
+              email: updated.email,
+              businessType: updated.businessType,
+              businessDescription: updated.businessDescription,
+              isSmartStockEnabled: updated.isSmartStockEnabled,
+            }),
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.user) {
+            setUserProfile(data.user);
+            localStorage.setItem("inventra_user", JSON.stringify(data.user));
+            sessionStorage.setItem("inventra_user", JSON.stringify(data.user));
+          }
+        }
+      }
+      toast.success("Business details updated successfully!");
+    } catch (err) {
+      console.error("Failed to save business details inline:", err);
+      toast.error("Failed to save business details.");
     }
   };
 
@@ -2921,6 +3009,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       tierAccent={config.accent}
                       tierAccentSoft={config.accentSoft}
                       salesHistory={salesHistory}
+                      userProfile={userProfile}
+                      onUpdateBusinessDetails={updateBusinessProfileDetails}
                     />
                   )}
                   {normalizedTier === "medium" && (
@@ -4811,153 +4901,17 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             </div>
           )}
 
-          {editingProfile && (
-            <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm overflow-y-auto">
-              <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)] my-8">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-                      Edit Profile
-                    </span>
-                    <h3 className="text-xl font-black text-slate-950 mt-1">
-                      Update Executive Profile
-                    </h3>
-                    <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">
-                      Your role will remain{" "}
-                      <strong>
-                        {isOwner
-                          ? "OWNER"
-                          : getRoleDisplayName(
-                              userProfile?.role || userSession?.user?.role,
-                            )}
-                      </strong>
-                      .
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setEditingProfile(false)}
-                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-500 hover:text-slate-900 cursor-pointer"
-                  >
-                    Close
-                  </button>
-                </div>
-
-                <form onSubmit={handleSaveProfile} className="mt-5 space-y-4">
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      First Name
-                    </span>
-                    <input
-                      value={profileDraft.firstName}
-                      onChange={(e) =>
-                        setProfileDraft((p) => ({
-                          ...p,
-                          firstName: e.target.value,
-                        }))
-                      }
-                      placeholder="First name"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                      autoFocus
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      Last Name
-                    </span>
-                    <input
-                      value={profileDraft.lastName}
-                      onChange={(e) =>
-                        setProfileDraft((p) => ({
-                          ...p,
-                          lastName: e.target.value,
-                        }))
-                      }
-                      placeholder="Last name"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                    />
-                  </label>
-
-                  {isOwner && (
-                    <label className="block">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                        Business / Company
-                      </span>
-                      <input
-                        value={profileDraft.businessName}
-                        onChange={(e) =>
-                          setProfileDraft((p) => ({
-                            ...p,
-                            businessName: e.target.value,
-                          }))
-                        }
-                        placeholder="Business name"
-                        className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                      />
-                    </label>
-                  )}
-
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      Email (login)
-                    </span>
-                    <input
-                      value={profileDraft.email}
-                      onChange={(e) =>
-                        setProfileDraft((p) => ({
-                          ...p,
-                          email: e.target.value,
-                        }))
-                      }
-                      placeholder="email@example.com"
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-300 focus:bg-white"
-                    />
-                  </label>
-
-                  {isOwner && (
-                    <label className="block">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                        Business Category
-                      </span>
-                      <CustomDropdown
-                        value={profileDraft.businessType || "other"}
-                        onChange={(val) =>
-                          setProfileDraft((p) => ({ ...p, businessType: val }))
-                        }
-                        options={[
-                          { value: "retail", label: "Retail" },
-                          { value: "grocery", label: "Grocery" },
-                          { value: "pharmacy", label: "Pharmacy" },
-                          { value: "apparel", label: "Apparel" },
-                          { value: "other", label: "Other" },
-                        ]}
-                        theme="emerald"
-                        className="mt-1"
-                        buttonClassName="font-bold"
-                        up={true}
-                      />
-                    </label>
-                  )}
-
-                  <div className="flex gap-3">
-                    <button
-                      type="submit"
-                      className="flex-1 w-full rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"
-                    >
-                      Save Profile
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingProfile(false)}
-                      className="rounded-xl bg-slate-100 px-5 py-3 text-xs font-bold text-slate-700 hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
+          <ExecutiveProfileModal
+            isOpen={editingProfile}
+            onClose={() => setEditingProfile(false)}
+            isOwner={isOwner}
+            userProfile={userProfile}
+            userSession={userSession}
+            getRoleDisplayName={getRoleDisplayName}
+            profileDraft={profileDraft}
+            setProfileDraft={setProfileDraft}
+            handleSaveProfile={handleSaveProfile}
+          />
 
           {/* ── Delete Account Confirmation Modal ── */}
           {showDeleteAccountModal && (

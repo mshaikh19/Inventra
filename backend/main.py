@@ -13,6 +13,7 @@ from app.routes import payment
 from app.routes import notifications
 from app.routes import employees
 from app.routes import tasks
+from app.routes import chatbot
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -82,6 +83,7 @@ app.include_router(payment.router,    prefix="/api/v1",           tags=["Payment
 app.include_router(notifications.router, prefix="/api/v1",       tags=["Notifications"])
 app.include_router(employees.router,   prefix="/api/v1/employees",  tags=["Employees"])
 app.include_router(tasks.router,       prefix="/api/v1/tasks",      tags=["Tasks"])
+app.include_router(chatbot.router,     prefix="/api/v1/chatbot",    tags=["Chatbot"])
 
 @app.get("/")
 async def getRoot():

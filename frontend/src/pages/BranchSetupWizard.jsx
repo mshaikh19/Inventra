@@ -597,6 +597,7 @@ export default function BranchSetupWizard({ setActiveTab }) {
     for (const storage of [localStorage, sessionStorage]) {
       storage.removeItem("inventra_token");
       storage.removeItem("inventra_user");
+      storage.removeItem("inventra_starter_recommendations");
     }
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", "/");

@@ -5,46 +5,10 @@ from bson import ObjectId
 from app.models import schemas
 from app.database.mongo import getDatabase
 from app.utils import security
+from app.utils.security import get_current_user_id, get_business_id
 from app.utils.email import send_employee_setup_email
 
 router = APIRouter()
-
-
-# ── Auth helpers ──────────────────────────────────────────────────────────────
-async def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extract and validate bearer token, return user_id string."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header"
-        )
-    token = authorization.split(" ", 1)[1]
-    try:
-        payload = security.decodeToken(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("No subject in token")
-        return user_id
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
-
-
-async def get_business_id(user_id: str, db) -> str:
-    """Look up the business document for this user."""
-    if ObjectId.is_valid(user_id):
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
-        if user and "businessId" in user and user["businessId"]:
-            return str(user["businessId"])
-    business = await db.businesses.find_one({"ownerUserId": user_id})
-    if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No business found for this user."
-        )
-    return str(business["_id"])
 
 
 async def enforce_owner_or_manager(user_id: str, db, employee_branch_id: Optional[str] = None, target_employee_id: Optional[str] = None) -> dict:

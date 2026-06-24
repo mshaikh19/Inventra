@@ -120,6 +120,9 @@ async def signUp(user: schemas.UserCreate, background_tasks: BackgroundTasks):
             user_doc["dashboardPath"] = business_doc.get("dashboardPath")
             user_doc["mlConfidence"] = business_doc.get("mlConfidence")
             user_doc["signalQuality"] = business_doc.get("signalQuality")
+            user_doc["businessType"] = business_doc.get("businessType")
+            user_doc["businessDescription"] = business_doc.get("description")
+            user_doc["isSmartStockEnabled"] = business_doc.get("isSmartStockEnabled", False)
 
         access_token = security.createAccessToken(str(user_doc["_id"]))
 
@@ -215,6 +218,9 @@ async def login(user: schemas.UserLogin):
         "roles": ["owner", "user"] if is_business_owner else existing_roles,
         "branchId": existing.get("branchId"),
         "isActive": existing.get("isActive", True),
+        "businessType": business.get("businessType") if business else None,
+        "businessDescription": business.get("description") if business else None,
+        "isSmartStockEnabled": business.get("isSmartStockEnabled", False) if business else False,
     }
 
     return {
@@ -341,6 +347,8 @@ class ProfileUpdateRequest(BaseModel):
     businessName: str
     email: str
     businessType: Optional[str] = None
+    businessDescription: Optional[str] = None
+    isSmartStockEnabled: Optional[bool] = None
 
 @router.post("/update-profile")
 async def update_profile(
@@ -388,18 +396,34 @@ async def update_profile(
     # Update or create Business document associated with this user
     business = await db.businesses.find_one({"ownerUserId": user_id})
     if business:
+        # Check if type or description changed to clear stored recommendations
+        old_type = business.get("businessType") or business.get("type")
+        old_desc = business.get("description")
+        
+        type_changed = (payload.businessType is not None and payload.businessType != old_type)
+        desc_changed = (payload.businessDescription is not None and payload.businessDescription != old_desc)
+        
+        update_data = {
+            "name": payload.businessName,
+            "businessType": payload.businessType,
+            "description": payload.businessDescription,
+            "isSmartStockEnabled": payload.isSmartStockEnabled
+        }
+        
+        if type_changed or desc_changed:
+            update_data["starterRecommendations"] = None
+
         await db.businesses.update_one(
             {"ownerUserId": user_id},
-            {"$set": {
-                "name": payload.businessName,
-                "businessType": payload.businessType
-            }}
+            {"$set": update_data}
         )
     else:
         await db.businesses.insert_one({
             "name": payload.businessName,
             "ownerUserId": user_id,
             "businessType": payload.businessType,
+            "description": payload.businessDescription,
+            "isSmartStockEnabled": payload.isSmartStockEnabled,
             "createdAt": datetime.utcnow()
         })
 
@@ -427,6 +451,8 @@ async def update_profile(
         "businessName": updated_user.get("businessName") or (updated_business.get("name") if updated_business else ""),
         "businessTier": business_tier,
         "businessType": updated_business.get("businessType") if updated_business else None,
+        "businessDescription": updated_business.get("description") if updated_business else None,
+        "isSmartStockEnabled": updated_business.get("isSmartStockEnabled") if updated_business else False,
         "dashboardPath": f"/dashboard/{business_tier}",
         "role": "owner" if is_business_owner else (updated_user.get("role") or "employee"),
         "roles": ["owner", "user"] if is_business_owner else updated_user_roles,
@@ -438,6 +464,71 @@ async def update_profile(
         "message": "Profile updated successfully.",
         "user": user_response
     }
+
+
+@router.get("/me")
+async def get_current_user_profile(
+    authorization: Optional[str] = Header(None)
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header"
+        )
+    token = authorization.split(" ", 1)[1]
+    try:
+        token_data = security.decodeToken(token)
+        user_id = token_data.get("sub")
+        if not user_id:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    db = getDatabase()
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    business = await db.businesses.find_one({"ownerUserId": user_id})
+    business_tier = "small"
+    business_name = user.get("businessName")
+    if business:
+        business_tier = normalize_business_tier(business.get("classification") or business.get("businessTier") or "small")
+        if not business_name:
+            business_name = business.get("name")
+
+    existing_id = str(user.get("_id"))
+    existing_roles = user.get("roles") or []
+    is_business_owner = (
+        (business and str(business.get("ownerUserId")) == existing_id)
+        or user.get("role") in ("owner", "user")
+        or "owner" in existing_roles
+    )
+
+    user_response = {
+        "_id": existing_id,
+        "email": user.get("email"),
+        "firstName": user.get("firstName"),
+        "lastName": user.get("lastName"),
+        "businessName": business_name or "",
+        "businessTier": business_tier,
+        "businessType": business.get("businessType") if business else None,
+        "businessDescription": business.get("description") if business else None,
+        "isSmartStockEnabled": business.get("isSmartStockEnabled", False) if business else False,
+        "dashboardPath": f"/dashboard/{business_tier}",
+        "role": "owner" if is_business_owner else (user.get("role") or "employee"),
+        "roles": ["owner", "user"] if is_business_owner else existing_roles,
+        "branchId": user.get("branchId"),
+        "isActive": user.get("isActive", True),
+    }
+
+    return {"user": user_response}
 
 
 # Note: login endpoint intentionally omitted per request; implement separately when needed.
@@ -810,6 +901,9 @@ async def google_login(payload: schemas.GoogleLoginRequest, background_tasks: Ba
             "roles": ["owner", "user"] if is_business_owner else existing_roles,
             "branchId": existing.get("branchId"),
             "isActive": existing.get("isActive", True),
+            "businessType": business.get("businessType") if business else None,
+            "businessDescription": business.get("description") if business else None,
+            "isSmartStockEnabled": business.get("isSmartStockEnabled", False) if business else False,
         }
         
         return {
@@ -918,6 +1012,9 @@ async def google_login(payload: schemas.GoogleLoginRequest, background_tasks: Ba
             "roles": ["owner", "user"],
             "branchId": None,
             "isActive": True,
+            "businessType": business_doc.get("businessType"),
+            "businessDescription": business_doc.get("description"),
+            "isSmartStockEnabled": business_doc.get("isSmartStockEnabled", False),
         }
         
         background_tasks.add_task(
