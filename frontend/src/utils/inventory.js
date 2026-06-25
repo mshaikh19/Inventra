@@ -1,12 +1,72 @@
 export const INVENTORY_PRODUCTS_STORAGE_KEY = "inventra_inventory_products";
 
 export const INVENTORY_PRODUCT_SEED = [
-  { id: 1, name: "Fresh Bread 400g", category: "Bakery", stock: 8, price: 40, sold: 120, expiryDate: "2026-05-24", reorderLevel: 15, barcode: "8901234567890" },
-  { id: 2, name: "Organic Milk 1L", category: "Dairy", stock: 12, price: 60, sold: 240, expiryDate: "2026-05-23", reorderLevel: 20, barcode: "8901234567891" },
-  { id: 3, name: "Coke 500ml", category: "Beverages", stock: 85, price: 40, sold: 310, expiryDate: "2026-11-12", reorderLevel: 10, barcode: "8901234567892" },
-  { id: 4, name: "Potato Chips 150g", category: "Snacks", stock: 4, price: 20, sold: 480, expiryDate: "2026-09-08", reorderLevel: 25, barcode: "8901234567893" },
-  { id: 5, name: "Amul Butter 500g", category: "Dairy", stock: 32, price: 250, sold: 85, expiryDate: "2026-06-15", reorderLevel: 12, barcode: "8901234567894" },
-  { id: 6, name: "Dark Chocolate 100g", category: "Snacks", stock: 55, price: 80, sold: 150, expiryDate: "2026-10-30", reorderLevel: 15, barcode: "8901234567895" },
+  {
+    id: 1,
+    name: "Fresh Bread 400g",
+    category: "Bakery",
+    stock: 8,
+    price: 40,
+    sold: 120,
+    expiryDate: "2026-05-24",
+    reorderLevel: 15,
+    barcode: "8901234567890",
+  },
+  {
+    id: 2,
+    name: "Organic Milk 1L",
+    category: "Dairy",
+    stock: 12,
+    price: 60,
+    sold: 240,
+    expiryDate: "2026-05-23",
+    reorderLevel: 20,
+    barcode: "8901234567891",
+  },
+  {
+    id: 3,
+    name: "Coke 500ml",
+    category: "Beverages",
+    stock: 85,
+    price: 40,
+    sold: 310,
+    expiryDate: "2026-11-12",
+    reorderLevel: 10,
+    barcode: "8901234567892",
+  },
+  {
+    id: 4,
+    name: "Potato Chips 150g",
+    category: "Snacks",
+    stock: 4,
+    price: 20,
+    sold: 480,
+    expiryDate: "2026-09-08",
+    reorderLevel: 25,
+    barcode: "8901234567893",
+  },
+  {
+    id: 5,
+    name: "Amul Butter 500g",
+    category: "Dairy",
+    stock: 32,
+    price: 250,
+    sold: 85,
+    expiryDate: "2026-06-15",
+    reorderLevel: 12,
+    barcode: "8901234567894",
+  },
+  {
+    id: 6,
+    name: "Dark Chocolate 100g",
+    category: "Snacks",
+    stock: 55,
+    price: 80,
+    sold: 150,
+    expiryDate: "2026-10-30",
+    reorderLevel: 15,
+    barcode: "8901234567895",
+  },
 ];
 
 export const GST_CATEGORY_RATES = {
@@ -42,8 +102,102 @@ export const GST_CATEGORY_RATES = {
   Uncategorized: 18,
 };
 
+const EXPIRY_TRACKING_KEYWORDS = [
+  "grocery",
+  "supermarket",
+  "market",
+  "mart",
+  "pharmacy",
+  "medicine",
+  "medical",
+  "health",
+  "bakery",
+  "food",
+  "dairy",
+  "fresh",
+  "produce",
+  "convenience",
+];
+
+const EXPIRY_TRACKING_CATEGORY_KEYWORDS = [
+  "bakery",
+  "dairy",
+  "beverages",
+  "food",
+  "grocery",
+  "medicine",
+  "pharmacy",
+  "produce",
+  "meat",
+  "seafood",
+  "frozen",
+  "fresh",
+];
+
+export function shouldTrackExpiryForBusiness(...values) {
+  const haystack = values
+    .flat()
+    .map((value) =>
+      String(value || "")
+        .toLowerCase()
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(" ");
+
+  if (!haystack) return false;
+  return EXPIRY_TRACKING_KEYWORDS.some((keyword) => haystack.includes(keyword));
+}
+
+export function shouldCollectExpiryForCategory(category) {
+  const normalizedCategory = String(category || "")
+    .toLowerCase()
+    .trim();
+  if (!normalizedCategory) return false;
+  return EXPIRY_TRACKING_CATEGORY_KEYWORDS.some((keyword) =>
+    normalizedCategory.includes(keyword),
+  );
+}
+
+export function getLowStockAlertBand(stock, minimumStock) {
+  const stockValue = Number(stock || 0);
+  const minimumValue = Math.max(1, Number(minimumStock || 0));
+
+  if (stockValue <= 0 || stockValue <= minimumValue * 0.25) {
+    return {
+      tone: "red",
+      label: "Red",
+      title: "Critical low stock alert",
+      message: `Stock is at ${stockValue} units, far below the reorder level of ${minimumValue}.`,
+    };
+  }
+
+  if (stockValue <= minimumValue * 0.5) {
+    return {
+      tone: "orange",
+      label: "Orange",
+      title: "High priority low stock alert",
+      message: `Stock is at ${stockValue} units, below half of the reorder level (${minimumValue}).`,
+    };
+  }
+
+  if (stockValue <= minimumValue) {
+    return {
+      tone: "yellow",
+      label: "Yellow",
+      title: "Low stock watch alert",
+      message: `Stock is at ${stockValue} units and has reached the reorder level of ${minimumValue}.`,
+    };
+  }
+
+  return null;
+}
+
 export function getCategoryGstRate(category) {
-  return GST_CATEGORY_RATES[String(category || "").trim()] ?? GST_CATEGORY_RATES.Uncategorized;
+  return (
+    GST_CATEGORY_RATES[String(category || "").trim()] ??
+    GST_CATEGORY_RATES.Uncategorized
+  );
 }
 
 // DEPRECATED: Do NOT use loadInventoryProducts() or saveInventoryProducts()
@@ -52,7 +206,9 @@ export function getCategoryGstRate(category) {
 function getInventoryStorageKey(branchName) {
   // branchName is required - always pass explicit branch name to prevent product leakage
   if (!branchName) {
-    console.error("❌ CRITICAL: getInventoryStorageKey called without branchName! Products WILL leak across branches.");
+    console.error(
+      "❌ CRITICAL: getInventoryStorageKey called without branchName! Products WILL leak across branches.",
+    );
     return INVENTORY_PRODUCTS_STORAGE_KEY;
   }
   const slug = String(branchName)
@@ -64,7 +220,10 @@ function getInventoryStorageKey(branchName) {
   return `${INVENTORY_PRODUCTS_STORAGE_KEY}__${slug || "default"}`;
 }
 
-export function loadScopedInventoryProducts(fallback = INVENTORY_PRODUCT_SEED, branchName = null) {
+export function loadScopedInventoryProducts(
+  fallback = INVENTORY_PRODUCT_SEED,
+  branchName = null,
+) {
   if (typeof window === "undefined") return fallback;
   try {
     const stored = localStorage.getItem(getInventoryStorageKey(branchName));
@@ -79,24 +238,49 @@ export function loadScopedInventoryProducts(fallback = INVENTORY_PRODUCT_SEED, b
 export function saveScopedInventoryProducts(products, branchName = null) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(getInventoryStorageKey(branchName), JSON.stringify(products));
+    localStorage.setItem(
+      getInventoryStorageKey(branchName),
+      JSON.stringify(products),
+    );
   } catch {
     // ignore persistence errors in the browser cache
   }
 }
 
 export function normalizeInventoryItem(item, index = 0) {
-  const fallbackId = item?._id || item?.product_id || item?.sku || item?.barcode || `inventory-${index + 1}`;
+  const fallbackId =
+    item?._id ||
+    item?.product_id ||
+    item?.sku ||
+    item?.barcode ||
+    `inventory-${index + 1}`;
   const barcode = String(item?.barcode ?? item?.sku ?? fallbackId).trim();
   const sellingPrice = Number(item?.selling_price ?? item?.price ?? 0) || 0;
-  const mrp = Number(item?.mrp ?? item?.maximum_retail_price ?? item?.retail_price ?? sellingPrice) || sellingPrice;
+  const mrp =
+    Number(
+      item?.mrp ??
+        item?.maximum_retail_price ??
+        item?.retail_price ??
+        sellingPrice,
+    ) || sellingPrice;
   const category = String(item?.category || "Uncategorized").trim();
-  const gstRate = Number(item?.gst_rate ?? item?.gst_percentage ?? getCategoryGstRate(category)) || 0;
-  const discountPercent = Number(item?.discount_percent ?? item?.discountPercentage ?? item?.default_discount_percent ?? 0) || 0;
+  const gstRate =
+    Number(
+      item?.gst_rate ?? item?.gst_percentage ?? getCategoryGstRate(category),
+    ) || 0;
+  const discountPercent =
+    Number(
+      item?.discount_percent ??
+        item?.discountPercentage ??
+        item?.default_discount_percent ??
+        0,
+    ) || 0;
 
   return {
     id: fallbackId,
-    name: String(item?.product_name || item?.name || `Product ${index + 1}`).trim(),
+    name: String(
+      item?.product_name || item?.name || `Product ${index + 1}`,
+    ).trim(),
     category,
     stock: Number(item?.quantity ?? item?.stock ?? 0) || 0,
     price: sellingPrice,
@@ -106,7 +290,8 @@ export function normalizeInventoryItem(item, index = 0) {
     gstRate,
     hsnCode: item?.hsn_code || "",
     discountPercent,
-    discountAmount: Number(item?.discount_amount ?? item?.discountAmount ?? 0) || 0,
+    discountAmount:
+      Number(item?.discount_amount ?? item?.discountAmount ?? 0) || 0,
     sellOnMrp: discountPercent <= 0,
     sold: Number(item?.total_sales ?? item?.sold ?? 0) || 0,
     expiryDate: String(item?.expiry_date || item?.expiryDate || "").trim(),
@@ -130,7 +315,10 @@ export function extractInventoryItems(payload) {
   return [];
 }
 
-export function hydrateInventoryProducts(payload, fallback = INVENTORY_PRODUCT_SEED) {
+export function hydrateInventoryProducts(
+  payload,
+  fallback = INVENTORY_PRODUCT_SEED,
+) {
   const items = extractInventoryItems(payload);
   const normalized = normalizeInventoryProducts(items);
   return normalized.length > 0 ? normalized : fallback;

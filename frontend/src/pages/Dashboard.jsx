@@ -34,6 +34,8 @@ import {
   loadScopedInventoryProducts,
   saveScopedInventoryProducts,
   normalizeInventoryProducts,
+  getLowStockAlertBand,
+  shouldTrackExpiryForBusiness,
 } from "../utils/inventory";
 import {
   isEmployeeUser,
@@ -364,12 +366,13 @@ function StepDot({ n, current, label }) {
   return (
     <div className="flex flex-col items-center gap-1.5 flex-1 relative">
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${done
+        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${
+          done
             ? "bg-emerald-500 text-white shadow-[0_3px_10px_rgba(16,185,129,0.2)]"
             : active
               ? "bg-slate-900 text-white ring-4 ring-slate-900/10 shadow-[0_3px_10px_rgba(15,23,42,0.1)]"
               : "bg-slate-100 text-slate-550 border border-slate-200/80"
-          }`}
+        }`}
       >
         {done ? (
           <svg
@@ -621,10 +624,10 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
       .toLowerCase();
     const roles = Array.isArray(userSession?.user?.roles)
       ? userSession.user.roles.map((r) =>
-        String(r || "")
-          .trim()
-          .toLowerCase(),
-      )
+          String(r || "")
+            .trim()
+            .toLowerCase(),
+        )
       : [];
     // Manager is ONLY branch manager, not inventory manager
     return (
@@ -646,7 +649,6 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   const isInventoryManager = useMemo(() => {
     return isInventoryManagerUser(userSession?.user);
   }, [userSession]);
-
 
   const userBranch = useMemo(() => {
     if (!userBranchId) return null;
@@ -780,7 +782,9 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   useEffect(() => {
     if (typeof window !== "undefined") {
       sessionStorage.setItem("inventra_dashboard_section", activeSection);
-      window.dispatchEvent(new CustomEvent("dashboard-section-changed", { detail: activeSection }));
+      window.dispatchEvent(
+        new CustomEvent("dashboard-section-changed", { detail: activeSection }),
+      );
     }
   }, [activeSection]);
 
@@ -794,7 +798,10 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     };
     window.addEventListener("change-dashboard-section", handleSectionChange);
     return () => {
-      window.removeEventListener("change-dashboard-section", handleSectionChange);
+      window.removeEventListener(
+        "change-dashboard-section",
+        handleSectionChange,
+      );
     };
   }, [visibleTabs]);
 
@@ -821,7 +828,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
   }, []);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("mobile-menu-status-changed", { detail: mobileSidebarOpen }));
+    window.dispatchEvent(
+      new CustomEvent("mobile-menu-status-changed", {
+        detail: mobileSidebarOpen,
+      }),
+    );
   }, [mobileSidebarOpen]);
 
   const [loading, setLoading] = useState(false);
@@ -867,7 +878,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
       if (saved) {
         try {
           return JSON.parse(saved);
-        } catch (e) { }
+        } catch (e) {}
       }
     }
     return EMPTY_BRANCH_FORM;
@@ -1008,7 +1019,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               "inventra_branches_list",
               JSON.stringify(branches),
             );
-          } catch (e) { }
+          } catch (e) {}
         }
         setFirstLoadDone(true);
       })
@@ -1338,7 +1349,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
     }
   };
 
-  const handleCSVUploadComplete = () => { };
+  const handleCSVUploadComplete = () => {};
 
   const handleSaveBranch = async () => {
     const payload = {
@@ -1394,7 +1405,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             "inventra_branches_list",
             JSON.stringify(data.branches),
           );
-        } catch (e) { }
+        } catch (e) {}
       } else {
         setBranchNetwork((prev) => [...prev, result.branch_name]);
         setBranchesList((prev) => {
@@ -1404,7 +1415,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               "inventra_branches_list",
               JSON.stringify(next),
             );
-          } catch (e) { }
+          } catch (e) {}
           return next;
         });
       }
@@ -1553,7 +1564,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             "inventra_branches_list",
             JSON.stringify(data.branches),
           );
-        } catch (e) { }
+        } catch (e) {}
       }
 
       toast.success(
@@ -1654,14 +1665,14 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         receiveLowStockAlerts: profileDraft.receiveLowStockAlerts !== false,
         ...(isOwner
           ? {
-            businessName: (profileDraft.businessName || "").trim(),
-            businessType: profileDraft.businessType || "other",
-            businessDescription: profileDraft.businessDescription || "",
-            isSmartStockEnabled: !!profileDraft.isSmartStockEnabled,
-            smsProvider: profileDraft.smsProvider || "none",
-            smsApiKey: (profileDraft.smsApiKey || "").trim(),
-            smsSender: (profileDraft.smsSender || "").trim(),
-          }
+              businessName: (profileDraft.businessName || "").trim(),
+              businessType: profileDraft.businessType || "other",
+              businessDescription: profileDraft.businessDescription || "",
+              isSmartStockEnabled: !!profileDraft.isSmartStockEnabled,
+              smsProvider: profileDraft.smsProvider || "none",
+              smsApiKey: (profileDraft.smsApiKey || "").trim(),
+              smsSender: (profileDraft.smsSender || "").trim(),
+            }
           : {}),
       };
       setUserProfile(updated);
@@ -1738,16 +1749,21 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         toast.error("Authentication token missing. Please log in again.");
         return;
       }
-      const res = await fetch("http://127.0.0.1:8000/api/v1/analytics/send-digest", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      const res = await fetch(
+        "http://127.0.0.1:8000/api/v1/analytics/send-digest",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
         },
-      });
+      );
       if (res.ok) {
         const data = await res.json();
-        toast.success(data.message || "Weekly report compiled and emailed successfully!");
+        toast.success(
+          data.message || "Weekly report compiled and emailed successfully!",
+        );
       } else {
         const data = await res.json();
         toast.error(data.detail || "Failed to compile weekly report email.");
@@ -1770,16 +1786,22 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
         toast.error("Authentication token missing. Please log in again.");
         return;
       }
-      const res = await fetch("http://127.0.0.1:8000/api/v1/analytics/send-eod-report", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      const res = await fetch(
+        "http://127.0.0.1:8000/api/v1/analytics/send-eod-report",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
         },
-      });
+      );
       if (res.ok) {
         const data = await res.json();
-        toast.success(data.message || "Daily End of Day report compiled and emailed successfully!");
+        toast.success(
+          data.message ||
+            "Daily End of Day report compiled and emailed successfully!",
+        );
       } else {
         const data = await res.json();
         toast.error(data.detail || "Failed to compile daily report email.");
@@ -1826,7 +1848,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               receiveDailyEOD: updated.receiveDailyEOD !== false,
               receiveLowStockAlerts: updated.receiveLowStockAlerts !== false,
             }),
-          }
+          },
         );
         if (res.ok) {
           const data = await res.json();
@@ -1879,7 +1901,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               businessDescription: updated.businessDescription,
               isSmartStockEnabled: updated.isSmartStockEnabled,
             }),
-          }
+          },
         );
         if (res.ok) {
           const data = await res.json();
@@ -2316,12 +2338,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   key={i}
                   onMouseEnter={() => setHoveredCategory(i)}
                   onMouseLeave={() => setHoveredCategory(null)}
-                  className={`p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer flex justify-between items-center ${isHovered
+                  className={`p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer flex justify-between items-center ${
+                    isHovered
                       ? "bg-slate-50 border-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.03)] scale-[1.02]"
                       : isAnyHovered
                         ? "opacity-40 border-transparent bg-transparent"
                         : "bg-slate-50/60 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                    }`}
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <span
@@ -2458,10 +2481,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   : "Inventra ML Engine"}
               </span>
               <div
-                className={`p-3 rounded-2xl leading-relaxed font-sans font-semibold text-xs border ${msg.role === "user"
+                className={`p-3 rounded-2xl leading-relaxed font-sans font-semibold text-xs border ${
+                  msg.role === "user"
                     ? "bg-slate-900 border-slate-800 text-slate-200"
                     : "bg-emerald-950/20 border-emerald-900/60 text-emerald-400 shadow-[0_2px_12px_rgba(5,150,105,0.04)]"
-                  }`}
+                }`}
               >
                 {msg.text}
               </div>
@@ -2792,8 +2816,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-slate-500">
                 {!isOwner
                   ? getRoleDisplayName(
-                    userProfile?.role || userSession?.user?.role,
-                  )
+                      userProfile?.role || userSession?.user?.role,
+                    )
                   : config.profile.role}
               </span>
             </div>
@@ -2827,7 +2851,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             <p className="mt-3 text-[11px] font-medium leading-relaxed text-slate-500">
               {isEmployee
                 ? employeeEnvironment?.blurb ||
-                "Complete assigned duties and use your branch tools."
+                  "Complete assigned duties and use your branch tools."
                 : config.summary}
             </p>
 
@@ -2839,8 +2863,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                 <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">
                   {!isOwner
                     ? getRoleDisplayName(
-                      userProfile?.role || userSession?.user?.role,
-                    )
+                        userProfile?.role || userSession?.user?.role,
+                      )
                     : config.profile.role}
                 </div>
               </div>
@@ -2851,9 +2875,9 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                 <div className="mt-1 text-[11px] font-bold text-slate-800 leading-tight">
                   {isEmployee
                     ? getEmployeeAccessLabel(
-                      employeeEnvironment,
-                      normalizedTier,
-                    )
+                        employeeEnvironment,
+                        normalizedTier,
+                      )
                     : isManager
                       ? "Branch-scoped operations"
                       : config.profile.access}
@@ -2899,16 +2923,17 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     }
                     setActiveSection(tab.key);
                   }}
-                  className={`group w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-xs font-bold transition-all duration-200 active:scale-[0.98] cursor-pointer hover:scale-[1.005] ${isActive
+                  className={`group w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-xs font-bold transition-all duration-200 active:scale-[0.98] cursor-pointer hover:scale-[1.005] ${
+                    isActive
                       ? "text-white shadow-[0_10px_20px_rgba(15,23,42,0.12)]"
                       : "border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50"
-                    }`}
+                  }`}
                   style={
                     isActive
                       ? {
-                        backgroundColor: config.accent,
-                        borderColor: config.accent,
-                      }
+                          backgroundColor: config.accent,
+                          borderColor: config.accent,
+                        }
                       : undefined
                   }
                 >
@@ -3021,8 +3046,6 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
           </div>
         </aside>
 
-
-
         {mobileSidebarOpen && (
           <div className="lg:hidden fixed inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col p-6 overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
@@ -3065,16 +3088,17 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     setActiveSection(tab.key);
                     setMobileSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-left text-sm font-bold border transition-all duration-200 active:scale-[0.98] ${activeSection === tab.key
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-left text-sm font-bold border transition-all duration-200 active:scale-[0.98] ${
+                    activeSection === tab.key
                       ? "text-white font-black"
                       : "text-slate-600 border-slate-200 bg-slate-50 hover:bg-slate-100"
-                    }`}
+                  }`}
                   style={
                     activeSection === tab.key
                       ? {
-                        backgroundColor: config.accent,
-                        borderColor: config.accent,
-                      }
+                          backgroundColor: config.accent,
+                          borderColor: config.accent,
+                        }
                       : undefined
                   }
                 >
@@ -3192,6 +3216,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   tierAccent={config.accent}
                   tierAccentSoft={config.accentSoft}
                   branchesList={branchesList}
+                  businessType={userProfile?.businessType || userSession?.user?.businessType || userSession?.user?.businessMetrics?.businessType || userSession?.user?.businessMetrics?.bizType}
+                  businessName={userProfile?.businessName || userSession?.user?.businessName}
                 />
               )}
             </>
@@ -3205,6 +3231,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
               tierAccent={config.accent}
               tierAccentSoft={config.accentSoft}
               branchesList={branchesList}
+              businessType={userProfile?.businessType || userSession?.user?.businessType || userSession?.user?.businessMetrics?.businessType || userSession?.user?.businessMetrics?.bizType}
+              businessName={userProfile?.businessName || userSession?.user?.businessName}
             />
           )}
 
@@ -3212,64 +3240,99 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
             <>
               {/* Report Hub Card (visible to owners and branch managers) */}
               {(() => {
-                const role = userProfile?.role || userSession?.user?.role || "employee";
+                const role =
+                  userProfile?.role || userSession?.user?.role || "employee";
                 const canSeeReports = role === "owner" || role === "manager";
                 if (!canSeeReports) return null;
 
                 return (
-                   <div className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl text-left shadow-[0_1px_3px_rgba(0,0,0,0.05)] mb-6">
-                     <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-                       On-Demand Reports
-                     </span>
-                     <h3 className="text-lg md:text-xl font-black text-slate-950 mt-1">
-                       Email Report Desk
-                     </h3>
-                     <p className="text-xs text-slate-500 font-semibold mt-1.5 leading-relaxed max-w-2xl">
-                       {role === "owner"
-                         ? "Generate and dispatch your performance metrics instantly. Emails are compiled using live platform data across all branches and sent directly to your registered inbox."
-                         : "Generate and dispatch your performance metrics instantly. Emails are compiled using live platform data for your assigned branch and sent directly to your registered inbox."}
-                     </p>
-                     
-                     <div className="flex flex-wrap gap-3.5 mt-4.5">
-                       <button
-                         type="button"
-                         onClick={handleRequestWeeklyDigest}
-                         disabled={sendingWeeklyDigest || sendingEODReport}
-                         className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_4px_12px_rgba(16,185,129,0.15)]"
-                       >
-                         {sendingWeeklyDigest ? (
-                           <>
-                             <svg className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                             </svg>
-                             Compiling Digest...
-                           </>
-                         ) : (
-                           role === "owner" ? "Request Weekly Executive Report" : "Request Weekly Branch Report"
-                         )}
-                       </button>
-                       
-                       <button
-                         type="button"
-                         onClick={handleRequestEODReport}
-                         disabled={sendingWeeklyDigest || sendingEODReport}
-                         className="inline-flex items-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_4px_12px_rgba(15,23,42,0.15)]"
-                       >
-                         {sendingEODReport ? (
-                           <>
-                             <svg className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                             </svg>
-                             Compiling Daily EOD...
-                           </>
-                         ) : (
-                           role === "owner" ? "Request EOD Daily Report" : "Request EOD Branch Report"
-                         )}
-                       </button>
-                     </div>
-                   </div>
+                  <div className="bg-white border border-slate-200 p-5 md:p-6 rounded-3xl text-left shadow-[0_1px_3px_rgba(0,0,0,0.05)] mb-6">
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+                      On-Demand Reports
+                    </span>
+                    <h3 className="text-lg md:text-xl font-black text-slate-950 mt-1">
+                      Email Report Desk
+                    </h3>
+                    <p className="text-xs text-slate-500 font-semibold mt-1.5 leading-relaxed max-w-2xl">
+                      {role === "owner"
+                        ? "Generate and dispatch your performance metrics instantly. Emails are compiled using live platform data across all branches and sent directly to your registered inbox."
+                        : "Generate and dispatch your performance metrics instantly. Emails are compiled using live platform data for your assigned branch and sent directly to your registered inbox."}
+                    </p>
+
+                    <div className="flex flex-wrap gap-3.5 mt-4.5">
+                      <button
+                        type="button"
+                        onClick={handleRequestWeeklyDigest}
+                        disabled={sendingWeeklyDigest || sendingEODReport}
+                        className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_4px_12px_rgba(16,185,129,0.15)]"
+                      >
+                        {sendingWeeklyDigest ? (
+                          <>
+                            <svg
+                              className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-white"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              />
+                            </svg>
+                            Compiling Digest...
+                          </>
+                        ) : role === "owner" ? (
+                          "Request Weekly Executive Report"
+                        ) : (
+                          "Request Weekly Branch Report"
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRequestEODReport}
+                        disabled={sendingWeeklyDigest || sendingEODReport}
+                        className="inline-flex items-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_4px_12px_rgba(15,23,42,0.15)]"
+                      >
+                        {sendingEODReport ? (
+                          <>
+                            <svg
+                              className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-white"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              />
+                            </svg>
+                            Compiling Daily EOD...
+                          </>
+                        ) : role === "owner" ? (
+                          "Request EOD Daily Report"
+                        ) : (
+                          "Request EOD Branch Report"
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 );
               })()}
 
@@ -3298,7 +3361,9 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                           🧠
                         </div>
                         <div className="max-w-md space-y-1.5">
-                          <h4 className="text-sm font-black text-slate-800 tracking-tight">AI Forecasting Core Idle</h4>
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight">
+                            AI Forecasting Core Idle
+                          </h4>
                           <p className="text-xs font-semibold text-slate-500 leading-relaxed">
                             {isEmployee
                               ? "Your branch inventory database has no active product mappings. Register products in the Inventory Desk to feed AI turnover metrics and category sales sparklines."
@@ -3377,10 +3442,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                     </h4>
                                   </div>
                                   <span
-                                    className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${isLowStock
+                                    className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                      isLowStock
                                         ? "bg-rose-50 text-rose-600"
                                         : "bg-emerald-50 text-emerald-600"
-                                      }`}
+                                    }`}
                                   >
                                     {isLowStock
                                       ? "Needs Restock"
@@ -3958,11 +4024,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                 ))}
                               {products.filter((p) => p.stock <= p.reorderLevel)
                                 .length === 0 && (
-                                  <p className="text-xs font-semibold text-slate-400 text-center py-4">
-                                    All stock levels are healthy. No reorder
-                                    actions needed.
-                                  </p>
-                                )}
+                                <p className="text-xs font-semibold text-slate-400 text-center py-4">
+                                  All stock levels are healthy. No reorder
+                                  actions needed.
+                                </p>
+                              )}
                             </div>
                           ) : (
                             <p className="text-xs font-semibold text-slate-400 text-center py-4">
@@ -4156,16 +4222,18 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-amber-700">
                       ⏳{" "}
                       {
-                        filteredEmployeeTasks.filter((t) => t.status !== "completed")
-                          .length
+                        filteredEmployeeTasks.filter(
+                          (t) => t.status !== "completed",
+                        ).length
                       }{" "}
                       Pending
                     </span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">
                       ✓{" "}
                       {
-                        filteredEmployeeTasks.filter((t) => t.status === "completed")
-                          .length
+                        filteredEmployeeTasks.filter(
+                          (t) => t.status === "completed",
+                        ).length
                       }{" "}
                       Completed
                     </span>
@@ -4186,10 +4254,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       <div
                         key={taskId}
                         id={`task-card-${taskId}`}
-                        className={`group relative overflow-hidden rounded-[20px] border p-4 transition-all duration-300 ${isCompleted
+                        className={`group relative overflow-hidden rounded-[20px] border p-4 transition-all duration-300 ${
+                          isCompleted
                             ? "bg-slate-50/70 border-slate-100/80 opacity-70"
                             : "bg-white border-slate-200/80 hover:border-slate-350 hover:shadow-[0_8px_20px_rgba(0,0,0,0.02)]"
-                          }`}
+                        }`}
                       >
                         <div className="flex items-start gap-4">
                           {/* Custom Toggle Switch */}
@@ -4198,10 +4267,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                             onClick={() =>
                               handleToggleTaskStatus(taskId, task.status)
                             }
-                            className={`mt-0.5 w-6 h-6 rounded-lg border flex items-center justify-center transition-all duration-200 shrink-0 cursor-pointer ${isCompleted
+                            className={`mt-0.5 w-6 h-6 rounded-lg border flex items-center justify-center transition-all duration-200 shrink-0 cursor-pointer ${
+                              isCompleted
                                 ? "bg-emerald-500 border-emerald-500 text-white"
                                 : "bg-white border-slate-300 hover:border-slate-400 group-hover:scale-105"
-                              }`}
+                            }`}
                           >
                             {isCompleted && (
                               <svg
@@ -4225,10 +4295,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                             <div className="flex flex-wrap items-center gap-2">
                               <h4
                                 id={`task-title-${taskId}`}
-                                className={`text-sm font-black leading-tight ${isCompleted
+                                className={`text-sm font-black leading-tight ${
+                                  isCompleted
                                     ? "text-slate-400 line-through decoration-slate-300"
                                     : "text-slate-900"
-                                  }`}
+                                }`}
                               >
                                 {task.title}
                               </h4>
@@ -4242,10 +4313,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                             {task.description && (
                               <p
                                 id={`task-desc-${taskId}`}
-                                className={`mt-1.5 text-xs font-semibold leading-relaxed ${isCompleted
+                                className={`mt-1.5 text-xs font-semibold leading-relaxed ${
+                                  isCompleted
                                     ? "text-slate-400 line-through decoration-slate-200"
                                     : "text-slate-500"
-                                  }`}
+                                }`}
                               >
                                 {task.description}
                               </p>
@@ -4332,8 +4404,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                             {isOwner
                               ? "SYSTEM OWNER"
                               : getRoleDisplayName(
-                                userProfile?.role || userSession?.user?.role,
-                              )}
+                                  userProfile?.role || userSession?.user?.role,
+                                )}
                           </span>
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mt-1.5 leading-none tracking-tight">
@@ -4427,9 +4499,9 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       <span style={{ color: config.accent }}>
                         {isEmployee
                           ? getEmployeeAccessLabel(
-                            employeeEnvironment,
-                            normalizedTier,
-                          )
+                              employeeEnvironment,
+                              normalizedTier,
+                            )
                           : isManager
                             ? `${tierDisplayName} · Branch Operations`
                             : `${tierDisplayName} · Full Enterprise Scope`}
@@ -4456,9 +4528,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
 
                 {/* Email Notification Settings (Direct Toggles) */}
                 {(() => {
-                  const role = userProfile?.role || userSession?.user?.role || "employee";
+                  const role =
+                    userProfile?.role || userSession?.user?.role || "employee";
                   const canSeeReports = role === "owner" || role === "manager";
-                  const showNotificationPreferences = role === "owner" || role === "manager" || role === "inventory_manager";
+                  const showNotificationPreferences =
+                    role === "owner" ||
+                    role === "manager" ||
+                    role === "inventory_manager";
 
                   if (!showNotificationPreferences) return null;
 
@@ -4470,26 +4546,35 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       <h3 className="text-lg font-black text-slate-900 mt-1 mb-4">
                         Email Notification Settings
                       </h3>
-                      
+
                       <div className="space-y-4">
                         {canSeeReports && (
                           <>
                             <div className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50/50">
                               <div className="text-left pr-4">
                                 <span className="block text-xs font-black text-slate-800">
-                                  {role === "owner" ? "Weekly Executive Digest" : "Weekly Branch Digest"}
+                                  {role === "owner"
+                                    ? "Weekly Executive Digest"
+                                    : "Weekly Branch Digest"}
                                 </span>
                                 <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
-                                  {role === "owner" 
-                                    ? "Receive a comprehensive weekly performance summary across all branches." 
+                                  {role === "owner"
+                                    ? "Receive a comprehensive weekly performance summary across all branches."
                                     : "Receive a weekly performance summary scoped to your assigned branch."}
                                 </span>
                               </div>
                               <label className="relative inline-flex items-center cursor-pointer select-none">
                                 <input
                                   type="checkbox"
-                                  checked={userProfile?.receiveWeeklyDigest !== false}
-                                  onChange={(e) => handleTogglePreference("receiveWeeklyDigest", e.target.checked)}
+                                  checked={
+                                    userProfile?.receiveWeeklyDigest !== false
+                                  }
+                                  onChange={(e) =>
+                                    handleTogglePreference(
+                                      "receiveWeeklyDigest",
+                                      e.target.checked,
+                                    )
+                                  }
                                   className="sr-only peer"
                                 />
                                 <div className="relative w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -4499,7 +4584,9 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                             <div className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50/50">
                               <div className="text-left pr-4">
                                 <span className="block text-xs font-black text-slate-800">
-                                  {role === "owner" ? "Daily End of Day (EOD) Report" : "Daily EOD Branch Report"}
+                                  {role === "owner"
+                                    ? "Daily End of Day (EOD) Report"
+                                    : "Daily EOD Branch Report"}
                                 </span>
                                 <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
                                   {role === "owner"
@@ -4510,8 +4597,15 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                               <label className="relative inline-flex items-center cursor-pointer select-none">
                                 <input
                                   type="checkbox"
-                                  checked={userProfile?.receiveDailyEOD !== false}
-                                  onChange={(e) => handleTogglePreference("receiveDailyEOD", e.target.checked)}
+                                  checked={
+                                    userProfile?.receiveDailyEOD !== false
+                                  }
+                                  onChange={(e) =>
+                                    handleTogglePreference(
+                                      "receiveDailyEOD",
+                                      e.target.checked,
+                                    )
+                                  }
                                   className="sr-only peer"
                                 />
                                 <div className="relative w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -4526,14 +4620,22 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                               Real-time Low Stock & Expiry Alerts
                             </span>
                             <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
-                              Receive immediate email warnings when items run low or approach expiration.
+                              Receive immediate email warnings when items run
+                              low or approach expiration.
                             </span>
                           </div>
                           <label className="relative inline-flex items-center cursor-pointer select-none">
                             <input
                               type="checkbox"
-                              checked={userProfile?.receiveLowStockAlerts !== false}
-                              onChange={(e) => handleTogglePreference("receiveLowStockAlerts", e.target.checked)}
+                              checked={
+                                userProfile?.receiveLowStockAlerts !== false
+                              }
+                              onChange={(e) =>
+                                handleTogglePreference(
+                                  "receiveLowStockAlerts",
+                                  e.target.checked,
+                                )
+                              }
                               className="sr-only peer"
                             />
                             <div className="relative w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -4588,7 +4690,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                       ))}
                     </div>
                   ) : branchesList.filter((b) => b.status !== "Inactive")
-                    .length === 0 ? (
+                      .length === 0 ? (
                     <div className="py-8 text-center bg-slate-50/50 border border-dashed border-slate-200 rounded-2xl p-6">
                       <div className="text-slate-400 text-3xl mb-3">📍</div>
                       <span className="block text-sm font-black text-slate-800">
@@ -4617,10 +4719,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                   [branch._id || branch.branch_id]: !isExpanded,
                                 }))
                               }
-                              className={`relative overflow-hidden rounded-2xl border transition-all duration-300 shadow-sm flex flex-col justify-between p-5 cursor-pointer select-none group self-start ${isExpanded
+                              className={`relative overflow-hidden rounded-2xl border transition-all duration-300 shadow-sm flex flex-col justify-between p-5 cursor-pointer select-none group self-start ${
+                                isExpanded
                                   ? "border-slate-800 bg-slate-50/90 ring-4 ring-slate-900/5 shadow-md"
                                   : "border-slate-200 bg-slate-50/40 hover:bg-slate-50/80 hover:border-slate-300 hover:shadow-md"
-                                }`}
+                              }`}
                             >
                               {/* Card Content Header */}
                               <div>
@@ -4953,7 +5056,8 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                   Expiry & Low-Stock Alerts Desk
                 </h3>
                 <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">
-                  Real-time monitoring arrays for inventory safety thresholds and expiration exposure.
+                  Real-time monitoring arrays for inventory safety thresholds
+                  and expiration exposure.
                 </p>
               </div>
 
@@ -4964,9 +5068,13 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     🔔
                   </div>
                   <div className="max-w-md space-y-1.5">
-                    <h4 className="text-sm font-black text-slate-800 tracking-tight">No Active Alerts Desk Data</h4>
+                    <h4 className="text-sm font-black text-slate-800 tracking-tight">
+                      No Active Alerts Desk Data
+                    </h4>
                     <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                      We couldn't find any products in your branch inventory. Please register products in the Inventory Desk to start monitoring stock levels and expiration timelines.
+                      We couldn't find any products in your branch inventory.
+                      Please register products in the Inventory Desk to start
+                      monitoring stock levels and expiration timelines.
                     </p>
                   </div>
                   <button
@@ -4983,205 +5091,295 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                     📦 Go to Inventory Desk
                   </button>
                 </div>
-              ) : (() => {
-                // Compute alerts
-                const today = new Date();
-                const lowStock = [];
-                const nearExpiry = [];
-                const expired = [];
+              ) : (
+                (() => {
+                  // Compute alerts
+                  const today = new Date();
+                  const trackExpiryByBusiness = shouldTrackExpiryForBusiness(
+                    userProfile?.businessType,
+                    userProfile?.businessMetrics?.businessType,
+                    userProfile?.businessMetrics?.bizType,
+                    userProfile?.businessName,
+                  );
+                  const lowStockRed = [];
+                  const lowStockOrange = [];
+                  const lowStockYellow = [];
+                  const lowStock = [];
+                  const nearExpiry = [];
+                  const expired = [];
 
-                products.forEach((p) => {
-                  // Low stock check
-                  const safetyLimit = p.reorderLevel || 10;
-                  if (p.stock <= safetyLimit) {
-                    lowStock.push({
-                      ...p,
-                      alertType: p.stock === 0 ? "out_of_stock" : "low_stock",
-                      title: p.stock === 0 ? "Out of Stock" : "Low Stock Alert",
-                      severity: p.stock === 0 ? "critical" : "warning",
-                      message: p.stock === 0
-                        ? `Product is completely out of stock. Immediate reorder required.`
-                        : `Current stock (${p.stock} units) is below the safety threshold of ${safetyLimit} units.`
-                    });
-                  }
-
-                  // Expiry check
-                  if (p.expiryDate) {
-                    const expDate = new Date(p.expiryDate);
-                    if (!isNaN(expDate.getTime())) {
-                      const diffTime = expDate.getTime() - today.getTime();
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                      if (diffDays <= 0) {
-                        expired.push({
-                          ...p,
-                          alertType: "expired",
-                          title: "Batch Expired",
-                          severity: "critical",
-                          daysLeft: diffDays,
-                          message: `Product expired on ${p.expiryDate}. Remove from shelves immediately.`
-                        });
-                      } else if (diffDays <= 30) {
-                        nearExpiry.push({
-                          ...p,
-                          alertType: "near_expiry",
-                          title: "Near Expiry Alert",
-                          severity: diffDays <= 7 ? "critical" : "warning",
-                          daysLeft: diffDays,
-                          message: `Product is expiring in ${diffDays} days (${p.expiryDate}). Plan markdown or clearance.`
-                        });
+                  products.forEach((p) => {
+                    // Low stock check
+                    const safetyLimit = Number(p.reorderLevel || 10);
+                    const lowStockBand = getLowStockAlertBand(
+                      p.stock,
+                      safetyLimit,
+                    );
+                    if (lowStockBand) {
+                      const lowStockAlert = {
+                        ...p,
+                        alertType: `low_stock_${lowStockBand.tone}`,
+                        title: lowStockBand.title,
+                        severity: lowStockBand.tone,
+                        alertColor: lowStockBand.tone,
+                        statusLabel: lowStockBand.label,
+                        reorderLevel: safetyLimit,
+                        message: lowStockBand.message,
+                      };
+                      lowStock.push(lowStockAlert);
+                      if (lowStockBand.tone === "red") {
+                        lowStockRed.push(lowStockAlert);
+                      } else if (lowStockBand.tone === "orange") {
+                        lowStockOrange.push(lowStockAlert);
+                      } else {
+                        lowStockYellow.push(lowStockAlert);
                       }
                     }
-                  }
-                });
 
-                const totalAlertsCount = lowStock.length + nearExpiry.length + expired.length;
+                    // Expiry check
+                    if (trackExpiryByBusiness && p.expiryDate) {
+                      const expDate = new Date(p.expiryDate);
+                      if (!isNaN(expDate.getTime())) {
+                        const diffTime = expDate.getTime() - today.getTime();
+                        const diffDays = Math.ceil(
+                          diffTime / (1000 * 60 * 60 * 24),
+                        );
 
-                if (totalAlertsCount === 0) {
-                  return (
-                    <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-12 text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex flex-col items-center gap-4">
-                      <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-emerald-200">
-                        ✓
+                        if (diffDays <= 0) {
+                          expired.push({
+                            ...p,
+                            alertType: "expired",
+                            title: "Batch Expired",
+                            alertColor: "red",
+                            statusLabel: "Red",
+                            severity: "critical",
+                            daysLeft: diffDays,
+                            message: `Product expired on ${p.expiryDate}. Remove from shelves immediately.`,
+                          });
+                        } else if (diffDays <= 30) {
+                          nearExpiry.push({
+                            ...p,
+                            alertType: "near_expiry",
+                            title: "Near Expiry Alert",
+                            alertColor: diffDays <= 7 ? "red" : "orange",
+                            statusLabel: diffDays <= 7 ? "Red" : "Orange",
+                            severity: diffDays <= 7 ? "critical" : "warning",
+                            daysLeft: diffDays,
+                            message: `Product is expiring in ${diffDays} days (${p.expiryDate}). Plan markdown or clearance.`,
+                          });
+                        }
+                      }
+                    }
+                  });
+
+                  const totalAlertsCount =
+                    lowStock.length + nearExpiry.length + expired.length;
+                  const orderedLowStock = [
+                    ...lowStockRed,
+                    ...lowStockOrange,
+                    ...lowStockYellow,
+                  ];
+
+                  if (totalAlertsCount === 0) {
+                    return (
+                      <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-12 text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-emerald-200">
+                          ✓
+                        </div>
+                        <div className="max-w-md space-y-1.5">
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight">
+                            All Systems Operational
+                          </h4>
+                          <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                            Your branch inventory is healthy. No critical
+                            low-stock items or near-expiry batches detected.
+                          </p>
+                          <span className="inline-block text-[9.5px] font-bold text-slate-400 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded-md mt-2">
+                            Total Monitored Items: {products.length}
+                          </span>
+                        </div>
                       </div>
-                      <div className="max-w-md space-y-1.5">
-                        <h4 className="text-sm font-black text-slate-800 tracking-tight">All Systems Operational</h4>
-                        <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                          Your branch inventory is healthy. No critical low-stock items or near-expiry batches detected.
-                        </p>
-                        <span className="inline-block text-[9.5px] font-bold text-slate-400 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded-md mt-2">
-                          Total Monitored Items: {products.length}
-                        </span>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-6">
+                      {/* Summary Counters Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                          <span className="text-[8px] font-black uppercase tracking-wider text-rose-500 block">
+                            Critical: Expired
+                          </span>
+                          <span className="text-2xl font-black text-slate-900 block mt-1">
+                            {expired.length}
+                          </span>
+                          <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
+                            Requires immediate disposal
+                          </span>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                          <span className="text-[8px] font-black uppercase tracking-wider text-amber-500 block">
+                            Near Expiry
+                          </span>
+                          <span className="text-2xl font-black text-slate-900 block mt-1">
+                            {nearExpiry.length}
+                          </span>
+                          <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
+                            Expiring within 30 days
+                          </span>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
+                          <span className="text-[8px] font-black uppercase tracking-wider text-slate-600 block">
+                            Low Stock Bands
+                          </span>
+                          <span className="text-2xl font-black text-slate-900 block mt-1">
+                            {lowStock.length}
+                          </span>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700">
+                              Red {lowStockRed.length}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-orange-700">
+                              Orange {lowStockOrange.length}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">
+                              Yellow {lowStockYellow.length}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Alerts Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {[...expired, ...nearExpiry, ...orderedLowStock].map(
+                          (alert, idx) => {
+                            const alertColor =
+                              alert.alertColor ||
+                              (alert.alertType === "expired"
+                                ? "red"
+                                : alert.alertType === "near_expiry"
+                                  ? alert.severity === "critical"
+                                    ? "red"
+                                    : "orange"
+                                  : "yellow");
+                            const isRed = alertColor === "red";
+                            const isOrange = alertColor === "orange";
+                            const toneClass = isRed
+                              ? "border-rose-200 ring-2 ring-rose-500/5"
+                              : isOrange
+                                ? "border-orange-200 ring-2 ring-orange-500/5"
+                                : "border-amber-200 ring-2 ring-amber-500/5";
+                            const badgeClass = isRed
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : isOrange
+                                ? "bg-orange-50 text-orange-700 border-orange-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200";
+                            const badgeEmoji = isRed
+                              ? "🚨"
+                              : isOrange
+                                ? "🟠"
+                                : "🟡";
+                            const badgeLabel =
+                              alert.statusLabel ||
+                              (isRed ? "Red" : isOrange ? "Orange" : "Yellow");
+                            return (
+                              <div
+                                key={alert.id || `alert-${idx}`}
+                                className={`rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between shadow-sm bg-white relative overflow-hidden ${toneClass}`}
+                              >
+                                <div>
+                                  <div className="flex justify-between items-start mb-3">
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider border ${badgeClass}`}
+                                    >
+                                      {badgeEmoji} {badgeLabel} Alert:{" "}
+                                      {alert.title}
+                                    </span>
+                                    <span className="text-[9px] font-bold text-slate-400">
+                                      {alert.category}
+                                    </span>
+                                  </div>
+
+                                  <h4 className="text-sm font-black text-slate-900 leading-tight text-left">
+                                    {alert.name}
+                                  </h4>
+
+                                  <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed text-left">
+                                    {alert.message}
+                                  </p>
+
+                                  {/* Item Details */}
+                                  <div className="grid grid-cols-2 gap-3 mt-4 pt-3.5 border-t border-slate-100 text-[10px] font-semibold text-slate-500">
+                                    <div className="text-left">
+                                      <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">
+                                        Stock Count
+                                      </span>
+                                      <span
+                                        className={`block font-extrabold text-[11px] mt-0.5 ${alert.stock === 0 ? "text-rose-600 font-black" : "text-slate-800"}`}
+                                      >
+                                        {alert.stock} Units
+                                      </span>
+                                    </div>
+                                    <div className="text-left">
+                                      <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">
+                                        Expiry Date
+                                      </span>
+                                      <span className="block font-extrabold text-[11px] text-slate-800 mt-0.5">
+                                        {alert.expiryDate || "N/A"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Actions Button */}
+                                <div className="mt-5 pt-3 border-t border-slate-100 flex gap-2">
+                                  {alert.alertType === "expired" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        toast.info(
+                                          `Write-off initiated for ${alert.name}`,
+                                        );
+                                      }}
+                                      className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-rose-200 text-center"
+                                    >
+                                      🗑️ Dispose / Write-Off
+                                    </button>
+                                  ) : alert.alertType === "near_expiry" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        toast.info(
+                                          `Markdown pricing applied for ${alert.name}`,
+                                        );
+                                      }}
+                                      className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-amber-200 text-center"
+                                    >
+                                      🏷️ Apply Clearance Markdown
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        toast.info(
+                                          `Procurement order draft created for ${alert.name}`,
+                                        );
+                                      }}
+                                      className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-emerald-250 text-center"
+                                    >
+                                      🛒 Draft Reorder PO
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          },
+                        )}
                       </div>
                     </div>
                   );
-                }
-
-                return (
-                  <div className="space-y-6">
-                    {/* Summary Counters Row */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
-                        <span className="text-[8px] font-black uppercase tracking-wider text-rose-500 block">
-                          Critical: Expired
-                        </span>
-                        <span className="text-2xl font-black text-slate-900 block mt-1">
-                          {expired.length}
-                        </span>
-                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
-                          Requires immediate disposal
-                        </span>
-                      </div>
-                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
-                        <span className="text-[8px] font-black uppercase tracking-wider text-amber-500 block">
-                          Near Expiry
-                        </span>
-                        <span className="text-2xl font-black text-slate-900 block mt-1">
-                          {nearExpiry.length}
-                        </span>
-                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
-                          Expiring within 30 days
-                        </span>
-                      </div>
-                      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm text-left">
-                        <span className="text-[8px] font-black uppercase tracking-wider text-slate-600 block">
-                          Low & Out of Stock
-                        </span>
-                        <span className="text-2xl font-black text-slate-900 block mt-1">
-                          {lowStock.length}
-                        </span>
-                        <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">
-                          Below reorder thresholds
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Alerts Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {[...expired, ...nearExpiry, ...lowStock].map((alert, idx) => {
-                        const isCritical = alert.severity === "critical";
-                        return (
-                          <div
-                            key={alert.id || `alert-${idx}`}
-                            className={`rounded-2xl border p-5 transition-all duration-300 flex flex-col justify-between shadow-sm bg-white relative overflow-hidden ${isCritical ? "border-rose-350 ring-2 ring-rose-500/5" : "border-slate-250"
-                              }`}
-                          >
-                            <div>
-                              <div className="flex justify-between items-start mb-3">
-                                <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider ${isCritical ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-amber-50 text-amber-700 border border-amber-200"
-                                  }`}>
-                                  {isCritical ? "🚨 Critical" : "⚠️ Warning"}: {alert.title}
-                                </span>
-                                <span className="text-[9px] font-bold text-slate-400">
-                                  {alert.category}
-                                </span>
-                              </div>
-
-                              <h4 className="text-sm font-black text-slate-900 leading-tight text-left">
-                                {alert.name}
-                              </h4>
-
-                              <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed text-left">
-                                {alert.message}
-                              </p>
-
-                              {/* Item Details */}
-                              <div className="grid grid-cols-2 gap-3 mt-4 pt-3.5 border-t border-slate-100 text-[10px] font-semibold text-slate-500">
-                                <div className="text-left">
-                                  <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">Stock Count</span>
-                                  <span className={`block font-extrabold text-[11px] mt-0.5 ${alert.stock === 0 ? "text-rose-600 font-black" : "text-slate-800"}`}>
-                                    {alert.stock} Units
-                                  </span>
-                                </div>
-                                <div className="text-left">
-                                  <span className="block text-[8.5px] font-black uppercase tracking-wider text-slate-400">Expiry Date</span>
-                                  <span className="block font-extrabold text-[11px] text-slate-800 mt-0.5">
-                                    {alert.expiryDate || "N/A"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Actions Button */}
-                            <div className="mt-5 pt-3 border-t border-slate-100 flex gap-2">
-                              {alert.alertType === "expired" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    toast.info(`Write-off initiated for ${alert.name}`);
-                                  }}
-                                  className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-rose-200 text-center"
-                                >
-                                  🗑️ Dispose / Write-Off
-                                </button>
-                              ) : alert.alertType === "near_expiry" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    toast.info(`Markdown pricing applied for ${alert.name}`);
-                                  }}
-                                  className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-amber-200 text-center"
-                                >
-                                  🏷️ Apply Clearance Markdown
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    toast.info(`Procurement order draft created for ${alert.name}`);
-                                  }}
-                                  className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-emerald-250 text-center"
-                                >
-                                  🛒 Draft Reorder PO
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+                })()
+              )}
             </div>
           )}
 
@@ -5389,9 +5587,10 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
           {showAddBranchModal &&
             (() => {
               const inp = (field) =>
-                `w-full border ${modalErrors[field]
-                  ? "border-rose-500 bg-rose-50/40"
-                  : "border-slate-200 bg-slate-50/50"
+                `w-full border ${
+                  modalErrors[field]
+                    ? "border-rose-500 bg-rose-50/40"
+                    : "border-slate-200 bg-slate-50/50"
                 } text-slate-900 placeholder:text-slate-400 px-3 py-1.5 rounded-lg font-bold text-sm outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-500 focus:bg-white transition-all`;
 
               const ErrMsg = ({ field }) =>
@@ -5629,7 +5828,7 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                     if (
                                       !modalForm.branch_code ||
                                       modalForm.branch_code ===
-                                      autoCode(modalForm.branch_name)
+                                        autoCode(modalForm.branch_name)
                                     ) {
                                       setModalFormField(
                                         "branch_code",
@@ -5688,10 +5887,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                             t.value,
                                           )
                                         }
-                                        className={`p-2.5 rounded-2xl border-2 text-center transition-all duration-200 cursor-pointer flex flex-col items-center justify-center ${isSelected
+                                        className={`p-2.5 rounded-2xl border-2 text-center transition-all duration-200 cursor-pointer flex flex-col items-center justify-center ${
+                                          isSelected
                                             ? "border-slate-900 bg-slate-900 text-white shadow-md shadow-slate-950/10"
                                             : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100 text-slate-700"
-                                          }`}
+                                        }`}
                                       >
                                         <span className="text-xl mb-0.5 leading-none">
                                           {t.icon}
@@ -5784,10 +5984,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                   setModalDropdownOpen(!modalDropdownOpen);
                                   setModalDropdownSearch("");
                                 }}
-                                className={`w-full border ${modalErrors.state
+                                className={`w-full border ${
+                                  modalErrors.state
                                     ? "border-rose-400 bg-rose-50/40"
                                     : "border-slate-200 bg-slate-50/50"
-                                  } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
+                                } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
                               >
                                 <span
                                   className={
@@ -5847,10 +6048,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                               setModalDropdownOpen(false);
                                               setModalDropdownSearch("");
                                             }}
-                                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${isSelected
+                                            className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                              isSelected
                                                 ? "bg-slate-900 text-white"
                                                 : "text-slate-700 hover:bg-slate-100"
-                                              }`}
+                                            }`}
                                           >
                                             <span>{s}</span>
                                             {isSelected && (
@@ -5882,10 +6084,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                     !modalCountryDropdownOpen,
                                   )
                                 }
-                                className={`w-full border ${modalErrors.country
+                                className={`w-full border ${
+                                  modalErrors.country
                                     ? "border-rose-400 bg-rose-50/40"
                                     : "border-slate-200 bg-slate-50/50"
-                                  } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
+                                } text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm outline-none text-left flex justify-between items-center transition-all cursor-pointer`}
                               >
                                 <span className="text-slate-900 font-bold flex items-center gap-1.5">
                                   <span>
@@ -5929,15 +6132,16 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                           setModalFormField(
                                             "phone",
                                             c.code +
-                                            " " +
-                                            modalForm.phone_number,
+                                              " " +
+                                              modalForm.phone_number,
                                           );
                                           setModalCountryDropdownOpen(false);
                                         }}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${isSelected
+                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                          isSelected
                                             ? "bg-slate-900 text-white"
                                             : "text-slate-700 hover:bg-slate-100"
-                                          }`}
+                                        }`}
                                       >
                                         <span className="flex items-center gap-2">
                                           <span>{c.flag}</span>
@@ -6073,15 +6277,16 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                                 setModalFormField(
                                                   "phone",
                                                   c.code +
-                                                  " " +
-                                                  modalForm.phone_number,
+                                                    " " +
+                                                    modalForm.phone_number,
                                                 );
                                                 setModalPhonePrefixOpen(false);
                                               }}
-                                              className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex justify-between items-center ${isSelected
+                                              className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex justify-between items-center ${
+                                                isSelected
                                                   ? "bg-slate-900 text-white"
                                                   : "text-slate-700 hover:bg-slate-100"
-                                                }`}
+                                              }`}
                                             >
                                               <span className="flex items-center gap-1.5">
                                                 <span>{c.flag}</span>
@@ -6228,10 +6433,11 @@ export default function Dashboard({ tier: normalizedTier, setActiveTab }) {
                                         onClick={() =>
                                           setModalFormField("working_hours", h)
                                         }
-                                        className={`px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wide border transition-all cursor-pointer ${isSelected
+                                        className={`px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wide border transition-all cursor-pointer ${
+                                          isSelected
                                             ? "bg-slate-900 text-white border-slate-900 shadow-sm"
                                             : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                                          }`}
+                                        }`}
                                       >
                                         {h}
                                       </button>
@@ -6428,7 +6634,7 @@ function BranchManagerOverview({
           setStaffCount(emps.length);
         }
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   const lowStockCount = products.filter(
