@@ -100,6 +100,40 @@ def build_notification_key(prefix: str, *parts: object) -> str:
     return "::".join([_slugify(prefix), *(_slugify(part) for part in parts if part is not None and str(part) != "")])
 
 
+def _get_low_stock_band(quantity: int, minimum_stock: int) -> Optional[dict]:
+    stock_value = int(quantity or 0)
+    minimum_value = max(1, int(minimum_stock or 0))
+
+    if stock_value <= 0 or stock_value <= minimum_value * 0.25:
+        return {
+            "tone": "red",
+            "label": "Red",
+            "title": "Critical low stock alert",
+            "severity": "critical",
+            "message": f"is at {stock_value} units, far below the reorder level of {minimum_value}.",
+        }
+
+    if stock_value <= minimum_value * 0.5:
+        return {
+            "tone": "orange",
+            "label": "Orange",
+            "title": "High priority low stock alert",
+            "severity": "warning",
+            "message": f"is at {stock_value} units, below half of the reorder level ({minimum_value}).",
+        }
+
+    if stock_value <= minimum_value:
+        return {
+            "tone": "yellow",
+            "label": "Yellow",
+            "title": "Low stock watch alert",
+            "severity": "watch",
+            "message": f"is at {stock_value} units and has reached the reorder level of {minimum_value}.",
+        }
+
+    return None
+
+
 def build_inventory_notifications(items: Iterable[dict], business_id: str, branch_id: Optional[str], branch_name: Optional[str]) -> list[NotificationCreate]:
     notifications = []
     now = datetime.utcnow()
@@ -118,17 +152,24 @@ def build_inventory_notifications(items: Iterable[dict], business_id: str, branc
 
         item_name = item.get("product_name") or item.get("name") or "Unnamed item"
         item_id = item.get("_id") or item.get("product_id") or item.get("sku") or item.get("barcode") or item_name
+        low_stock_band = _get_low_stock_band(quantity, minimum_stock)
 
-        if quantity <= minimum_stock:
+        if low_stock_band:
             notifications.append(NotificationCreate(
                 key=build_notification_key("low-stock", branch_id or branch_name or business_id, item_id),
                 type=NotificationType.LOW_STOCK,
-                title="Low stock alert",
-                text=f'"{item_name}" is at {quantity} units, below the threshold of {minimum_stock}.',
+                title=f'{low_stock_band["title"]}',
+                text=f'"{item_name}" {low_stock_band["message"]}',
                 business_id=business_id,
                 branch_id=branch_id,
                 source="inventory",
-                meta={"item_id": str(item_id), "quantity": quantity, "minimum_stock": minimum_stock},
+                meta={
+                    "item_id": str(item_id),
+                    "quantity": quantity,
+                    "minimum_stock": minimum_stock,
+                    "severity": low_stock_band["severity"],
+                    "alert_color": low_stock_band["tone"],
+                },
             ))
 
         if expiry_date:

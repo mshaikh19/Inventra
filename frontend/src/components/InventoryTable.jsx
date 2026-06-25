@@ -1,5 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import CustomDropdown from "./CustomDropdown";
+import {
+  shouldTrackExpiryForBusiness,
+  shouldCollectExpiryForCategory
+} from "../utils/inventory";
 
 
 
@@ -39,7 +43,16 @@ const getBranchAllocation = (product, branchNames, ratios) => {
 
 
 
-export default function InventoryTable({ products, onUpdateProducts, tier = "small", tierAccent, tierAccentSoft, branchesList = [] }) {
+export default function InventoryTable({
+  products,
+  onUpdateProducts,
+  tier = "small",
+  tierAccent,
+  tierAccentSoft,
+  branchesList = [],
+  businessType = "",
+  businessName = ""
+}) {
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -51,7 +64,7 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
   const [editingId, setEditingId] = useState(null);
 
-  const [editForm, setEditForm] = useState({ stock: 0, price: 0, reorderLevel: 0 });
+  const [editForm, setEditForm] = useState({ stock: 0, price: 0, reorderLevel: 0, expiryDate: "" });
 
 
 
@@ -72,6 +85,25 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
     expiryDate: ""
 
   });
+
+  const isPerishableBusiness = useMemo(() => {
+    return shouldTrackExpiryForBusiness(businessType, businessName);
+  }, [businessType, businessName]);
+
+  const shouldShowExpiryForProduct = useCallback(
+    (product) => {
+      const category = String(product?.category || "");
+      return isPerishableBusiness || shouldCollectExpiryForCategory(category);
+    },
+    [isPerishableBusiness],
+  );
+
+  const shouldShowExpiryInput = useMemo(() => {
+    return (
+      isPerishableBusiness ||
+      shouldCollectExpiryForCategory(newProduct.category)
+    );
+  }, [isPerishableBusiness, newProduct.category]);
 
 
 
@@ -176,7 +208,12 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
     setEditingId(p.id);
 
-    setEditForm({ stock: p.visibleStock, price: p.price, reorderLevel: p.reorderLevel || 10 });
+    setEditForm({
+      stock: p.visibleStock,
+      price: p.price,
+      reorderLevel: p.reorderLevel || 10,
+      expiryDate: p.expiryDate && p.expiryDate !== "N/A" ? p.expiryDate : ""
+    });
 
   };
 
@@ -210,7 +247,9 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
           price: Number(editForm.price),
 
-          reorderLevel: Number(editForm.reorderLevel)
+          reorderLevel: Number(editForm.reorderLevel),
+
+          expiryDate: shouldShowExpiryForProduct(p) && editForm.expiryDate ? editForm.expiryDate : ""
 
         };
 
@@ -240,7 +279,9 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
       price: Number(newProduct.price),
 
-      reorderLevel: Number(newProduct.reorderLevel)
+      reorderLevel: Number(newProduct.reorderLevel),
+
+      expiryDate: shouldShowExpiryInput && newProduct.expiryDate ? newProduct.expiryDate : ""
 
     };
 
@@ -531,7 +572,23 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
                       <div className="font-bold text-slate-900 group-hover:translate-x-0.5 transition-transform">{p.name}</div>
 
-                      <div className="text-xs text-slate-400 mt-0.5 font-medium">Expires: {p.expiryDate || "N/A"}</div>
+                      {isEditing ? (
+                        shouldShowExpiryForProduct(p) && (
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <span className="text-[9px] font-black uppercase text-slate-400">Expiry:</span>
+                            <input
+                              type="date"
+                              value={editForm.expiryDate || ""}
+                              onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
+                              className="px-2 py-1 rounded bg-slate-50 border border-slate-200 text-slate-900 text-xs outline-none font-bold cursor-pointer"
+                            />
+                          </div>
+                        )
+                      ) : (
+                        shouldShowExpiryForProduct(p) && (
+                          <div className="text-xs text-slate-400 mt-0.5 font-medium">Expires: {p.expiryDate || "N/A"}</div>
+                        )
+                      )}
 
                     </td>
 
@@ -817,7 +874,7 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
 
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className={shouldShowExpiryInput ? "grid grid-cols-2 gap-3" : "grid grid-cols-1"}>
 
                 <div className="flex flex-col gap-1">
 
@@ -839,25 +896,27 @@ export default function InventoryTable({ products, onUpdateProducts, tier = "sma
 
                 </div>
 
-                
+                {shouldShowExpiryInput && (
 
-                <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1">
 
-                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-450">Expiry Date</label>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-450">Expiry Date</label>
 
-                  <input 
+                    <input 
 
-                    type="date"
+                      type="date"
 
-                    value={newProduct.expiryDate}
+                      value={newProduct.expiryDate}
 
-                    onChange={(e) => setNewProduct({ ...newProduct, expiryDate: e.target.value })}
+                      onChange={(e) => setNewProduct({ ...newProduct, expiryDate: e.target.value })}
 
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-400 text-slate-850 outline-none cursor-pointer"
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-400 text-slate-850 outline-none cursor-pointer"
 
-                  />
+                    />
 
-                </div>
+                  </div>
+
+                )}
 
               </div>
 

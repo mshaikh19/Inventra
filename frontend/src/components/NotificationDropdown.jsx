@@ -85,7 +85,17 @@ export default function NotificationDropdown({
               <p className="py-6 text-center text-xs font-semibold text-slate-400">{emptyMessage}</p>
             ) : (
               notifications.slice(0, 8).map((notification) => {
-                const meta = TYPE_META[notification.type] || TYPE_META.info;
+                let meta = TYPE_META[notification.type] || TYPE_META.info;
+                if (notification.type === "low_stock") {
+                  const alertColor = notification.meta?.alert_color;
+                  if (alertColor === "red") {
+                    meta = { icon: "🚨", accent: "text-rose-600", ring: "ring-rose-100 bg-rose-50/30" };
+                  } else if (alertColor === "orange") {
+                    meta = { icon: "🟠", accent: "text-orange-500", ring: "ring-orange-100 bg-orange-50/30" };
+                  } else if (alertColor === "yellow") {
+                    meta = { icon: "🟡", accent: "text-amber-500", ring: "ring-amber-100 bg-amber-50/30" };
+                  }
+                }
                 const timestamp = notification.createdAt ? new Date(notification.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
                 return (
