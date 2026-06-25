@@ -14,6 +14,7 @@ from app.routes import notifications
 from app.routes import employees
 from app.routes import tasks
 from app.routes import chatbot
+from app.routes import analytics
 from app.services.ml_classifier import classifier
 
 # Load environment variables
@@ -38,6 +39,14 @@ async def appLifespan(app: FastAPI):
     
     # Schedule classifier init but don't wait for it
     asyncio.create_task(init_classifier())
+    
+    # Start the periodic digest and EOD report email schedulers in the background
+    try:
+        from app.services.digest_scheduler import start_digest_scheduler, start_eod_report_scheduler
+        asyncio.create_task(start_digest_scheduler())
+        asyncio.create_task(start_eod_report_scheduler())
+    except Exception as e:
+        print(f"[WARNING] Failed to start background email schedulers: {e}")
     
     yield
     # Shutdown connection
@@ -84,6 +93,7 @@ app.include_router(notifications.router, prefix="/api/v1",       tags=["Notifica
 app.include_router(employees.router,   prefix="/api/v1/employees",  tags=["Employees"])
 app.include_router(tasks.router,       prefix="/api/v1/tasks",      tags=["Tasks"])
 app.include_router(chatbot.router,     prefix="/api/v1/chatbot",    tags=["Chatbot"])
+app.include_router(analytics.router,   prefix="/api/v1",            tags=["Analytics"])
 
 @app.get("/")
 async def getRoot():

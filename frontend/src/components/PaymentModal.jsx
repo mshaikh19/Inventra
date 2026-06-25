@@ -128,7 +128,7 @@ const PaymentModal = ({
         { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
       );
 
-      const { order_id, razorpay_order_id, key_id } = orderRes.data;
+      const { order_id, razorpay_order_id, key_id, environment } = orderRes.data;
       if (!razorpay_order_id || !key_id)
         throw new Error("Order creation failed: missing credentials from server.");
 
@@ -138,7 +138,7 @@ const PaymentModal = ({
 
       // ── Step 3: Open Cashfree checkout ───────────────────────────────────
       const cashfree = window.Cashfree({
-        mode: "sandbox" // TEST environment credentials starting with TEST
+        mode: environment === "production" ? "production" : "sandbox"
       });
 
       const checkoutOptions = {

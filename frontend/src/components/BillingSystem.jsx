@@ -42,7 +42,7 @@ const calculateCartLine = (item, isInterstate) => {
 
 export default function BillingSystem({ products, onRecordSale, tierAccent, tierAccentSoft, isLoading, setActiveTab, tier, selectedBranchLabel, selectedBranchId, userDisplayName, businessName = "Inventra Retail", isManagerOrOwner }) {
   const [activeBranch, setActiveBranch] = useState(selectedBranchLabel);
-  
+
   const activeBranchDetails = useMemo(() => {
     if (typeof window === "undefined") return { address: "", phone: "", gstin: "" };
     try {
@@ -330,7 +330,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
       const ctx = new AudioContext();
-      
+
       if (isSuccess) {
         // Success Beep: nice 1000Hz pure sine wave for 100ms
         const osc = ctx.createOscillator();
@@ -389,9 +389,9 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
     const scannedBarcode = normalizeBarcode(barcodeStr);
     if (!scannedBarcode) return false;
     setScannerInput("");
-    
+
     const product = barcodeIndex.get(scannedBarcode) || products.find((p) => normalizeBarcode(p.barcode) === scannedBarcode);
-    
+
     if (product) {
       if (product.stock <= 0) {
         playScanSound(false);
@@ -741,11 +741,10 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                   key={category}
                   type="button"
                   onClick={() => setActiveCategory(category)}
-                  className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition-all cursor-pointer ${
-                    active
+                  className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition-all cursor-pointer ${active
                       ? "text-white border-transparent"
                       : "border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300"
-                  }`}
+                    }`}
                   style={active ? { background: tierAccent } : undefined}
                 >
                   {category}
@@ -770,14 +769,14 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
           ) : products.length === 0 ? (
             <div className="flex-1 flex items-center justify-center py-12">
               <div className="rounded-[32px] border bg-white p-12 text-center select-none shadow-[0_12px_40px_rgba(0,0,0,0.02)] relative overflow-hidden max-w-lg w-full mx-auto"
-                   style={{ borderColor: "rgba(0, 0, 0, 0.08)" }}>
-                
+                style={{ borderColor: "rgba(0, 0, 0, 0.08)" }}>
+
                 {/* Aesthetic SVG box icon wrapper - solid borders & backgrounds, no gradient glow */}
                 <div className="mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-6 transition-all duration-300"
-                     style={{
-                       background: `${tierAccent}12`,
-                       border: `1.5px dashed ${tierAccent}30`,
-                     }}>
+                  style={{
+                    background: `${tierAccent}12`,
+                    border: `1.5px dashed ${tierAccent}30`,
+                  }}>
                   <svg className="w-8 h-8" fill="none" stroke={tierAccent} strokeWidth="2.2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
                   </svg>
@@ -791,7 +790,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                 </div>
 
                 <p className="text-xs font-semibold text-slate-500 mt-5.5 max-w-md mx-auto leading-relaxed">
-                  {isManagerOrOwner 
+                  {isManagerOrOwner
                     ? <>To populate this sales terminal, register dynamic stock or scan products inside the <span className="font-black text-slate-800">Inventory Operations</span> command deck. Catalog data updates will automatically sync here.</>
                     : "The local branch stock registry is empty. Access to configure or manage inventory is restricted to store managers or business owners. Please contact a manager to register inventory catalog items."
                   }
@@ -827,11 +826,10 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                   <div
                     key={p.id}
                     onClick={() => !isOutOfStock && addToCart(p)}
-                    className={`rounded-2xl border p-3.5 transition-all select-none ${
-                      isOutOfStock
+                    className={`rounded-2xl border p-3.5 transition-all select-none ${isOutOfStock
                         ? "border-slate-100 bg-slate-50/60 opacity-55 cursor-not-allowed"
                         : "border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 cursor-pointer hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)]"
-                    }`}
+                      }`}
                     style={
                       inCart > 0 && !isOutOfStock
                         ? { borderColor: tierAccent, boxShadow: `inset 0 0 0 1px ${tierAccent}` }
@@ -1052,9 +1050,8 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                         setIsPaymentConfirmed(false);
                         setSaleError("");
                       }}
-                      className={`min-w-0 rounded-md border px-2 py-1 text-[9px] font-black uppercase tracking-[0.05em] transition-all cursor-pointer ${
-                        active ? "text-white border-transparent" : "border-slate-200 bg-white text-slate-500 hover:text-slate-900"
-                      }`}
+                      className={`min-w-0 rounded-md border px-2 py-1 text-[9px] font-black uppercase tracking-[0.05em] transition-all cursor-pointer ${active ? "text-white border-transparent" : "border-slate-200 bg-white text-slate-500 hover:text-slate-900"
+                        }`}
                       style={active ? { background: tierAccent } : undefined}
                     >
                       {mode}
@@ -1101,11 +1098,10 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                         key={amt}
                         type="button"
                         onClick={() => setAmountPaid(amt)}
-                        className={`rounded-md border py-1 text-[8.5px] font-black transition-colors cursor-pointer ${
-                          Number(amountPaid) === amt
+                        className={`rounded-md border py-1 text-[8.5px] font-black transition-colors cursor-pointer ${Number(amountPaid) === amt
                             ? "bg-emerald-500 text-white border-emerald-500"
                             : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
-                        }`}
+                          }`}
                       >
                         ₹{Number.isInteger(amt) ? amt : amt.toFixed(0)}
                       </button>
@@ -1150,13 +1146,12 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                     setIsPaymentModalOpen(true);
                     setSaleError("");
                   }}
-                  className={`w-full rounded-xl py-2.5 text-[10px] font-black uppercase tracking-[0.12em] transition-all flex items-center justify-center gap-2 border ${
-                    cart.length === 0
+                  className={`w-full rounded-xl py-2.5 text-[10px] font-black uppercase tracking-[0.12em] transition-all flex items-center justify-center gap-2 border ${cart.length === 0
                       ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
                       : isPaymentConfirmed
                         ? "bg-emerald-500 text-white border-emerald-500 shadow-[0_3px_10px_rgba(16,185,129,0.4)] cursor-pointer"
                         : "bg-white text-slate-600 border-slate-300 hover:border-emerald-400 hover:text-emerald-700 cursor-pointer"
-                  }`}
+                    }`}
                 >
                   {isPaymentConfirmed ? (
                     <>
@@ -1196,20 +1191,19 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
             type="button"
             onClick={handleCheckout}
             disabled={!isPaymentReady || isSaving}
-            className={`w-full rounded-xl px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.14em] transition-all h-10 inline-flex items-center justify-center gap-2 ${
-              !isPaymentReady
+            className={`w-full rounded-xl px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.14em] transition-all h-10 inline-flex items-center justify-center gap-2 ${!isPaymentReady
                 ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                 : isSaving
                   ? "bg-slate-200 text-slate-500 cursor-wait"
                   : "text-white shadow-[0_4px_14px_rgba(15,23,42,0.18)] hover:scale-[1.01] cursor-pointer"
-            }`}
+              }`}
             style={isPaymentReady && !isSaving ? { background: tierAccent } : undefined}
           >
             {isSaving ? (
               <>
                 <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
                 Recording Sale…
               </>
@@ -1229,7 +1223,8 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
       {showReceiptModal && receiptData && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-slate-900/65 backdrop-blur-sm overflow-y-auto">
           {/* Dynamic CSS Print Overrides */}
-          <style dangerouslySetInnerHTML={{ __html: `
+          <style dangerouslySetInnerHTML={{
+            __html: `
             @media print {
               body * {
                 visibility: hidden !important;
@@ -1257,17 +1252,17 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
           ` }} />
 
           <div className="w-full max-w-sm rounded-[24px] border border-slate-200 bg-slate-50 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.18)] text-slate-800 flex flex-col gap-4 my-8">
-            
+
             {/* Receipt Body Container */}
             <div className="receipt-print-wrapper bg-white border border-slate-200 rounded-2xl p-6 shadow-inner text-slate-950 font-mono text-[12px] md:text-[13px] leading-relaxed select-text relative">
-              
+
               {/* Physical thermal paper zigzag edge aesthetic at the top */}
               <div className="absolute top-0 inset-x-0 h-1 bg-[linear-gradient(45deg,transparent_33.3%,#e2e8f0_33.3%,#e2e8f0_66.6%,transparent_66.6%)] bg-[length:6px_4px]" />
-              
+
               <div className="text-center space-y-1 mt-2">
                 <h2 className="text-lg font-black tracking-widest text-slate-900 uppercase">{businessName}</h2>
                 <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Tax Invoice</p>
-                
+
                 <div className="text-[10px] md:text-[11px] text-slate-500 leading-relaxed font-semibold mt-1.5">
                   <div className="font-black text-slate-800 text-[11px] uppercase tracking-wide">Branch: {selectedBranchLabel}</div>
                   <div className="max-w-[240px] mx-auto mt-0.5 leading-relaxed">{activeBranchDetails.address}</div>
@@ -1294,7 +1289,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                 <span>ITEM DESCRIPTION</span>
                 <span>TOTAL</span>
               </div>
-              
+
               <div className="my-2 border-t border-dashed border-slate-200" />
 
               {/* Items rows */}
@@ -1325,7 +1320,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                   </div>
                 )}
                 <div className="flex justify-between"><span>TAXABLE</span><span>₹{receiptData.taxableAmount.toFixed(2)}</span></div>
-                
+
                 {receiptData.customerState === "Interstate" ? (
                   <div className="flex justify-between"><span>IGST (ITEM-WISE)</span><span>₹{receiptData.igstAmount.toFixed(2)}</span></div>
                 ) : (
@@ -1335,9 +1330,9 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
                   </>
                 )}
                 <div className="flex justify-between font-black text-slate-700"><span>TOTAL TAX (GST)</span><span>₹{receiptData.totalTax.toFixed(2)}</span></div>
-                
+
                 <div className="my-3 border-t border-dashed border-slate-300" />
-                
+
                 <div className="flex justify-between text-slate-900 text-sm md:text-base font-black tracking-wide border-y border-dashed border-slate-300 py-2">
                   <span>GRAND TOTAL</span>
                   <span>₹{receiptData.grandTotal.toFixed(2)}</span>
@@ -1441,7 +1436,7 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
       {isScannerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-[0_25px_60px_rgba(0,0,0,0.45)] text-slate-200 flex flex-col gap-4">
-            
+
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
@@ -1584,11 +1579,10 @@ export default function BillingSystem({ products, onRecordSale, tierAccent, tier
             {/* Scan Feedback notification */}
             {scannerFeedback && (
               <div
-                className={`rounded-xl border p-3 flex items-start gap-2.5 animate-fade-in ${
-                  scannerFeedback.status === "success"
+                className={`rounded-xl border p-3 flex items-start gap-2.5 animate-fade-in ${scannerFeedback.status === "success"
                     ? "border-emerald-500/20 bg-emerald-950/40 text-emerald-300"
                     : "border-rose-500/20 bg-rose-950/40 text-rose-300"
-                }`}
+                  }`}
               >
                 <span className="text-sm shrink-0">
                   {scannerFeedback.status === "success" ? "✓" : "⚠️"}

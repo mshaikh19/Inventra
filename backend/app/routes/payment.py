@@ -117,13 +117,17 @@ async def initiate_payment(
         await db.payments.insert_one(transaction)
         logger.info(f"Payment initiated: {order_id}")
         
+        # Resolve Cashfree environment for frontend initialization
+        cf_env = "production" if payment_service.env != "TEST" else "sandbox"
+        
         return PaymentInitiateResponse(
             order_id=order_id,
             razorpay_order_id=order_response["order_id"],
             key_id=payment_service.key_id,
             amount=request.amount,
             currency="INR",
-            timeout=900
+            timeout=900,
+            environment=cf_env
         )
     
     except HTTPException:
@@ -211,6 +215,40 @@ async def verify_payment(
             meta={"transaction_id": request.order_id, "amount": payment_details.get("amount", 0) / 100},
         )
         
+        # ── Send Payment Confirmation SMS via Brevo ──────────────────────────
+        customer_phone = transaction.get("customer_phone")
+        if customer_phone:
+            try:
+                import asyncio
+                from app.utils.sms import send_sms
+                
+                customer_name = transaction.get("customer_name") or "Valued Customer"
+                amount = transaction.get("amount", 0.0)
+                business_name = transaction.get("business_name") or "Inventra Partner"
+                
+                # Retrieve invoice number from metadata notes
+                invoice_number = None
+                metadata = transaction.get("metadata") or {}
+                if isinstance(metadata, dict):
+                    invoice_number = metadata.get("invoice_number")
+                if not invoice_number:
+                    notes = transaction.get("notes") or {}
+                    if isinstance(notes, dict):
+                        invoice_number = notes.get("invoice_number")
+                
+                invoice_suffix = f" (Invoice: {invoice_number})" if invoice_number else ""
+                
+                sms_content = (
+                    f"Dear {customer_name}, thank you for your payment of Rs. {amount:,.2f} "
+                    f"to {business_name}{invoice_suffix}. Your payment was verified successfully. "
+                    f"Powered by Inventra."
+                )
+                
+                # Fire and forget SMS delivery in background with tenant context
+                asyncio.create_task(send_sms(customer_phone, sms_content, db=db, business_id=transaction.get("business_id")))
+            except Exception as sms_err:
+                logger.error(f"Failed to initiate background SMS task: {sms_err}")
+
         logger.info(f"Payment verified and completed: {request.order_id}")
         
         return PaymentVerifyResponse(

@@ -175,10 +175,150 @@ export default function ExecutiveProfileModal({
                   Enable Smart Stock Recommendations
                 </span>
               </label>
+
+              {/* Bring Your Own SMS Gateway */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 text-left shadow-sm space-y-3 mt-3">
+                <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 block mb-1">
+                  Bring Your Own SMS Gateway
+                </span>
+                
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    SMS Provider
+                  </span>
+                  <select
+                    value={profileDraft.smsProvider || "none"}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        smsProvider: e.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-300"
+                  >
+                    <option value="none">Disabled (Use Platform Default)</option>
+                    <option value="brevo">Brevo (Sendinblue)</option>
+                  </select>
+                </label>
+
+                {profileDraft.smsProvider === "brevo" && (
+                  <>
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        Brevo API Key (xkeysib-...)
+                      </span>
+                      <input
+                        type="password"
+                        value={profileDraft.smsApiKey || ""}
+                        onChange={(e) =>
+                          setProfileDraft((p) => ({
+                            ...p,
+                            smsApiKey: e.target.value,
+                          }))
+                        }
+                        placeholder="Enter your Brevo API Key"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-300"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        SMS Sender Name
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={11}
+                        value={profileDraft.smsSender || ""}
+                        onChange={(e) =>
+                          setProfileDraft((p) => ({
+                            ...p,
+                            smsSender: e.target.value,
+                          }))
+                        }
+                        placeholder="e.g., MyStore (Max 11 chars)"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-emerald-300"
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
             </>
           )}
 
-          <div className="flex gap-3">
+          {/* Email Notification Preferences */}
+          {(() => {
+            const role = userProfile?.role || userSession?.user?.role || "employee";
+            const canSeeReports = role === "owner" || role === "manager";
+            const showNotificationPreferences = role === "owner" || role === "manager" || role === "inventory_manager";
+
+            if (!showNotificationPreferences) return null;
+
+            return (
+              <div className="rounded-2xl border border-slate-200/65 bg-slate-50/75 p-4 text-left shadow-sm mt-4">
+                <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 block mb-3">
+                  Email Notification Preferences
+                </span>
+                <div className="space-y-3">
+                  {canSeeReports && (
+                    <>
+                      <label className="flex items-center gap-3 cursor-pointer p-1">
+                        <input
+                          type="checkbox"
+                          checked={profileDraft.receiveWeeklyDigest !== false}
+                          onChange={(e) =>
+                            setProfileDraft((p) => ({
+                              ...p,
+                              receiveWeeklyDigest: e.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs font-bold text-slate-700 select-none">
+                          {role === "owner" ? "Weekly Executive Digest Email" : "Weekly Branch Digest Email"}
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-3 cursor-pointer p-1">
+                        <input
+                          type="checkbox"
+                          checked={profileDraft.receiveDailyEOD !== false}
+                          onChange={(e) =>
+                            setProfileDraft((p) => ({
+                              ...p,
+                              receiveDailyEOD: e.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs font-bold text-slate-700 select-none">
+                          {role === "owner" ? "Daily End of Day (EOD) Report Email" : "Daily EOD Branch Report Email"}
+                        </span>
+                      </label>
+                    </>
+                  )}
+
+                  <label className="flex items-center gap-3 cursor-pointer p-1">
+                    <input
+                      type="checkbox"
+                      checked={profileDraft.receiveLowStockAlerts !== false}
+                      onChange={(e) =>
+                        setProfileDraft((p) => ({
+                          ...p,
+                          receiveLowStockAlerts: e.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-xs font-bold text-slate-700 select-none">
+                      Real-time Low Stock & Expiry Alerts
+                    </span>
+                  </label>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="flex gap-3 pt-2">
             <button
               type="submit"
               className="flex-1 w-full rounded-xl bg-emerald-600 py-3.5 text-xs font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-700 transition-all cursor-pointer"

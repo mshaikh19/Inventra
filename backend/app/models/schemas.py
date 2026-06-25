@@ -75,6 +75,9 @@ class UserResponse(UserBase):
     businessType:        Optional[str] = None
     businessDescription: Optional[str] = None
     isSmartStockEnabled: Optional[bool] = False
+    receiveWeeklyDigest: Optional[bool] = True
+    receiveDailyEOD: Optional[bool] = True
+    receiveLowStockAlerts: Optional[bool] = True
 
     class Config:
         populate_by_name = True
@@ -405,6 +408,7 @@ class PaymentInitiateResponse(BaseModel):
     amount: float
     currency: str = "INR"
     timeout: int = 900
+    environment: Optional[str] = "sandbox"
 
     class Config:
         populate_by_name = True

@@ -39,6 +39,9 @@ async def signUp(user: schemas.UserCreate, background_tasks: BackgroundTasks):
         "hashedPassword": hashed,
         "isActive": True,
         "isVerified": False,
+        "receiveWeeklyDigest": True,
+        "receiveDailyEOD": True,
+        "receiveLowStockAlerts": True,
     }
     resolved_tier = normalize_business_tier(user.classification)
 
@@ -221,6 +224,9 @@ async def login(user: schemas.UserLogin):
         "businessType": business.get("businessType") if business else None,
         "businessDescription": business.get("description") if business else None,
         "isSmartStockEnabled": business.get("isSmartStockEnabled", False) if business else False,
+        "receiveWeeklyDigest": existing.get("receiveWeeklyDigest", True),
+        "receiveDailyEOD": existing.get("receiveDailyEOD", True),
+        "receiveLowStockAlerts": existing.get("receiveLowStockAlerts", True),
     }
 
     return {
@@ -349,6 +355,12 @@ class ProfileUpdateRequest(BaseModel):
     businessType: Optional[str] = None
     businessDescription: Optional[str] = None
     isSmartStockEnabled: Optional[bool] = None
+    receiveWeeklyDigest: Optional[bool] = None
+    receiveDailyEOD: Optional[bool] = None
+    receiveLowStockAlerts: Optional[bool] = None
+    smsProvider: Optional[str] = None
+    smsApiKey: Optional[str] = None
+    smsSender: Optional[str] = None
 
 @router.post("/update-profile")
 async def update_profile(
@@ -383,14 +395,22 @@ async def update_profile(
         )
 
     # Update User document
+    update_fields = {
+        "firstName": payload.firstName,
+        "lastName": payload.lastName,
+        "businessName": payload.businessName,
+        "email": payload.email
+    }
+    if payload.receiveWeeklyDigest is not None:
+        update_fields["receiveWeeklyDigest"] = payload.receiveWeeklyDigest
+    if payload.receiveDailyEOD is not None:
+        update_fields["receiveDailyEOD"] = payload.receiveDailyEOD
+    if payload.receiveLowStockAlerts is not None:
+        update_fields["receiveLowStockAlerts"] = payload.receiveLowStockAlerts
+
     await db.users.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {
-            "firstName": payload.firstName,
-            "lastName": payload.lastName,
-            "businessName": payload.businessName,
-            "email": payload.email
-        }}
+        {"$set": update_fields}
     )
 
     # Update or create Business document associated with this user
@@ -409,6 +429,12 @@ async def update_profile(
             "description": payload.businessDescription,
             "isSmartStockEnabled": payload.isSmartStockEnabled
         }
+        if payload.smsProvider is not None:
+            update_data["smsProvider"] = payload.smsProvider
+        if payload.smsApiKey is not None:
+            update_data["smsApiKey"] = payload.smsApiKey
+        if payload.smsSender is not None:
+            update_data["smsSender"] = payload.smsSender
         
         if type_changed or desc_changed:
             update_data["starterRecommendations"] = None
@@ -424,6 +450,9 @@ async def update_profile(
             "businessType": payload.businessType,
             "description": payload.businessDescription,
             "isSmartStockEnabled": payload.isSmartStockEnabled,
+            "smsProvider": payload.smsProvider or "none",
+            "smsApiKey": payload.smsApiKey or "",
+            "smsSender": payload.smsSender or "",
             "createdAt": datetime.utcnow()
         })
 
@@ -458,6 +487,12 @@ async def update_profile(
         "roles": ["owner", "user"] if is_business_owner else updated_user_roles,
         "branchId": updated_user.get("branchId"),
         "isActive": updated_user.get("isActive", True),
+        "receiveWeeklyDigest": updated_user.get("receiveWeeklyDigest", True),
+        "receiveDailyEOD": updated_user.get("receiveDailyEOD", True),
+        "receiveLowStockAlerts": updated_user.get("receiveLowStockAlerts", True),
+        "smsProvider": updated_business.get("smsProvider") if updated_business else "none",
+        "smsApiKey": updated_business.get("smsApiKey") if updated_business else "",
+        "smsSender": updated_business.get("smsSender") if updated_business else "",
     }
 
     return {
@@ -526,6 +561,12 @@ async def get_current_user_profile(
         "roles": ["owner", "user"] if is_business_owner else existing_roles,
         "branchId": user.get("branchId"),
         "isActive": user.get("isActive", True),
+        "receiveWeeklyDigest": user.get("receiveWeeklyDigest", True),
+        "receiveDailyEOD": user.get("receiveDailyEOD", True),
+        "receiveLowStockAlerts": user.get("receiveLowStockAlerts", True),
+        "smsProvider": business.get("smsProvider") if business else "none",
+        "smsApiKey": business.get("smsApiKey") if business else "",
+        "smsSender": business.get("smsSender") if business else "",
     }
 
     return {"user": user_response}
@@ -732,6 +773,9 @@ async def recover_account(payload: dict):
         "roles": ["owner", "user"] if is_business_owner else recovered_user_roles,
         "branchId": recovered_user.get("branchId"),
         "isActive": True,
+        "receiveWeeklyDigest": recovered_user.get("receiveWeeklyDigest", True),
+        "receiveDailyEOD": recovered_user.get("receiveDailyEOD", True),
+        "receiveLowStockAlerts": recovered_user.get("receiveLowStockAlerts", True),
     }
 
     return {
@@ -904,6 +948,9 @@ async def google_login(payload: schemas.GoogleLoginRequest, background_tasks: Ba
             "businessType": business.get("businessType") if business else None,
             "businessDescription": business.get("description") if business else None,
             "isSmartStockEnabled": business.get("isSmartStockEnabled", False) if business else False,
+            "receiveWeeklyDigest": existing.get("receiveWeeklyDigest", True),
+            "receiveDailyEOD": existing.get("receiveDailyEOD", True),
+            "receiveLowStockAlerts": existing.get("receiveLowStockAlerts", True),
         }
         
         return {
@@ -1015,6 +1062,9 @@ async def google_login(payload: schemas.GoogleLoginRequest, background_tasks: Ba
             "businessType": business_doc.get("businessType"),
             "businessDescription": business_doc.get("description"),
             "isSmartStockEnabled": business_doc.get("isSmartStockEnabled", False),
+            "receiveWeeklyDigest": True,
+            "receiveDailyEOD": True,
+            "receiveLowStockAlerts": True,
         }
         
         background_tasks.add_task(

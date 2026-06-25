@@ -98,7 +98,7 @@ class CashfreePaymentService:
                 },
                 "order_note": description,
                 "order_meta": {
-                    "return_url": "http://localhost:5173"
+                    "return_url": os.getenv("FRONTEND_URL", "https://inventra-sage-rho.vercel.app")
                 }
             }
             
